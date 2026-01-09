@@ -62,7 +62,6 @@ simulation_app = app_launcher.app
 
 """Rest everything follows."""
 
-import gymnasium as gym
 import logging
 import math
 import os
@@ -70,10 +69,8 @@ import random
 import time
 from datetime import datetime
 
-from rl_games.common import env_configurations, vecenv
-from rl_games.common.algo_observer import IsaacAlgoObserver
-from rl_games.torch_runner import Runner
-
+import gymnasium as gym
+import isaaclab_tasks  # noqa: F401
 from isaaclab.envs import (
     DirectMARLEnv,
     DirectMARLEnvCfg,
@@ -84,17 +81,24 @@ from isaaclab.envs import (
 from isaaclab.utils.assets import retrieve_file_path
 from isaaclab.utils.dict import print_dict
 from isaaclab.utils.io import dump_yaml
-
-from isaaclab_rl.rl_games import MultiObserver, PbtAlgoObserver, RlGamesGpuEnv, RlGamesVecEnvWrapper
-
-import isaaclab_tasks  # noqa: F401
+from isaaclab_rl.rl_games import (
+    MultiObserver,
+    PbtAlgoObserver,
+    RlGamesGpuEnv,
+    RlGamesVecEnvWrapper,
+)
 from isaaclab_tasks.utils.hydra import hydra_task_config
+from rl_games.common import env_configurations, vecenv
+from rl_games.common.algo_observer import IsaacAlgoObserver
+from rl_games.torch_runner import Runner
 
 # import logger
 logger = logging.getLogger(__name__)
 
-import D2H.tasks  # noqa: F401
-
+# import D2H.tasks  # noqa: F401
+import sys
+sys.path.append("/home/yizhao/yi/D2H") # TODO: fix this
+import src.env
 
 @hydra_task_config(args_cli.task, args_cli.agent)
 def main(env_cfg: ManagerBasedRLEnvCfg | DirectRLEnvCfg | DirectMARLEnvCfg, agent_cfg: dict):
