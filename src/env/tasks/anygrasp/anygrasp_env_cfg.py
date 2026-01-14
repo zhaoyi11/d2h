@@ -18,10 +18,12 @@ from isaaclab.managers import SceneEntityCfg
 from isaaclab.managers import TerminationTermCfg as DoneTerm
 from isaaclab.scene import InteractiveSceneCfg
 from isaaclab.sim.simulation_cfg import PhysxCfg, SimulationCfg
+from isaaclab.sim import CapsuleCfg, ConeCfg, CuboidCfg, RigidBodyMaterialCfg, SphereCfg
 from isaaclab.sim.spawners.materials.physics_materials_cfg import RigidBodyMaterialCfg
 from isaaclab.utils import configclass
 from isaaclab.utils.assets import ISAAC_NUCLEUS_DIR
 from isaaclab.utils.noise import AdditiveGaussianNoiseCfg as Gnoise
+from isaaclab.utils.noise import AdditiveUniformNoiseCfg as Unoise
 
 import src.env.tasks.anygrasp.mdps as mdp
 ##
@@ -36,23 +38,60 @@ class InHandObjectSceneCfg(InteractiveSceneCfg):
     # robots
     robot: ArticulationCfg = MISSING
 
-    # objects
+    # # objects
+    # # TODO: compare different rigid_props
+    # object: RigidObjectCfg = RigidObjectCfg(
+    #     prim_path="{ENV_REGEX_NS}/object",
+    #     spawn=sim_utils.UsdFileCfg(
+    #         usd_path=f"{ISAAC_NUCLEUS_DIR}/Props/Blocks/DexCube/dex_cube_instanceable.usd",
+    #         rigid_props=sim_utils.RigidBodyPropertiesCfg(
+    #             kinematic_enabled=False,
+    #             disable_gravity=False,
+    #             enable_gyroscopic_forces=True,
+    #             solver_position_iteration_count=8,
+    #             solver_velocity_iteration_count=0,
+    #             sleep_threshold=0.005,
+    #             stabilization_threshold=0.0025,
+    #             max_depenetration_velocity=1000.0,
+    #         ),
+    #         mass_props=sim_utils.MassPropertiesCfg(density=400.0),
+    #     ),
+    #     init_state=RigidObjectCfg.InitialStateCfg(pos=(0.0, -0.19, 0.56), rot=(1.0, 0.0, 0.0, 0.0)),
+    # )
+
+    # object
     object: RigidObjectCfg = RigidObjectCfg(
-        prim_path="{ENV_REGEX_NS}/object",
-        spawn=sim_utils.UsdFileCfg(
-            usd_path=f"{ISAAC_NUCLEUS_DIR}/Props/Blocks/DexCube/dex_cube_instanceable.usd",
+        prim_path="{ENV_REGEX_NS}/Object",
+        spawn=sim_utils.MultiAssetSpawnerCfg(
+            assets_cfg=[
+                # CuboidCfg(size=(0.08, 0.08, 0.08), physics_material=RigidBodyMaterialCfg(static_friction=0.5)),
+                # original
+                CuboidCfg(size=(0.05, 0.1, 0.1), physics_material=RigidBodyMaterialCfg(static_friction=0.5)),
+                CuboidCfg(size=(0.05, 0.05, 0.1), physics_material=RigidBodyMaterialCfg(static_friction=0.5)),
+                CuboidCfg(size=(0.025, 0.1, 0.1), physics_material=RigidBodyMaterialCfg(static_friction=0.5)),
+                CuboidCfg(size=(0.025, 0.05, 0.1), physics_material=RigidBodyMaterialCfg(static_friction=0.5)),
+                CuboidCfg(size=(0.025, 0.025, 0.1), physics_material=RigidBodyMaterialCfg(static_friction=0.5)),
+                CuboidCfg(size=(0.01, 0.1, 0.1), physics_material=RigidBodyMaterialCfg(static_friction=0.5)),
+                SphereCfg(radius=0.05, physics_material=RigidBodyMaterialCfg(static_friction=0.5)),
+                SphereCfg(radius=0.025, physics_material=RigidBodyMaterialCfg(static_friction=0.5)),
+                CapsuleCfg(radius=0.04, height=0.025, physics_material=RigidBodyMaterialCfg(static_friction=0.5)),
+                CapsuleCfg(radius=0.04, height=0.01, physics_material=RigidBodyMaterialCfg(static_friction=0.5)),
+                CapsuleCfg(radius=0.04, height=0.1, physics_material=RigidBodyMaterialCfg(static_friction=0.5)),
+                CapsuleCfg(radius=0.025, height=0.1, physics_material=RigidBodyMaterialCfg(static_friction=0.5)),
+                CapsuleCfg(radius=0.025, height=0.2, physics_material=RigidBodyMaterialCfg(static_friction=0.5)),
+                CapsuleCfg(radius=0.01, height=0.2, physics_material=RigidBodyMaterialCfg(static_friction=0.5)),
+                ConeCfg(radius=0.05, height=0.1, physics_material=RigidBodyMaterialCfg(static_friction=0.5)),
+                ConeCfg(radius=0.025, height=0.1, physics_material=RigidBodyMaterialCfg(static_friction=0.5)),
+            ],
             rigid_props=sim_utils.RigidBodyPropertiesCfg(
-                kinematic_enabled=False,
-                disable_gravity=False,
-                enable_gyroscopic_forces=True,
-                solver_position_iteration_count=8,
+                solver_position_iteration_count=16,
                 solver_velocity_iteration_count=0,
-                sleep_threshold=0.005,
-                stabilization_threshold=0.0025,
-                max_depenetration_velocity=1000.0,
+                disable_gravity=False,
             ),
-            mass_props=sim_utils.MassPropertiesCfg(density=400.0),
+            collision_props=sim_utils.CollisionPropertiesCfg(),
+            mass_props=sim_utils.MassPropertiesCfg(mass=0.2),
         ),
+        # init_state=RigidObjectCfg.InitialStateCfg(pos=(-0.55, 0.1, 0.35)),
         init_state=RigidObjectCfg.InitialStateCfg(pos=(0.0, -0.19, 0.56), rot=(1.0, 0.0, 0.0, 0.0)),
     )
 
@@ -164,8 +203,25 @@ class ObservationsCfg:
             self.object_lin_vel = None
             self.object_ang_vel = None
 
+    @configclass
+    class PerceptionObsCfg(ObsGroup):
+
+        object_point_cloud = ObsTerm(
+            func=mdp.object_point_cloud_b,
+            noise=Unoise(n_min=-0.0, n_max=0.0),
+            clip=(-2.0, 2.0),  # clamp between -2 m to 2 m
+            params={"num_points": 64, "flatten": True},
+        )
+
+        def __post_init__(self):
+            self.enable_corruption = True
+            self.concatenate_dim = 0
+            self.concatenate_terms = True
+            self.flatten_history_dim = True
+            self.history_length = 5
     # observation groups
     policy: KinematicObsGroupCfg = KinematicObsGroupCfg()
+    perception: PerceptionObsCfg = PerceptionObsCfg()
 
 
 @configclass
@@ -311,7 +367,7 @@ class InHandObjectEnvCfg(ManagerBasedRLEnvCfg):
     """Configuration for the in hand reorientation environment."""
 
     # Scene settings
-    scene: InHandObjectSceneCfg = InHandObjectSceneCfg(num_envs=8192, env_spacing=0.6)
+    scene: InHandObjectSceneCfg = InHandObjectSceneCfg(num_envs=8192, env_spacing=0.6, replicate_physics=False)
     # Simulation settings
     sim: SimulationCfg = SimulationCfg(
         physics_material=RigidBodyMaterialCfg(
@@ -343,3 +399,62 @@ class InHandObjectEnvCfg(ManagerBasedRLEnvCfg):
         self.sim.render_interval = self.decimation
         # change viewer settings
         self.viewer.eye = (2.0, 2.0, 2.0)
+
+
+##
+# Pre-defined configs
+##
+from isaaclab_assets import ALLEGRO_HAND_CFG  # isort: skip
+
+
+@configclass
+class AllegroCubeEnvCfg(InHandObjectEnvCfg):
+    def __post_init__(self):
+        # post init of parent
+        super().__post_init__()
+
+        # switch robot to allegro hand
+        self.scene.robot = ALLEGRO_HAND_CFG.replace(prim_path="{ENV_REGEX_NS}/Robot")
+        # enable clone in fabric
+        # self.scene.clone_in_fabric = True
+
+
+@configclass
+class AllegroCubeEnvCfg_PLAY(AllegroCubeEnvCfg):
+    def __post_init__(self):
+        # post init of parent
+        super().__post_init__()
+        # make a smaller scene for play
+        self.scene.num_envs = 50
+        # disable randomization for play
+        self.observations.policy.enable_corruption = False
+        # remove termination due to timeouts
+        self.terminations.time_out = None
+
+
+##
+# Environment configuration with no velocity observations.
+##
+
+
+@configclass
+class AllegroCubeNoVelObsEnvCfg(AllegroCubeEnvCfg):
+    def __post_init__(self):
+        # post init of parent
+        super().__post_init__()
+
+        # switch observation group to no velocity group
+        self.observations.policy = ObservationsCfg.NoVelocityKinematicObsGroupCfg()
+
+
+@configclass
+class AllegroCubeNoVelObsEnvCfg_PLAY(AllegroCubeNoVelObsEnvCfg):
+    def __post_init__(self):
+        # post init of parent
+        super().__post_init__()
+        # make a smaller scene for play
+        self.scene.num_envs = 50
+        # disable randomization for play
+        self.observations.policy.enable_corruption = False
+        # remove termination due to timeouts
+        self.terminations.time_out = None
