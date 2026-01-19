@@ -89,10 +89,14 @@ class InHandObjectSceneCfg(InteractiveSceneCfg):
                 disable_gravity=False,
             ),
             collision_props=sim_utils.CollisionPropertiesCfg(),
-            mass_props=sim_utils.MassPropertiesCfg(mass=0.2),
+            mass_props=sim_utils.MassPropertiesCfg(mass=0.2), # 200g (~iphone's weight)
+            # mass_props=sim_utils.MassPropertiesCfg(density=1000.0),
         ),
         # init_state=RigidObjectCfg.InitialStateCfg(pos=(-0.55, 0.1, 0.35)),
-        init_state=RigidObjectCfg.InitialStateCfg(pos=(0.0, -0.19, 0.56), rot=(1.0, 0.0, 0.0, 0.0)),
+        init_state=RigidObjectCfg.InitialStateCfg(pos=(0.0, -0.10, 0.6), 
+        # rot=(1.0, 0.0, 0.0, 0.0)
+        rot=(0.7071, 0.0, 0.7071, 0.0)
+        ),
     )
 
     # lights
@@ -289,7 +293,10 @@ class EventCfg:
         func=mdp.reset_root_state_uniform,
         mode="reset",
         params={
-            "pose_range": {"x": [-0.01, 0.01], "y": [-0.01, 0.01], "z": [-0.01, 0.01]},
+            "pose_range": {"x": [-0.01, 0.01], "y": [-0.01, 0.01],
+            #  "z": [-0.01, 0.01]
+            "z": [0., 0.]
+             },
             "velocity_range": {},
             "asset_cfg": SceneEntityCfg("object", body_names=".*"),
         },
@@ -404,24 +411,23 @@ class InHandObjectEnvCfg(ManagerBasedRLEnvCfg):
 ##
 # Pre-defined configs
 ##
-from src.assets.allegro_hand.allegro import ALLEGRO_HAND_CFG
-# from isaaclab_assets import ALLEGRO_HAND_CFG  # isort: skip
-#from src.assets.leap_hand.leap import LEAP_HAND_CFG as ALLEGRO_HAND_CFG
+from src.assets.leap_hand.leap import LEAP_HAND_CFG
+
 
 @configclass
-class AllegroCubeEnvCfg(InHandObjectEnvCfg):
+class LeapObjectEnvCfg(InHandObjectEnvCfg):
     def __post_init__(self):
         # post init of parent
         super().__post_init__()
 
-        # switch robot to allegro hand
-        self.scene.robot = ALLEGRO_HAND_CFG.replace(prim_path="{ENV_REGEX_NS}/Robot")
+        # switch robot to leap hand
+        self.scene.robot = LEAP_HAND_CFG.replace(prim_path="{ENV_REGEX_NS}/Robot")
         # enable clone in fabric
         # self.scene.clone_in_fabric = True
 
 
 @configclass
-class AllegroCubeEnvCfg_PLAY(AllegroCubeEnvCfg):
+class LeapObjectEnvCfg_PLAY(LeapObjectEnvCfg):
     def __post_init__(self):
         # post init of parent
         super().__post_init__()
@@ -439,7 +445,7 @@ class AllegroCubeEnvCfg_PLAY(AllegroCubeEnvCfg):
 
 
 @configclass
-class AllegroCubeNoVelObsEnvCfg(AllegroCubeEnvCfg):
+class LeapObjectNoVelObsEnvCfg(LeapObjectEnvCfg):
     def __post_init__(self):
         # post init of parent
         super().__post_init__()
@@ -449,7 +455,7 @@ class AllegroCubeNoVelObsEnvCfg(AllegroCubeEnvCfg):
 
 
 @configclass
-class AllegroCubeNoVelObsEnvCfg_PLAY(AllegroCubeNoVelObsEnvCfg):
+class LeapObjectNoVelObsEnvCfg_PLAY(LeapObjectNoVelObsEnvCfg):
     def __post_init__(self):
         # post init of parent
         super().__post_init__()
