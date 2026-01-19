@@ -130,15 +130,28 @@ class InHandReOrientationCommand(CommandTerm):
             # create markers if necessary for the first time
             if not hasattr(self, "goal_pose_visualizer"):
                 self.goal_pose_visualizer = VisualizationMarkers(self.cfg.goal_pose_visualizer_cfg)
+            if not hasattr(self, "current_pose_visualizer"):
+                self.current_pose_visualizer = VisualizationMarkers(self.cfg.current_pose_visualizer_cfg)
             # set visibility
             self.goal_pose_visualizer.set_visibility(True)
+            self.current_pose_visualizer.set_visibility(True)
         else:
             if hasattr(self, "goal_pose_visualizer"):
                 self.goal_pose_visualizer.set_visibility(False)
+            if hasattr(self, "current_pose_visualizer"):
+                self.current_pose_visualizer.set_visibility(False)
 
     def _debug_vis_callback(self, event):
+        # Goal pose visualization
         # add an offset to the marker position to visualize the goal
         marker_pos = self.pos_command_w + torch.tensor(self.cfg.marker_pos_offset, device=self.device)
         marker_quat = self.quat_command_w
         # visualize the goal marker
         self.goal_pose_visualizer.visualize(translations=marker_pos, orientations=marker_quat)
+
+        # Current object pose visualization
+        # visualize at actual object position
+        current_pos = self.object.data.root_pos_w
+        current_quat = self.object.data.root_quat_w
+        self.current_pose_visualizer.visualize(translations=current_pos, orientations=current_quat)
+

@@ -8,6 +8,7 @@ from dataclasses import MISSING
 import isaaclab.sim as sim_utils
 from isaaclab.managers import CommandTermCfg
 from isaaclab.markers import VisualizationMarkersCfg
+from isaaclab.markers.config import FRAME_MARKER_CFG
 from isaaclab.utils import configclass
 from isaaclab.utils.assets import ISAAC_NUCLEUS_DIR
 
@@ -55,13 +56,26 @@ class InHandReOrientationCommandCfg(CommandTermCfg):
     Otherwise, the marker may occlude the object in the visualization.
     """
 
+    # Goal pose visualization - XYZ frame axes (5cm scale)
     goal_pose_visualizer_cfg: VisualizationMarkersCfg = VisualizationMarkersCfg(
         prim_path="/Visuals/Command/goal_marker",
         markers={
-            "goal": sim_utils.UsdFileCfg(
-                usd_path=f"{ISAAC_NUCLEUS_DIR}/Props/Blocks/DexCube/dex_cube_instanceable.usd",
-                scale=(1.0, 1.0, 1.0),
+            "frame": sim_utils.UsdFileCfg(
+                usd_path=f"{ISAAC_NUCLEUS_DIR}/Props/UIElements/frame_prim.usd",
+                scale=(0.1, 0.1, 0.1),  # ~5cm axes
             ),
         },
     )
-    """The configuration for the goal pose visualization marker. Defaults to a DexCube marker."""
+    """The configuration for the goal pose visualization marker. Defaults to XYZ axes (5cm)."""
+
+    # Current object pose visualization - XYZ frame axes (5cm scale)
+    current_pose_visualizer_cfg: VisualizationMarkersCfg = VisualizationMarkersCfg(
+        prim_path="/Visuals/Command/current_marker",
+        markers={
+            "frame": sim_utils.UsdFileCfg(
+                usd_path=f"{ISAAC_NUCLEUS_DIR}/Props/UIElements/frame_prim.usd",
+                scale=(0.1, 0.1, 0.1),  # ~5cm axes
+            ),
+        },
+    )
+    """The configuration for the current object pose visualization marker."""
