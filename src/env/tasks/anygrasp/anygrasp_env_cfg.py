@@ -404,8 +404,9 @@ class InHandObjectEnvCfg(ManagerBasedRLEnvCfg):
 ##
 # Pre-defined configs
 ##
-from isaaclab_assets import ALLEGRO_HAND_CFG  # isort: skip
-
+from src.assets.allegro_hand.allegro import ALLEGRO_HAND_CFG
+# from isaaclab_assets import ALLEGRO_HAND_CFG  # isort: skip
+#from src.assets.leap_hand.leap import LEAP_HAND_CFG as ALLEGRO_HAND_CFG
 
 @configclass
 class AllegroCubeEnvCfg(InHandObjectEnvCfg):

@@ -95,9 +95,6 @@ from rl_games.torch_runner import Runner
 # import logger
 logger = logging.getLogger(__name__)
 
-# import D2H.tasks  # noqa: F401
-import sys
-sys.path.append("/home/yizhao/yi/D2H") # TODO: fix this
 import src.env
 
 @hydra_task_config(args_cli.task, args_cli.agent)
