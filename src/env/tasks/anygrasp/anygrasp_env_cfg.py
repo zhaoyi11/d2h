@@ -89,7 +89,7 @@ class InHandObjectSceneCfg(InteractiveSceneCfg):
                 disable_gravity=False,
             ),
             collision_props=sim_utils.CollisionPropertiesCfg(),
-            mass_props=sim_utils.MassPropertiesCfg(mass=0.2), # 200g (~iphone's weight)
+            mass_props=sim_utils.MassPropertiesCfg(mass=0.2),  # 200g (~iphone's weight)
             # mass_props=sim_utils.MassPropertiesCfg(density=1000.0),
         ),
         # init_state=RigidObjectCfg.InitialStateCfg(pos=(-0.55, 0.1, 0.35)),
