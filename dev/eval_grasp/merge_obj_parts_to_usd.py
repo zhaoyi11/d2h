@@ -14,7 +14,9 @@ Typical usage (from the D2H workspace root):
 
     python scripts/merge_obj_parts_to_usd.py \\
         --urdf_path /absolute/path/to/object.urdf \\
-        --collider_type convex_decomposition
+        --collider_type convex_decomposition \\
+        --collision_from_visuals \\
+        --usd_dir /absolute/path/to/output/directory
 """
 
 from __future__ import annotations

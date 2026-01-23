@@ -49,31 +49,42 @@ from src.assets.leap_hand.leap import LEAP_HAND_CFG
 # from whole_body_tracking.tasks.tracking.mdp import MotionLoader
 
 
-@configclass
-class ReplayMotionsSceneCfg(InteractiveSceneCfg):
-    """Configuration for a replay motions scene."""
+def create_scene_cfg(grasp_data: dict) -> InteractiveSceneCfg:
+    """Create scene configuration with object state from grasp data."""
+    # Extract object state from grasp data
+    object_scale = float(grasp_data["obj_scale"])
+    object_pos = tuple(grasp_data["obj_pose"][:3].tolist())
+    object_quat = tuple(grasp_data["obj_pose"][3:7].tolist())
+    
+    @configclass
+    class ReplayMotionsSceneCfg(InteractiveSceneCfg):
+        """Configuration for a replay motions scene."""
 
-    ground = AssetBaseCfg(prim_path="/World/defaultGroundPlane", spawn=sim_utils.GroundPlaneCfg())
+        # ground = AssetBaseCfg(prim_path="/World/defaultGroundPlane", spawn=sim_utils.GroundPlaneCfg())
 
-    sky_light = AssetBaseCfg(
-        prim_path="/World/skyLight",
-        spawn=sim_utils.DomeLightCfg(
-            intensity=750.0,
-            texture_file=f"{ISAAC_NUCLEUS_DIR}/Materials/Textures/Skies/PolyHaven/kloofendal_43d_clear_puresky_4k.hdr",
-        ),
-    )
+        sky_light = AssetBaseCfg(
+            prim_path="/World/skyLight",
+            spawn=sim_utils.DomeLightCfg(
+                intensity=750.0,
+                texture_file=f"{ISAAC_NUCLEUS_DIR}/Materials/Textures/Skies/PolyHaven/kloofendal_43d_clear_puresky_4k.hdr",
+            ),
+        )
 
-    # articulation
-    robot: ArticulationCfg = LEAP_HAND_CFG.replace(prim_path="{ENV_REGEX_NS}/Robot")
+        # articulation
+        robot: ArticulationCfg = LEAP_HAND_CFG.replace(prim_path="{ENV_REGEX_NS}/Robot")
 
-
-    object = RigidObjectCfg(
-        prim_path="/World/object",
-        spawn=sim_utils.UsdFileCfg(
-            usd_path="/home/yizhao/yi/D2H/dev/eval_grasp/usd_20260122_144238_1527/coacd.usd",
-            scale=(0.1, 0.1, 0.1),
-        ),
-    )
+        object = RigidObjectCfg(
+            prim_path="/World/object",
+            spawn=sim_utils.UrdfFileCfg(
+                asset_path="/home/yizhao/yi/DexGraspBench/assets/object/DGN_2k/processed_data/core_mug_3d3e993f7baa4d7ef1ff24a8b1564a36/urdf/coacd.urdf",
+                scale=(object_scale, object_scale, object_scale),
+                fix_base=False,  # Object should be free-floating
+                joint_drive=None,  # No joints for rigid object
+            ),
+            init_state=RigidObjectCfg.InitialStateCfg(pos=object_pos, rot=object_quat),
+        )
+    
+    return ReplayMotionsSceneCfg
 
 
 @dataclass
@@ -175,10 +186,10 @@ def interp(src: torch.Tensor, n: int, order: int = 1) -> torch.Tensor:
     return dst
 
 
-def load_data(
-    config: Config,
-    data_path: str = "/home/yizhao/yi/D2H/trajectory_kinematic.npz",
-) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
+# def load_data(
+#     config: Config,
+#     data_path: str = "/home/yizhao/yi/D2H/trajectory_kinematic.npz",
+# ) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
     """Load trajectory data from NPZ file."""
     raw_data = np.load(data_path)
     qpos_ref = raw_data["qpos"]
@@ -263,8 +274,18 @@ def load_data(
         contact_pos_ref_interp,
     )
 
+def mujoco_to_urdf_qpos(mujoco_qpos):
+    """Convert MuJoCo LEAP hand qpos to URDF joint order."""
+    # Index mapping: urdf_qpos[i] = mujoco_qpos[mapping[i]]
+    # mapping = [1, 0, 2, 3,    # Index finger: swap MCP(0) ↔ ROT(1)
+    #            5, 4, 6, 7,    # Middle finger: swap MCP(4) ↔ ROT(5)
+    #            9, 8, 10, 11,  # Ring finger: swap MCP(8) ↔ ROT(9)
+    #            12, 13, 14, 15]  # Thumb: no change
+    # mapping = [12, 13, 14, 15, 0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11]
+    mapping =  [0, 12, 4, 8, 1, 13, 5, 9, 2, 14, 6, 10, 3, 15, 7, 11]
+    return np.array(mujoco_qpos)[mapping]
 
-def run_simulator(sim: sim_utils.SimulationContext, scene: InteractiveScene):
+def run_simulator(sim: sim_utils.SimulationContext, scene: InteractiveScene, grasp_data: dict):
     """Load scene, check robot state, and apply random actions."""
     # Extract scene entities
     robot: Articulation = scene["robot"]
@@ -276,6 +297,25 @@ def run_simulator(sim: sim_utils.SimulationContext, scene: InteractiveScene):
     
     # Define simulation stepping
     sim_dt = sim.get_physics_dt()
+    
+    
+    # Extract robot state from grasp data
+    robot_pos = grasp_data["grasp_qpos"][:3]
+    robot_quat = grasp_data["grasp_qpos"][3:7]
+    robot_joint_pos = grasp_data["grasp_qpos"][7:]
+    robot_joint_pos = mujoco_to_urdf_qpos(robot_joint_pos)
+    
+    # Convert robot state to tensors
+    root_pos = torch.tensor(robot_pos, device=sim.device, dtype=torch.float32).unsqueeze(0)
+    root_quat = torch.tensor(robot_quat, device=sim.device, dtype=torch.float32).unsqueeze(0)
+    joint_pos = torch.tensor(robot_joint_pos, device=sim.device, dtype=torch.float32).unsqueeze(0)
+    
+    # Set robot root pose (position and orientation)
+    robot.write_root_pose_to_sim(torch.cat([root_pos, root_quat], dim=-1))
+    
+    # Set robot joint positions (with zero velocities)
+    joint_vel = torch.zeros_like(joint_pos)
+    robot.write_joint_state_to_sim(joint_pos, joint_vel)
     
     # Check initial robot state
     print("=== Initial Robot State ===")
@@ -297,20 +337,11 @@ def run_simulator(sim: sim_utils.SimulationContext, scene: InteractiveScene):
     print(f"Number of joints: {num_joints}")
     print(f"Actuator groups: {list(robot.actuators.keys())}")
     
-    # Initialize random actions (normalized to [-1, 1])
-    # Actions are joint position targets, matching the number of joints
-    # These will be scaled by the action scale in the robot's actuator configuration
-    random_actions = 2.0 * torch.rand(scene.num_envs, num_joints, device=sim.device) - 1.0
-    
     # Simulation loop
     step_count = 0
     while simulation_app.is_running():
-        # Generate new random actions periodically (every 50 steps)
-        if step_count % 50 == 0:
-            random_actions = 2.0 * torch.rand(scene.num_envs, num_joints, device=sim.device) - 1.0
-        
-        # Apply random actions
-        robot.set_joint_position_target(random_actions)
+        # Keep robot at initial pose
+        robot.set_joint_position_target(joint_pos)
         
         # Write data to simulation
         scene.write_data_to_sim()
@@ -347,12 +378,35 @@ if __name__ == "__main__":
     #     "contact_ref": contact_ref_interp,
     #     "contact_pos_ref": contact_pos_ref_interp,
     # }
+    # Fix for numpy version compatibility (numpy 1.x <-> 2.x)
+    import sys
+    try:
+        import numpy._core
+        sys.modules['numpy.core'] = numpy._core
+        sys.modules['numpy.core.multiarray'] = numpy._core.multiarray
+        sys.modules['numpy.core.numeric'] = numpy._core.numeric
+    except ImportError:
+        import numpy.core
+        sys.modules['numpy._core'] = numpy.core
+        sys.modules['numpy._core.multiarray'] = numpy.core.multiarray
+        sys.modules['numpy._core.numeric'] = numpy.core.numeric
+    # path = "/home/yizhao/yi/DexGraspBench/output/example_shadow/graspdata/core_bottle_523cddb320608c09a37f3fc191551700/scale006_pose000/0.npy"
+    # path = "/home/yizhao/yi/D2H/dev/eval_grasp/test_obj/ddg_gd_camera_poisson_006/floating/scale008_grasp.npy"
+    # path = "/home/yizhao/yi/DexGraspBench/output/debug_leap/succgrasp/core_bottle_44dae93d7b7701e1eb986aac871fa4e5/floating/scale012/0_grasp.npy"
+    # path = "/home/yizhao/yi/DexGraspBench/output/debug_leap/succgrasp/core_bottle_d655a217ad7d8974ce60bdf271ddc452/floating/scale012/0_grasp.npy"
+    # path = "/home/yizhao/yi/DexGraspBench/output/debug_leap/succgrasp/mujoco_Star_Wars_Rogue_Squadron_Nintendo_64/floating/scale006/8_grasp.npy"
+    path = "/home/yizhao/yi/DexGraspBench/output/debug_leap/succgrasp/core_mug_3d3e993f7baa4d7ef1ff24a8b1564a36/floating/scale010/0_grasp.npy"
+    grasp_data = np.load(path, allow_pickle=True).item()
 
+    # import ipdb; ipdb.set_trace()
     sim_cfg = sim_utils.SimulationCfg(device=config.device)
     sim_cfg.dt = 0.02
+    sim_cfg.gravity = (0.0, 0.0, 0.0)  # Disable gravity
     sim = SimulationContext(sim_cfg)
 
-    scene_cfg = ReplayMotionsSceneCfg(num_envs=1, env_spacing=2.0)
+    # Create scene config with object state from grasp data
+    SceneCfg = create_scene_cfg(grasp_data)
+    scene_cfg = SceneCfg(num_envs=1, env_spacing=2.0)
     scene = InteractiveScene(scene_cfg)
     sim.reset()
-    run_simulator(sim, scene)
+    run_simulator(sim, scene, grasp_data)
