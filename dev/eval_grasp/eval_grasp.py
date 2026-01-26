@@ -240,9 +240,10 @@ def np_matrix_to_quaternion(matrix: np.ndarray) -> np.ndarray:
 
 
 # Correction rotation to transform MuJoCo palm frame to USD base frame
-# Going back to working grasp, trying to flip thumb with negated components
-USD_PALM_LOWER_OFFSET = np.array([0.0, 0.038, 0.098])
-USD_PALM_LOWER_QUAT = np.array([0.0, -0.7071, 0.0, -0.7071])  # Try negating both x and z
+# Rotation is correct with [0, -0.7071, 0, -0.7071]
+# MuJoCo palm has built-in offset pos="0 0 0.1" - need to account for this
+USD_PALM_LOWER_OFFSET = np.array([0.0, 0.0, 0.1])  # MuJoCo palm Z offset
+USD_PALM_LOWER_QUAT = np.array([0.0, -0.7071, 0.0, -0.7071])
 USD_PALM_LOWER_ROT = np_quaternion_to_matrix(USD_PALM_LOWER_QUAT)
 
 
