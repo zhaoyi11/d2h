@@ -173,13 +173,178 @@ from src.assets.leap_hand.leap import LEAP_HAND_CFG
 # from whole_body_tracking.robots.g1 import G1_CYLINDER_CFG
 # from whole_body_tracking.tasks.tracking.mdp import MotionLoader
 
-# Import MuJoCo to IsaacLab converter
-from mujoco_to_isaaclab_converter import (
-    mujoco_palm_pose_to_isaaclab_base,
-    mujoco_to_isaaclab_full_state,
-    convert_joint_order_mujoco_to_isaaclab,
-)
 
+# ============================================================================
+# MuJoCo to IsaacLab Coordinate Conversion
+# ============================================================================
+# 
+# The MuJoCo LEAP hand and IsaacLab USD LEAP hand have different coordinate conventions:
+#
+# MuJoCo (right_hand.xml):
+#   - Palm body: pos="0 0 0.1", quat="0 1 0 0" (180° around X)
+#   - Palm +Z points in world -Z direction (fingers point down)
+#
+# USD (leap_hand_right.usd):
+#   - Base xform: identity
+#   - palm_lower: translate=(0, 0.038, 0.098), orient=(0.7071, 0, -0.7071, 0) (-90° around Y)
+#   - Combined frame transformation: 180° around Y (MuJoCo -Z to USD -X requires total 180°Y)
+#
+# To convert MuJoCo palm pose to IsaacLab base pose:
+#   USD_base = MuJoCo_palm_world * inv(USD_palm_lower_local)
+
+def np_quaternion_to_matrix(q: np.ndarray) -> np.ndarray:
+    """Convert quaternion [w, x, y, z] to 3x3 rotation matrix."""
+    w, x, y, z = q
+    return np.array([
+        [1 - 2*y*y - 2*z*z, 2*x*y - 2*w*z, 2*x*z + 2*w*y],
+        [2*x*y + 2*w*z, 1 - 2*x*x - 2*z*z, 2*y*z - 2*w*x],
+        [2*x*z - 2*w*y, 2*y*z + 2*w*x, 1 - 2*x*x - 2*y*y]
+    ])
+
+
+def np_matrix_to_quaternion(matrix: np.ndarray) -> np.ndarray:
+    """Convert 3x3 rotation matrix to quaternion [w, x, y, z]."""
+    m = matrix
+    trace = np.trace(m)
+    
+    if trace > 0:
+        s = 0.5 / np.sqrt(trace + 1.0)
+        w = 0.25 / s
+        x = (m[2, 1] - m[1, 2]) * s
+        y = (m[0, 2] - m[2, 0]) * s
+        z = (m[1, 0] - m[0, 1]) * s
+    elif m[0, 0] > m[1, 1] and m[0, 0] > m[2, 2]:
+        s = 2.0 * np.sqrt(1.0 + m[0, 0] - m[1, 1] - m[2, 2])
+        w = (m[2, 1] - m[1, 2]) / s
+        x = 0.25 * s
+        y = (m[0, 1] + m[1, 0]) / s
+        z = (m[0, 2] + m[2, 0]) / s
+    elif m[1, 1] > m[2, 2]:
+        s = 2.0 * np.sqrt(1.0 + m[1, 1] - m[0, 0] - m[2, 2])
+        w = (m[0, 2] - m[2, 0]) / s
+        x = (m[0, 1] + m[1, 0]) / s
+        y = 0.25 * s
+        z = (m[1, 2] + m[2, 1]) / s
+    else:
+        s = 2.0 * np.sqrt(1.0 + m[2, 2] - m[0, 0] - m[1, 1])
+        w = (m[1, 0] - m[0, 1]) / s
+        x = (m[0, 2] + m[2, 0]) / s
+        y = (m[1, 2] + m[2, 1]) / s
+        z = 0.25 * s
+    
+    q = np.array([w, x, y, z])
+    q = q / np.linalg.norm(q)
+    if q[0] < 0:
+        q = -q
+    return q
+
+
+# Correction rotation to transform MuJoCo palm frame to USD base frame
+# Going back to working grasp, trying to flip thumb with negated components
+USD_PALM_LOWER_OFFSET = np.array([0.0, 0.038, 0.098])
+USD_PALM_LOWER_QUAT = np.array([0.0, -0.7071, 0.0, -0.7071])  # Try negating both x and z
+USD_PALM_LOWER_ROT = np_quaternion_to_matrix(USD_PALM_LOWER_QUAT)
+
+
+def mujoco_palm_pose_to_isaaclab_base(
+    mujoco_pos: np.ndarray,
+    mujoco_quat: np.ndarray,
+) -> tuple:
+    """
+    Convert MuJoCo LEAP hand palm world pose to IsaacLab/USD base pose.
+    
+    The MuJoCo palm and USD palm_lower have different local coordinate conventions.
+    To match the physical palm pose, we compute:
+        USD_base_pose = MuJoCo_palm_world_pose × inv(USD_palm_lower_local_transform)
+    
+    Args:
+        mujoco_pos: Palm position in MuJoCo world frame [x, y, z]
+        mujoco_quat: Palm quaternion in MuJoCo convention [w, x, y, z]
+        
+    Returns:
+        isaaclab_pos: Base position for IsaacLab/USD [x, y, z]
+        isaaclab_quat: Base quaternion for IsaacLab/USD [w, x, y, z]
+    """
+    # Get MuJoCo palm rotation matrix
+    R_palm_mj = np_quaternion_to_matrix(mujoco_quat)
+    
+    # Compute inverse of the correction rotation (180°Y is self-inverse)
+    R_usd_palm_inv = USD_PALM_LOWER_ROT.T
+    
+    # Compute USD base rotation: R_base = R_palm_mj * R_usd_palm_inv
+    R_isaaclab_base = R_palm_mj @ R_usd_palm_inv
+    
+    # Compute USD base position
+    # For transform composition: base_pos = palm_pos - R_base * USD_PALM_LOWER_OFFSET
+    isaaclab_pos = mujoco_pos - R_isaaclab_base @ USD_PALM_LOWER_OFFSET
+    
+    isaaclab_quat = np_matrix_to_quaternion(R_isaaclab_base)
+    
+    return isaaclab_pos, isaaclab_quat
+
+
+def convert_joint_order_mujoco_to_isaaclab(
+    mujoco_joint_pos: np.ndarray,
+    isaaclab_joint_names=None,
+) -> np.ndarray:
+    """
+    Convert joint positions from MuJoCo/cuRobo order to IsaacLab order.
+    
+    MuJoCo/cuRobo joint order (from leap.yml):
+    ['j1', 'j0', 'j2', 'j3', 'j5', 'j4', 'j6', 'j7', 'j9', 'j8', 'j10', 'j11', 'j12', 'j13', 'j14', 'j15']
+    """
+    curobo_joint_order = ['j1', 'j0', 'j2', 'j3', 'j5', 'j4', 'j6', 'j7', 
+                          'j9', 'j8', 'j10', 'j11', 'j12', 'j13', 'j14', 'j15']
+    
+    if isaaclab_joint_names is not None:
+        mapping = []
+        for isaac_name in isaaclab_joint_names:
+            match = re.search(r'(\d+)', isaac_name)
+            if match:
+                joint_num = int(match.group(1))
+                target_joint = f'j{joint_num}'
+                if target_joint in curobo_joint_order:
+                    curobo_idx = curobo_joint_order.index(target_joint)
+                    mapping.append(curobo_idx)
+                else:
+                    mapping.append(len(mapping))
+            else:
+                mapping.append(len(mapping))
+    else:
+        mapping = [curobo_joint_order.index(f'j{i}') for i in range(16)]
+    
+    return np.array(mujoco_joint_pos)[mapping]
+
+
+def mujoco_to_isaaclab_full_state(
+    mujoco_pos: np.ndarray,
+    mujoco_quat: np.ndarray,
+    mujoco_joint_pos: np.ndarray,
+    isaaclab_joint_names=None,
+) -> tuple:
+    """
+    Convert full robot state from MuJoCo to IsaacLab format.
+    
+    Args:
+        mujoco_pos: Palm position in MuJoCo world frame [x, y, z]
+        mujoco_quat: Palm quaternion in MuJoCo convention [w, x, y, z]
+        mujoco_joint_pos: Joint positions in MuJoCo/cuRobo order (16 values)
+        isaaclab_joint_names: Optional list of IsaacLab joint names for reordering
+        
+    Returns:
+        isaaclab_pos: Base position for IsaacLab/USD [x, y, z]
+        isaaclab_quat: Base quaternion for IsaacLab/USD [w, x, y, z]
+        isaaclab_joint_pos: Joint positions in IsaacLab order (16 values)
+    """
+    # Convert base pose
+    isaaclab_pos, isaaclab_quat = mujoco_palm_pose_to_isaaclab_base(mujoco_pos, mujoco_quat)
+    
+    # Convert joint positions (reorder if needed)
+    isaaclab_joint_pos = convert_joint_order_mujoco_to_isaaclab(
+        mujoco_joint_pos, isaaclab_joint_names
+    )
+    
+    return isaaclab_pos, isaaclab_quat, isaaclab_joint_pos
 
 def convert_bodex_to_dexgraspbench_format(bodex_data: dict, grasp_idx: int = 0, seed_idx: int = 0, pose_idx: int = 1) -> dict:
     """Convert BODex/plan_batch_env.py output format to DexGraspBench format.
@@ -599,8 +764,8 @@ def run_simulator(sim: sim_utils.SimulationContext, scene: InteractiveScene, gra
         sim.render()
         
         # Update camera view
-        # root_pos = robot.data.root_pos_w[0].cpu().numpy()
-        # sim.set_camera_view(root_pos + np.array([2.0, 2.0, 0.5]), root_pos)
+        root_pos = robot.data.root_pos_w[0].cpu().numpy()
+        sim.set_camera_view(root_pos + np.array([2.0, 2.0, 0.5]), root_pos)
         
         # Print state every 100 steps
         step_count += 1
