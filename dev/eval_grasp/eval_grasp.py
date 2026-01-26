@@ -176,7 +176,6 @@ from src.assets.leap_hand.leap import LEAP_HAND_CFG
 # from whole_body_tracking.tasks.tracking.mdp import MotionLoader
 
 
-
 # ============================================================================
 # MuJoCo to IsaacLab Coordinate Conversion
 # ============================================================================
@@ -686,51 +685,19 @@ def run_simulator(sim: sim_utils.SimulationContext, scene: InteractiveScene, gra
     print(f"MuJoCo palm quaternion: {mujoco_quat}")
     print(f"MuJoCo joint positions: {mujoco_joint_pos}")
     
-    # The cuRobo LEAP hand URDF and Isaac Lab LEAP hand USD may have different base frame orientations.
-    # cuRobo stores quaternion as [w, x, y, z].
-    # We may need to apply a correction rotation to match Isaac Lab's LEAP hand coordinate frame.
+    # Convert from MuJoCo to IsaacLab coordinate convention
+    # This accounts for the MuJoCo palm body definition: pos="0 0 0.1" quat="0 1 0 0"
+    robot_pos, robot_quat, robot_joint_pos_raw = mujoco_to_isaaclab_full_state(
+        mujoco_pos, mujoco_quat, mujoco_joint_pos, robot.joint_names
+    )
     
-    # Try interpreting as [w, x, y, z] (cuRobo convention)
-    robot_quat = robot_quat_raw  # [w, x, y, z]
+    print(f"\n=== Converted to IsaacLab format ===")
+    print(f"IsaacLab base position: {robot_pos}")
+    print(f"IsaacLab base quaternion: {robot_quat}")
+    print(f"IsaacLab joint positions: {robot_joint_pos_raw}")
     
-    # The Isaac Lab LEAP hand from dex-urdf has a different base orientation.
-    # The default init rotation in LEAP_HAND_CFG is (0.5, 0.5, -0.5, 0.5)
-    # This suggests a 120-degree rotation around (1, -1, 1) axis.
-    # We need to find the transformation between cuRobo's and Isaac Lab's coordinate frames.
-    
-    # Based on the URDF comparison:
-    # - cuRobo leap_hand_simplified.urdf: palm faces +X direction
-    # - dex-urdf leap_hand_right: palm faces -Y direction (typically)
-    # A rotation of 90 degrees around Z axis might be needed.
-    
-    # Correction rotation: Try rotating 90 degrees around Z axis
-    # Quaternion for 90-deg rotation around Z: [cos(45), 0, 0, sin(45)] = [0.707, 0, 0, 0.707]
-    # Or try 180 degrees: [0, 0, 0, 1]
-    # Or try -90 degrees: [0.707, 0, 0, -0.707]
-    
-    # Apply rotation correction based on command-line argument
-    # The cuRobo and Isaac Lab LEAP hand models may have different base frame orientations
-    sqrt2_2 = 0.7071067811865476  # sqrt(2)/2
-    correction_options = {
-        "none": np.array([1.0, 0.0, 0.0, 0.0]),        # Identity
-        "x90": np.array([sqrt2_2, sqrt2_2, 0.0, 0.0]), # 90-deg around X
-        "x-90": np.array([sqrt2_2, -sqrt2_2, 0.0, 0.0]), # -90-deg around X
-        "x180": np.array([0.0, 1.0, 0.0, 0.0]),        # 180-deg around X
-        "y90": np.array([sqrt2_2, 0.0, sqrt2_2, 0.0]), # 90-deg around Y
-        "y-90": np.array([sqrt2_2, 0.0, -sqrt2_2, 0.0]), # -90-deg around Y
-        "y180": np.array([0.0, 0.0, 1.0, 0.0]),        # 180-deg around Y
-        "z90": np.array([sqrt2_2, 0.0, 0.0, sqrt2_2]), # 90-deg around Z
-        "z-90": np.array([sqrt2_2, 0.0, 0.0, -sqrt2_2]), # -90-deg around Z
-        "z180": np.array([0.0, 0.0, 0.0, 1.0]),        # 180-deg around Z
-        "flip_quat": None,  # Special case: swap quaternion format
-    }
-    
-    rot_correction = args_cli.rot_correction
-
-    
-    # Convert joint positions from cuRobo order to Isaac Lab order
-    robot_joint_pos = curobo_to_isaaclab_qpos(robot_joint_pos_raw, robot.joint_names)
-    print(f"Robot joint positions (Isaac Lab order): {robot_joint_pos}")
+    # Joint positions are already converted by mujoco_to_isaaclab_full_state
+    robot_joint_pos = robot_joint_pos_raw
     
     # Convert robot state to tensors
     root_pos = torch.tensor(robot_pos, device=sim.device, dtype=torch.float32).unsqueeze(0)
