@@ -138,7 +138,9 @@ def standardize_quaternion(quaternions: torch.Tensor) -> torch.Tensor:
 parser = argparse.ArgumentParser(description="Replay grasp poses in Isaac Lab.")
 parser.add_argument("--grasp_path", type=str, 
                     # default="/home/yizhao/yi/DexGraspBench/output/debug_leap/succgrasp/core_mug_3d3e993f7baa4d7ef1ff24a8b1564a36/floating/scale010/0_grasp.npy",
-                    default="/home/yizhao/yi/DexGraspBench/output/debug_leap/graspdata/ddg_gd_jar_poisson_018/floating/scale010/0_grasp.npy",
+                    # default="/home/yizhao/yi/DexGraspBench/output/debug_leap/graspdata/ddg_gd_jar_poisson_018/floating/scale010/13_grasp.npy",
+                    # camera
+                    default="/home/yizhao/yi/DexGraspBench/output/debug_leap/succgrasp/core_camera_fb3b5fae94f7b02a3b269928487f8a4c/floating/scale008/1_grasp.npy",
                     help="Path to grasp data file (.npy)")
 parser.add_argument("--grasp_idx", type=int, default=0, help="Index of grasp in batch (for BODex format)")
 parser.add_argument("--seed_idx", type=int, default=0, help="Index of seed (for BODex format)")
@@ -243,6 +245,7 @@ def np_matrix_to_quaternion(matrix: np.ndarray) -> np.ndarray:
 # Rotation is correct with [0, -0.7071, 0, -0.7071]
 # Offset: USD palm_lower [0, 0.038, 0.098] + MuJoCo palm Z offset (0.1) mapped to X
 USD_PALM_LOWER_OFFSET = np.array([-0.1, 0.038, 0.098])  # Negative X offset
+# USD_PALM_LOWER_OFFSET = np.array([-0.098, 0.038, 0.1])
 USD_PALM_LOWER_QUAT = np.array([0.0, -0.7071, 0.0, -0.7071])
 USD_PALM_LOWER_ROT = np_quaternion_to_matrix(USD_PALM_LOWER_QUAT)
 
@@ -521,7 +524,8 @@ def create_scene_cfg(grasp_data: dict, flip_quat: bool = True) -> InteractiveSce
     # print(f"Robot position: {robot_pos}")
     # print(f"Distance from object: {np.linalg.norm(robot_pos - np.array(object_pos)):.4f}m")
     
-    obj_urdf_path = "/home/yizhao/yi/DexGraspBench/assets/object/DGN_2k/processed_data/ddg_gd_jar_poisson_018/urdf/coacd.urdf"
+    # obj_urdf_path = "/home/yizhao/yi/DexGraspBench/assets/object/DGN_2k/processed_data/ddg_gd_jar_poisson_018/urdf/coacd.urdf
+    obj_urdf_path = "/home/yizhao/yi/DexGraspBench/assets/object/DGN_2k/processed_data/core_camera_fb3b5fae94f7b02a3b269928487f8a4c/urdf/coacd.urdf"
     # get object scale and position from grasp data
     object_scale = float(grasp_data["obj_scale"])
     object_pos = tuple(grasp_data["obj_pose"][:3].tolist())
