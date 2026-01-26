@@ -241,8 +241,8 @@ def np_matrix_to_quaternion(matrix: np.ndarray) -> np.ndarray:
 
 # Correction rotation to transform MuJoCo palm frame to USD base frame
 # Rotation is correct with [0, -0.7071, 0, -0.7071]
-# MuJoCo palm has built-in offset pos="0 0 0.1" - need to account for this
-USD_PALM_LOWER_OFFSET = np.array([0.0, 0.0, 0.1])  # MuJoCo palm Z offset
+# Offset: USD palm_lower [0, 0.038, 0.098] + MuJoCo palm Z offset (0.1) mapped to X
+USD_PALM_LOWER_OFFSET = np.array([-0.1, 0.038, 0.098])  # Negative X offset
 USD_PALM_LOWER_QUAT = np.array([0.0, -0.7071, 0.0, -0.7071])
 USD_PALM_LOWER_ROT = np_quaternion_to_matrix(USD_PALM_LOWER_QUAT)
 
@@ -672,9 +672,9 @@ def run_simulator(sim: sim_utils.SimulationContext, scene: InteractiveScene, gra
     
     # Extract robot state from grasp data
     # cuRobo/MuJoCo format: [x, y, z, qw, qx, qy, qz, j0, j1, ..., j15]
-    mujoco_pos = grasp_data["pregrasp_qpos"][:3]
-    mujoco_quat = grasp_data["pregrasp_qpos"][3:7]
-    mujoco_joint_pos = grasp_data["pregrasp_qpos"][7:]
+    mujoco_pos = grasp_data["grasp_qpos"][:3]
+    mujoco_quat = grasp_data["grasp_qpos"][3:7]
+    mujoco_joint_pos = grasp_data["grasp_qpos"][7:]
     
     print(f"\n=== Grasp Data (MuJoCo/cuRobo format) ===")
     print(f"MuJoCo palm position: {mujoco_pos}")
