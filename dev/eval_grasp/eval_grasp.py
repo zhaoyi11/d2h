@@ -261,13 +261,13 @@ def create_scene_cfg(grasp_data: dict, obj_urdf_path: str) -> InteractiveSceneCf
                 ),
             ),
         )
-
+        
         object = RigidObjectCfg(
             prim_path="/World/object",
             spawn=sim_utils.UrdfFileCfg(
                 asset_path=obj_urdf_path,
                 scale=(object_scale, object_scale, object_scale),
-                fix_base=True,  # Fix object in place for visualization
+                fix_base=False,  # Fix object in place for visualization
                 joint_drive=sim_utils.UrdfConverterCfg.JointDriveCfg(
                     gains=sim_utils.UrdfConverterCfg.JointDriveCfg.PDGainsCfg(stiffness=None, damping=None),
                 ),
@@ -275,7 +275,9 @@ def create_scene_cfg(grasp_data: dict, obj_urdf_path: str) -> InteractiveSceneCf
                     articulation_enabled=False,  # Disable articulation for rigid object
                 ),
             ),
-            init_state=RigidObjectCfg.InitialStateCfg(pos=object_pos, rot=object_quat),
+            # TODO: change this
+            init_state=RigidObjectCfg.InitialStateCfg(pos=(-1.0, 0.0, 0.0), rot=object_quat),
+            # init_state=RigidObjectCfg.InitialStateCfg(pos=object_pos, rot=object_quat),
         )
     
     return ReplayMotionsSceneCfg
