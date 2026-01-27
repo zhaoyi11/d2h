@@ -23,11 +23,6 @@ parser.add_argument("--grasp_path", type=str,
                     default="/home/yizhao/yi/DexGraspBench/output/debug_leap/succgrasp/core_camera_fb3b5fae94f7b02a3b269928487f8a4c/floating/scale008/1_grasp.npy",
                     help="Path to grasp data file (.npy)")
 parser.add_argument("--obj_urdf_path", type=str, default="/home/yizhao/yi/DexGraspBench/assets/object/DGN_2k/processed_data/core_camera_fb3b5fae94f7b02a3b269928487f8a4c/urdf/coacd.urdf", help="Path to object file (.urdf)")
-parser.add_argument("--grasp_idx", type=int, default=0, help="Index of grasp in batch (for BODex format)")
-parser.add_argument("--seed_idx", type=int, default=0, help="Index of seed (for BODex format)")
-parser.add_argument("--rot_correction", type=str, default="none",
-                    choices=["none", "z90", "z-90", "z180", "x90", "x180", "x-90", "y90", "y-90", "y180", "flip_quat"],
-                    help="Rotation correction to apply to hand pose (default: flip_quat)")
 
 # append AppLauncher cli args
 AppLauncher.add_app_launcher_args(parser)
