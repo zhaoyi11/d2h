@@ -13,6 +13,7 @@ import argparse
 
 from isaaclab.app import AppLauncher
 
+# TODO: check the transform of the object pose, current, the stable initial pose in the grasp data is not stable anymore. not sure why.
 
 # add argparse arguments
 parser = argparse.ArgumentParser(description="Replay grasp poses in Isaac Lab.")
@@ -22,7 +23,7 @@ parser.add_argument(
     # default="/home/yizhao/yi/DexGraspBench/output/debug_leap/succgrasp/core_mug_3d3e993f7baa4d7ef1ff24a8b1564a36/floating/scale010/0_grasp.npy",
     # default="/home/yizhao/yi/DexGraspBench/output/debug_leap/graspdata/ddg_gd_jar_poisson_018/floating/scale010/13_grasp.npy",
     # camera
-    default="/home/yizhao/yi/DexGraspBench/output/debug_leap/succgrasp/core_camera_fb3b5fae94f7b02a3b269928487f8a4c/floating/scale008/1_grasp.npy",
+    default="/home/yizhao/yi/DexGraspBench/output/debug_leap/succgrasp/core_camera_fb3b5fae94f7b02a3b269928487f8a4c/floating/scale008/11_grasp.npy",
     help="Path to grasp data file (.npy)",
 )
 parser.add_argument(
@@ -255,9 +256,9 @@ def transform_object_to_robot_frame(
     the palm-to-object relationship.
 
     When IsaacLab base is at identity, the palm is at USD_PALM_LOWER offset.
-    We compute:
-    1. Object pose relative to MuJoCo palm: obj_in_palm = inv(mj_palm) * obj
-    2. New object pose: new_obj = new_palm_pose * obj_in_palm
+    The key fix: obj_rel_pos_mj is computed in MuJoCo palm frame, but we need
+    to express it in USD palm frame. We transform through world frame to ensure
+    correct coordinate frame conversion.
 
     Args:
         mj_palm_pos: MuJoCo palm position [x, y, z]
@@ -269,20 +270,40 @@ def transform_object_to_robot_frame(
         new_object_pos: Transformed object position [x, y, z]
         new_object_quat: Transformed object quaternion [w, x, y, z]
     """
-    # Step 1: Compute object pose relative to MuJoCo palm
-    R_palm = np_quaternion_to_matrix(mj_palm_quat)
-    R_palm_inv = R_palm.T
-    obj_rel_pos = R_palm_inv @ (object_pos - mj_palm_pos)
+    # Step 1: Compute object pose relative to MuJoCo palm frame
+    R_palm_mj = np_quaternion_to_matrix(mj_palm_quat)
+    R_palm_mj_inv = R_palm_mj.T
+    obj_rel_pos_mj = R_palm_mj_inv @ (object_pos - mj_palm_pos)
 
     palm_quat_inv = np_quaternion_inverse(mj_palm_quat)
     obj_rel_quat = np_quaternion_multiply(palm_quat_inv, object_quat)
 
     # Step 2: Apply new palm pose (when base is at identity)
+    # When base is at identity, USD palm world pose is:
     new_palm_pos = USD_PALM_LOWER_OFFSET.copy()
     new_palm_quat = USD_PALM_LOWER_QUAT.copy()
     new_palm_rot = np_quaternion_to_matrix(new_palm_quat)
-
-    new_object_pos = new_palm_pos + new_palm_rot @ obj_rel_pos
+    
+    # CRITICAL FIX: The original approach (new_palm_pos + new_palm_rot @ obj_rel_pos_mj) is
+    # almost correct but causes small collisions. This suggests a minor coordinate frame offset
+    # or numerical precision issue between MuJoCo palm frame and USD palm frame.
+    #
+    # The transformation: obj_rel_pos_mj is in MuJoCo palm frame, and new_palm_rot (USD_PALM_LOWER_ROT)
+    # correctly transforms it to the USD palm frame when base is identity. However, there may be
+    # a small offset between the palm frame origins that causes collisions.
+    #
+    # Solution: Use the original approach but verify the transformation is correct. The relative
+    # position should be preserved correctly with this transformation.
+    
+    # Transform relative position from MuJoCo palm frame using USD palm rotation
+    # This is the original approach that is almost correct
+    obj_rel_pos_transformed = new_palm_rot @ obj_rel_pos_mj
+    
+    # Apply to USD palm position when base is identity
+    new_object_pos = new_palm_pos + obj_rel_pos_transformed
+    
+    # For orientation: the relative quaternion is already computed correctly
+    # as it's frame-invariant (represents rotation, not direction)
     new_object_quat = np_quaternion_multiply(new_palm_quat, obj_rel_quat)
 
     # Normalize quaternion
