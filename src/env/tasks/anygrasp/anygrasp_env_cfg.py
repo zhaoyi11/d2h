@@ -511,83 +511,84 @@ class InHandObjectEnvCfg(ManagerBasedRLEnvCfg):
             self.apply_grasp_init()
 
     def apply_grasp_init(self):
-        """Apply grasp-based initialization once."""
-        if getattr(self, "_grasp_init_applied", False):
-            return
+        pass
+        # """Apply grasp-based initialization once."""
+        # if getattr(self, "_grasp_init_applied", False):
+        #     return
 
-        if self.grasp_data_path is None:
-            raise ValueError("use_grasp_init=True requires grasp_data_path to be set.")
+        # if self.grasp_data_path is None:
+        #     raise ValueError("use_grasp_init=True requires grasp_data_path to be set.")
 
-        # Compatibility shim: some grasp files were pickled with NumPy 2.x which references
-        # the internal module name `numpy._core.*`, while Isaac Sim ships NumPy 1.x that only
-        # exposes `numpy.core`. Alias it so pickle loading works across versions.
-        import sys
-        import numpy.core as _np_core
+        # # Compatibility shim: some grasp files were pickled with NumPy 2.x which references
+        # # the internal module name `numpy._core.*`, while Isaac Sim ships NumPy 1.x that only
+        # # exposes `numpy.core`. Alias it so pickle loading works across versions.
+        # import sys
+        # import numpy.core as _np_core
 
-        sys.modules.setdefault("numpy._core", _np_core)
+        # sys.modules.setdefault("numpy._core", _np_core)
 
-        grasp_data = np.load(self.grasp_data_path, allow_pickle=True).item()
+        # grasp_data = np.load(self.grasp_data_path, allow_pickle=True).item()
 
-        object_scale = (
-            float(self.object_scale_override)
-            if self.object_scale_override is not None
-            else float(grasp_data["obj_scale"])
-        )
-        orig_object_pos = np.array(grasp_data["obj_pose"][:3])
-        orig_object_quat = np.array(grasp_data["obj_pose"][3:7])
-        mj_palm_pos = np.array(grasp_data["grasp_qpos"][:3])
-        mj_palm_quat = np.array(grasp_data["grasp_qpos"][3:7])
+        # object_scale = (
+        #     float(self.object_scale_override)
+        #     if self.object_scale_override is not None
+        #     else float(grasp_data["obj_scale"])
+        # )
+        # orig_object_pos = np.array(grasp_data["obj_pose"][:3])
+        # orig_object_quat = np.array(grasp_data["obj_pose"][3:7])
+        # mj_palm_pos = np.array(grasp_data["grasp_qpos"][:3])
+        # mj_palm_quat = np.array(grasp_data["grasp_qpos"][3:7])
 
-        new_object_pos, new_object_quat = transform_object_to_robot_frame(
-            mj_palm_pos, mj_palm_quat, orig_object_pos, orig_object_quat
-        )
+        # new_object_pos, new_object_quat = transform_object_to_robot_frame(
+        #     mj_palm_pos, mj_palm_quat, orig_object_pos, orig_object_quat
+        # )
 
-        object_pos = tuple(new_object_pos.tolist())
-        object_quat = tuple(new_object_quat.tolist())
+        # object_pos = tuple(new_object_pos.tolist())
+        # object_quat = tuple(new_object_quat.tolist())
 
-        if self.object_urdf_path is not None:
-            object_asset_path = self.object_urdf_path
-        else:
-            object_asset_path = self.scene.object.spawn.asset_path
+        # if self.object_urdf_path is not None:
+        #     object_asset_path = self.object_urdf_path
+        # else:
+        #     object_asset_path = self.scene.object.spawn.asset_path
 
-        self.scene.object = self.scene.object.replace(
-            spawn=self.scene.object.spawn.replace(
-                asset_path=object_asset_path,
-                scale=(object_scale, object_scale, object_scale),
-            ),
-            init_state=RigidObjectCfg.InitialStateCfg(pos=object_pos, rot=object_quat),
-        )
+        # self.scene.object = self.scene.object.replace(
+        #     spawn=self.scene.object.spawn.replace(
+        #         asset_path=object_asset_path,
+        #         scale=(object_scale, object_scale, object_scale),
+        #     ),
+        #     init_state=RigidObjectCfg.InitialStateCfg(pos=object_pos, rot=object_quat),
+        # )
 
-        self.events.reset_object = EventTerm(
-            func=mdp.reset_root_state_from_pose,
-            mode="reset",
-            params={
-                "asset_cfg": SceneEntityCfg("object", body_names=".*"),
-                "pose": (*object_pos, *object_quat),
-                "velocity": (0.0, 0.0, 0.0, 0.0, 0.0, 0.0),
-            },
-        )
+        # self.events.reset_object = EventTerm(
+        #     func=mdp.reset_root_state_from_pose,
+        #     mode="reset",
+        #     params={
+        #         "asset_cfg": SceneEntityCfg("object", body_names=".*"),
+        #         "pose": (*object_pos, *object_quat),
+        #         "velocity": (0.0, 0.0, 0.0, 0.0, 0.0, 0.0),
+        #     },
+        # )
 
-        self.events.reset_robot_joints = EventTerm(
-            func=mdp.reset_joints_to_fixed,
-            mode="reset",
-            params={
-                "asset_cfg": SceneEntityCfg("robot", joint_names=".*"),
-                "joint_pos": grasp_data["grasp_qpos"][7:],
-            },
-        )
+        # self.events.reset_robot_joints = EventTerm(
+        #     func=mdp.reset_joints_to_fixed,
+        #     mode="reset",
+        #     params={
+        #         "asset_cfg": SceneEntityCfg("robot", joint_names=".*"),
+        #         "joint_pos": grasp_data["grasp_qpos"][7:],
+        #     },
+        # )
 
-        self.events.reset_robot_root = EventTerm(
-            func=mdp.reset_root_state_from_pose,
-            mode="reset",
-            params={
-                "asset_cfg": SceneEntityCfg("robot"),
-                "pose": (0.0, 0.0, 0.0, 1.0, 0.0, 0.0, 0.0),
-                "velocity": (0.0, 0.0, 0.0, 0.0, 0.0, 0.0),
-            },
-        )
+        # self.events.reset_robot_root = EventTerm(
+        #     func=mdp.reset_root_state_from_pose,
+        #     mode="reset",
+        #     params={
+        #         "asset_cfg": SceneEntityCfg("robot"),
+        #         "pose": (0.0, 0.0, 0.0, 1.0, 0.0, 0.0, 0.0),
+        #         "velocity": (0.0, 0.0, 0.0, 0.0, 0.0, 0.0),
+        #     },
+        # )
 
-        self._grasp_init_applied = True
+        # self._grasp_init_applied = True
 
 
 ##
@@ -606,13 +607,14 @@ class LeapObjectEnvCfg(InHandObjectEnvCfg):
         self.scene.robot = LEAP_HAND_CFG.replace(prim_path="{ENV_REGEX_NS}/Robot")
 
         if self.use_grasp_init:
-            self.scene.robot = self.scene.robot.replace(
-                spawn=self.scene.robot.spawn.replace(
-                    articulation_props=self.scene.robot.spawn.articulation_props.replace(
-                        fix_root_link=False,
-                    ),
-                ),
-            )
+            # self.scene.robot = self.scene.robot.replace(
+            #     spawn=self.scene.robot.spawn.replace(
+            #         articulation_props=self.scene.robot.spawn.articulation_props.replace(
+            #             fix_root_link=False,
+            #         ),
+            #     ),
+            # )
+            # TODO: check the init state here.
             self.scene.robot = self.scene.robot.replace(
                 init_state=ArticulationCfg.InitialStateCfg(
                     pos=(0.0, 0.0, 0.0),
