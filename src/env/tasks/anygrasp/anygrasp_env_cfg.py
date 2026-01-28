@@ -396,7 +396,8 @@ class EventCfg:
         func=mdp.reset_root_state_uniform,
         mode="reset",
         params={
-            "pose_range": {"x": [-0.01, 0.01], "y": [-0.01, 0.01],
+            # "pose_range": {"x": [-0.01, 0.01], "y": [-0.01, 0.01], # TODO: disable this for now. later can change this when generating grasp data.
+            "pose_range": {"x": [0.0, 0.0], "y": [0.0, 0.0],
             #  "z": [-0.01, 0.01]
             "z": [0., 0.]
              },
@@ -408,7 +409,8 @@ class EventCfg:
         func=mdp.reset_joints_within_limits_range,
         mode="reset",
         params={
-            "position_range": {".*": [0.2, 0.2]},
+            # "position_range": {".*": [0.2, 0.2]},
+            "position_range": {".*": [0.0, 0.0]},
             "velocity_range": {".*": [0.0, 0.0]},
             "use_default_offset": True,
             "operation": "scale",
@@ -485,6 +487,7 @@ class InHandObjectEnvCfg(ManagerBasedRLEnvCfg):
     scene: InHandObjectSceneCfg = InHandObjectSceneCfg(num_envs=8192, env_spacing=0.6, replicate_physics=False)
     # Simulation settings
     sim: SimulationCfg = SimulationCfg(
+        gravity=(0.0, 0.0, 0.0),
         physics_material=RigidBodyMaterialCfg(
             static_friction=1.0,
             dynamic_friction=1.0,
@@ -522,7 +525,7 @@ class InHandObjectEnvCfg(ManagerBasedRLEnvCfg):
         if self.use_grasp_init:
             if self.grasp_init is None:
                 raise ValueError("use_grasp_init=True requires grasp_init to be precomputed and set on the cfg.")
-            # self._apply_grasp_events(self.grasp_init)
+            self._apply_grasp_events(self.grasp_init)
 
     def _apply_grasp_events(self, grasp_init: GraspInitData):
         """Configure scene and reset events from precomputed grasp data."""
