@@ -22,6 +22,9 @@ parser.add_argument("--video_length", type=int, default=200, help="Length of the
 parser.add_argument("--video_interval", type=int, default=2000, help="Interval between video recordings (in steps).")
 parser.add_argument("--num_envs", type=int, default=None, help="Number of environments to simulate.")
 parser.add_argument("--task", type=str, default=None, help="Name of the task.")
+parser.add_argument("--grasp_path", type=str, default=None, help="Path to grasp data file (.npy).")
+parser.add_argument("--obj_urdf_path", type=str, default=None, help="Path to object URDF.")
+parser.add_argument("--obj_scale", type=float, default=None, help="Override object scale from grasp data.")
 parser.add_argument("--seed", type=int, default=None, help="Seed used for the environment")
 parser.add_argument("--max_iterations", type=int, default=None, help="RL Policy training iterations.")
 parser.add_argument("--registry_name", type=str, required=True, help="The name of the wand registry.")
@@ -128,6 +131,18 @@ def main(env_cfg: ManagerBasedRLEnvCfg | DirectRLEnvCfg | DirectMARLEnvCfg, agen
     # note: certain randomizations occur in the environment initialization so we set the seed here
     env_cfg.seed = agent_cfg.seed
     env_cfg.sim.device = args_cli.device if args_cli.device is not None else env_cfg.sim.device
+    if hasattr(env_cfg, "grasp_data_path"):
+        if args_cli.grasp_path is not None:
+            env_cfg.grasp_data_path = args_cli.grasp_path
+            env_cfg.use_grasp_init = True
+        if args_cli.obj_urdf_path is not None:
+            env_cfg.object_urdf_path = args_cli.obj_urdf_path
+            env_cfg.use_grasp_init = True
+        if args_cli.obj_scale is not None:
+            env_cfg.object_scale_override = args_cli.obj_scale
+            env_cfg.use_grasp_init = True
+        if env_cfg.use_grasp_init:
+            env_cfg.apply_grasp_init()
 
     # load the motion file from the wandb registry
     registry_name = args_cli.registry_name

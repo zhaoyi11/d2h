@@ -7,6 +7,8 @@ from __future__ import annotations
 
 from dataclasses import MISSING
 
+import numpy as np
+
 import isaaclab.sim as sim_utils
 from isaaclab.assets import ArticulationCfg, AssetBaseCfg, RigidObjectCfg
 from isaaclab.envs import ManagerBasedRLEnvCfg
@@ -26,6 +28,71 @@ from isaaclab.utils.noise import AdditiveGaussianNoiseCfg as Gnoise
 from isaaclab.utils.noise import AdditiveUniformNoiseCfg as Unoise
 
 import src.env.tasks.anygrasp.mdps as mdp
+
+
+USD_PALM_LOWER_OFFSET = np.array([-0.1, 0.038, 0.098])
+USD_PALM_LOWER_QUAT = np.array([0.0, -0.7071, 0.0, -0.7071])
+
+
+def np_quaternion_to_matrix(q: np.ndarray) -> np.ndarray:
+    """Convert quaternion [w, x, y, z] to 3x3 rotation matrix."""
+    w, x, y, z = q
+    return np.array(
+        [
+            [1 - 2 * y * y - 2 * z * z, 2 * x * y - 2 * w * z, 2 * x * z + 2 * w * y],
+            [2 * x * y + 2 * w * z, 1 - 2 * x * x - 2 * z * z, 2 * y * z - 2 * w * x],
+            [2 * x * z - 2 * w * y, 2 * y * z + 2 * w * x, 1 - 2 * x * x - 2 * y * y],
+        ]
+    )
+
+
+def np_quaternion_inverse(q: np.ndarray) -> np.ndarray:
+    """Compute the inverse of a quaternion [w, x, y, z]."""
+    w, x, y, z = q
+    return np.array([w, -x, -y, -z])
+
+
+def np_quaternion_multiply(q1: np.ndarray, q2: np.ndarray) -> np.ndarray:
+    """Multiply two quaternions [w, x, y, z]."""
+    w1, x1, y1, z1 = q1
+    w2, x2, y2, z2 = q2
+    return np.array(
+        [
+            w1 * w2 - x1 * x2 - y1 * y2 - z1 * z2,
+            w1 * x2 + x1 * w2 + y1 * z2 - z1 * y2,
+            w1 * y2 - x1 * z2 + y1 * w2 + z1 * x2,
+            w1 * z2 + x1 * y2 - y1 * x2 + z1 * w2,
+        ]
+    )
+
+
+def transform_object_to_robot_frame(
+    mj_palm_pos: np.ndarray,
+    mj_palm_quat: np.ndarray,
+    object_pos: np.ndarray,
+    object_quat: np.ndarray,
+) -> tuple[np.ndarray, np.ndarray]:
+    """Transform object pose so base is identity while preserving palm-to-object relationship."""
+    R_palm_mj = np_quaternion_to_matrix(mj_palm_quat)
+    R_palm_mj_inv = R_palm_mj.T
+    obj_rel_pos_mj = R_palm_mj_inv @ (object_pos - mj_palm_pos)
+
+    palm_quat_inv = np_quaternion_inverse(mj_palm_quat)
+    obj_rel_quat = np_quaternion_multiply(palm_quat_inv, object_quat)
+
+    new_palm_pos = USD_PALM_LOWER_OFFSET.copy()
+    new_palm_quat = USD_PALM_LOWER_QUAT.copy()
+    new_palm_rot = np_quaternion_to_matrix(new_palm_quat)
+
+    obj_rel_pos_transformed = new_palm_rot @ obj_rel_pos_mj
+    new_object_pos = new_palm_pos + obj_rel_pos_transformed
+    new_object_quat = np_quaternion_multiply(new_palm_quat, obj_rel_quat)
+
+    new_object_quat = new_object_quat / np.linalg.norm(new_object_quat)
+    if new_object_quat[0] < 0:
+        new_object_quat = -new_object_quat
+
+    return new_object_pos, new_object_quat
 ##
 # Scene definition
 ##
@@ -398,6 +465,11 @@ class TerminationsCfg:
 class InHandObjectEnvCfg(ManagerBasedRLEnvCfg):
     """Configuration for the in hand reorientation environment."""
 
+    grasp_data_path: str | None = None
+    object_urdf_path: str | None = None
+    object_scale_override: float | None = None
+    use_grasp_init: bool = False
+
     # Scene settings
     scene: InHandObjectSceneCfg = InHandObjectSceneCfg(num_envs=8192, env_spacing=0.6, replicate_physics=False)
     # Simulation settings
@@ -432,6 +504,91 @@ class InHandObjectEnvCfg(ManagerBasedRLEnvCfg):
         # change viewer settings
         self.viewer.eye = (2.0, 2.0, 2.0)
 
+        if self.grasp_data_path is not None:
+            self.use_grasp_init = True
+
+        if self.use_grasp_init and not getattr(self, "_grasp_init_applied", False):
+            self.apply_grasp_init()
+
+    def apply_grasp_init(self):
+        """Apply grasp-based initialization once."""
+        if getattr(self, "_grasp_init_applied", False):
+            return
+
+        if self.grasp_data_path is None:
+            raise ValueError("use_grasp_init=True requires grasp_data_path to be set.")
+
+        # Compatibility shim: some grasp files were pickled with NumPy 2.x which references
+        # the internal module name `numpy._core.*`, while Isaac Sim ships NumPy 1.x that only
+        # exposes `numpy.core`. Alias it so pickle loading works across versions.
+        import sys
+        import numpy.core as _np_core
+
+        sys.modules.setdefault("numpy._core", _np_core)
+
+        grasp_data = np.load(self.grasp_data_path, allow_pickle=True).item()
+
+        object_scale = (
+            float(self.object_scale_override)
+            if self.object_scale_override is not None
+            else float(grasp_data["obj_scale"])
+        )
+        orig_object_pos = np.array(grasp_data["obj_pose"][:3])
+        orig_object_quat = np.array(grasp_data["obj_pose"][3:7])
+        mj_palm_pos = np.array(grasp_data["grasp_qpos"][:3])
+        mj_palm_quat = np.array(grasp_data["grasp_qpos"][3:7])
+
+        new_object_pos, new_object_quat = transform_object_to_robot_frame(
+            mj_palm_pos, mj_palm_quat, orig_object_pos, orig_object_quat
+        )
+
+        object_pos = tuple(new_object_pos.tolist())
+        object_quat = tuple(new_object_quat.tolist())
+
+        if self.object_urdf_path is not None:
+            object_asset_path = self.object_urdf_path
+        else:
+            object_asset_path = self.scene.object.spawn.asset_path
+
+        self.scene.object = self.scene.object.replace(
+            spawn=self.scene.object.spawn.replace(
+                asset_path=object_asset_path,
+                scale=(object_scale, object_scale, object_scale),
+            ),
+            init_state=RigidObjectCfg.InitialStateCfg(pos=object_pos, rot=object_quat),
+        )
+
+        self.events.reset_object = EventTerm(
+            func=mdp.reset_root_state_from_pose,
+            mode="reset",
+            params={
+                "asset_cfg": SceneEntityCfg("object", body_names=".*"),
+                "pose": (*object_pos, *object_quat),
+                "velocity": (0.0, 0.0, 0.0, 0.0, 0.0, 0.0),
+            },
+        )
+
+        self.events.reset_robot_joints = EventTerm(
+            func=mdp.reset_joints_to_fixed,
+            mode="reset",
+            params={
+                "asset_cfg": SceneEntityCfg("robot", joint_names=".*"),
+                "joint_pos": grasp_data["grasp_qpos"][7:],
+            },
+        )
+
+        self.events.reset_robot_root = EventTerm(
+            func=mdp.reset_root_state_from_pose,
+            mode="reset",
+            params={
+                "asset_cfg": SceneEntityCfg("robot"),
+                "pose": (0.0, 0.0, 0.0, 1.0, 0.0, 0.0, 0.0),
+                "velocity": (0.0, 0.0, 0.0, 0.0, 0.0, 0.0),
+            },
+        )
+
+        self._grasp_init_applied = True
+
 
 ##
 # Pre-defined configs
@@ -447,6 +604,22 @@ class LeapObjectEnvCfg(InHandObjectEnvCfg):
 
         # switch robot to leap hand
         self.scene.robot = LEAP_HAND_CFG.replace(prim_path="{ENV_REGEX_NS}/Robot")
+
+        if self.use_grasp_init:
+            self.scene.robot = self.scene.robot.replace(
+                spawn=self.scene.robot.spawn.replace(
+                    articulation_props=self.scene.robot.spawn.articulation_props.replace(
+                        fix_root_link=False,
+                    ),
+                ),
+            )
+            self.scene.robot = self.scene.robot.replace(
+                init_state=ArticulationCfg.InitialStateCfg(
+                    pos=(0.0, 0.0, 0.0),
+                    rot=(1.0, 0.0, 0.0, 0.0),
+                    joint_pos=self.scene.robot.init_state.joint_pos,
+                ),
+            )
         # enable clone in fabric
         # self.scene.clone_in_fabric = True
 

@@ -9,6 +9,7 @@
 from __future__ import annotations
 
 import torch
+import re
 from typing import TYPE_CHECKING, Literal
 
 from isaaclab.assets import Articulation
@@ -182,3 +183,118 @@ class reset_joints_within_limits_range(ManagerTermBase):
 
         # set into the physics simulation
         self._asset.write_joint_state_to_sim(joint_pos, joint_vel, env_ids=env_ids)
+
+
+class reset_root_state_from_pose(ManagerTermBase):
+    """Reset an asset root state to a fixed pose and velocity."""
+
+    def __init__(self, cfg: EventTermCfg, env: ManagerBasedEnv):
+        super().__init__(cfg, env)
+        asset_cfg: SceneEntityCfg = cfg.params.get("asset_cfg", SceneEntityCfg("object"))
+        self._asset = env.scene[asset_cfg.name]
+
+        pose = cfg.params.get("pose", None)
+        if pose is None or len(pose) != 7:
+            raise ValueError("reset_root_state_from_pose requires 'pose' as (x,y,z,w,x,y,z).")
+
+        velocity = cfg.params.get("velocity", None)
+        if velocity is None:
+            velocity = (0.0, 0.0, 0.0, 0.0, 0.0, 0.0)
+        if len(velocity) != 6:
+            raise ValueError("reset_root_state_from_pose requires 'velocity' as (vx,vy,vz,wx,wy,wz).")
+
+        self._pose = torch.tensor(pose, dtype=torch.float32, device=env.device)
+        self._velocity = torch.tensor(velocity, dtype=torch.float32, device=env.device)
+
+    def __call__(
+        self,
+        env: ManagerBasedEnv,
+        env_ids: torch.Tensor,
+        pose: tuple[float, float, float, float, float, float, float] | None = None,
+        velocity: tuple[float, float, float, float, float, float] | None = None,
+        asset_cfg: SceneEntityCfg = SceneEntityCfg("object"),
+    ):
+        pose_tensor = self._pose if pose is None else torch.tensor(pose, dtype=torch.float32, device=env.device)
+        vel_tensor = (
+            self._velocity if velocity is None else torch.tensor(velocity, dtype=torch.float32, device=env.device)
+        )
+
+        root_states = self._asset.data.default_root_state[env_ids].clone()
+        root_states[:, 0:3] = pose_tensor[0:3] + env.scene.env_origins[env_ids]
+        root_states[:, 3:7] = pose_tensor[3:7]
+        root_states[:, 7:10] = vel_tensor[0:3]
+        root_states[:, 10:13] = vel_tensor[3:6]
+
+        self._asset.write_root_state_to_sim(root_states, env_ids=env_ids)
+
+
+class reset_joints_to_fixed(ManagerTermBase):
+    """Reset an articulation's joints to a fixed pose (e.g., from grasp data)."""
+
+    def __init__(self, cfg: EventTermCfg, env: ManagerBasedEnv):
+        super().__init__(cfg, env)
+        asset_cfg: SceneEntityCfg = cfg.params.get("asset_cfg", SceneEntityCfg("robot"))
+        self._asset: Articulation = env.scene[asset_cfg.name]
+
+        joint_pos = cfg.params.get("joint_pos", None)
+        if joint_pos is None:
+            raise ValueError("reset_joints_to_fixed requires 'joint_pos' in MuJoCo/cuRobo order.")
+
+        self._joint_pos = torch.tensor(joint_pos, dtype=torch.float32, device=env.device)
+        self._mapping = self._build_mujoco_to_isaaclab_mapping(self._asset.joint_names)
+
+        self._joint_pos_isaac = self._joint_pos[self._mapping].clone()
+
+    def _build_mujoco_to_isaaclab_mapping(self, isaaclab_joint_names: list[str]) -> torch.Tensor:
+        curobo_joint_order = [
+            "j1",
+            "j0",
+            "j2",
+            "j3",
+            "j5",
+            "j4",
+            "j6",
+            "j7",
+            "j9",
+            "j8",
+            "j10",
+            "j11",
+            "j12",
+            "j13",
+            "j14",
+            "j15",
+        ]
+
+        mapping = []
+        for isaac_name in isaaclab_joint_names:
+            match = re.search(r"(\d+)", isaac_name)
+            if match:
+                joint_num = int(match.group(1))
+                target_joint = f"j{joint_num}"
+                if target_joint in curobo_joint_order:
+                    mapping.append(curobo_joint_order.index(target_joint))
+                else:
+                    mapping.append(len(mapping))
+            else:
+                mapping.append(len(mapping))
+
+        return torch.tensor(mapping, dtype=torch.long, device=self._joint_pos.device)
+
+    def __call__(
+        self,
+        env: ManagerBasedEnv,
+        env_ids: torch.Tensor,
+        joint_pos: list[float] | None = None,
+        asset_cfg: SceneEntityCfg = SceneEntityCfg("robot"),
+    ):
+        joint_pos_tensor = (
+            self._joint_pos_isaac
+            if joint_pos is None
+            else torch.tensor(joint_pos, dtype=torch.float32, device=env.device)[self._mapping]
+        )
+
+        joint_pos_out = self._asset.data.default_joint_pos[env_ids].clone()
+        joint_pos_out[:] = joint_pos_tensor
+        joint_vel_out = torch.zeros_like(joint_pos_out)
+
+        self._asset.write_joint_state_to_sim(joint_pos_out, joint_vel_out, env_ids=env_ids)

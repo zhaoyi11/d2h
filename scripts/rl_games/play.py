@@ -21,6 +21,9 @@ parser.add_argument(
 )
 parser.add_argument("--num_envs", type=int, default=None, help="Number of environments to simulate.")
 parser.add_argument("--task", type=str, default=None, help="Name of the task.")
+parser.add_argument("--grasp_path", type=str, default=None, help="Path to grasp data file (.npy).")
+parser.add_argument("--obj_urdf_path", type=str, default=None, help="Path to object URDF.")
+parser.add_argument("--obj_scale", type=float, default=None, help="Override object scale from grasp data.")
 parser.add_argument(
     "--agent", type=str, default="rl_games_cfg_entry_point", help="Name of the RL agent configuration entry point."
 )
@@ -91,6 +94,22 @@ def main(env_cfg: ManagerBasedRLEnvCfg | DirectRLEnvCfg | DirectMARLEnvCfg, agen
     # override configurations with non-hydra CLI arguments
     env_cfg.scene.num_envs = args_cli.num_envs if args_cli.num_envs is not None else env_cfg.scene.num_envs
     env_cfg.sim.device = args_cli.device if args_cli.device is not None else env_cfg.sim.device
+    if hasattr(env_cfg, "grasp_data_path"):
+        if args_cli.grasp_path is not None:
+            env_cfg.grasp_data_path = args_cli.grasp_path
+            env_cfg.use_grasp_init = True
+        if args_cli.obj_urdf_path is not None:
+            env_cfg.object_urdf_path = args_cli.obj_urdf_path
+            env_cfg.use_grasp_init = True
+        if args_cli.obj_scale is not None:
+            env_cfg.object_scale_override = args_cli.obj_scale
+            env_cfg.use_grasp_init = True
+        if env_cfg.use_grasp_init:
+            env_cfg.apply_grasp_init()
+
+    # Re-run post init after CLI overrides so grasp/object init state is applied.
+    if getattr(env_cfg, "use_grasp_init", False):
+        env_cfg.__post_init__()
     # update agent device to match simulation device
     if args_cli.device is not None:
         agent_cfg["params"]["config"]["device"] = args_cli.device

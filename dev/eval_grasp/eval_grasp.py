@@ -23,7 +23,7 @@ parser.add_argument(
     # default="/home/yizhao/yi/DexGraspBench/output/debug_leap/succgrasp/core_mug_3d3e993f7baa4d7ef1ff24a8b1564a36/floating/scale010/0_grasp.npy",
     # default="/home/yizhao/yi/DexGraspBench/output/debug_leap/graspdata/ddg_gd_jar_poisson_018/floating/scale010/13_grasp.npy",
     # camera
-    default="/home/yizhao/yi/DexGraspBench/output/debug_leap/succgrasp/core_camera_fb3b5fae94f7b02a3b269928487f8a4c/floating/scale008/11_grasp.npy",
+    default="/home/yizhao/yi/DexGraspBench/output/debug_leap/succgrasp/core_camera_fb3b5fae94f7b02a3b269928487f8a4c/floating/scale008/16_grasp.npy",
     help="Path to grasp data file (.npy)",
 )
 parser.add_argument(

@@ -20,6 +20,9 @@ parser.add_argument(
 parser.add_argument("--num_envs", type=int, default=None, help="Number of environments to simulate.")
 parser.add_argument("--task", type=str, default=None, help="Name of the task.")
 parser.add_argument("--motion_file", type=str, default=None, help="Path to the motion file.")
+parser.add_argument("--grasp_path", type=str, default=None, help="Path to grasp data file (.npy).")
+parser.add_argument("--obj_urdf_path", type=str, default=None, help="Path to object URDF.")
+parser.add_argument("--obj_scale", type=float, default=None, help="Override object scale from grasp data.")
 # append RSL-RL cli arguments
 cli_args.add_rsl_rl_args(parser)
 # append AppLauncher cli args
@@ -67,6 +70,18 @@ def main(env_cfg: ManagerBasedRLEnvCfg | DirectRLEnvCfg | DirectMARLEnvCfg, agen
     """Play with RSL-RL agent."""
     agent_cfg: RslRlOnPolicyRunnerCfg = cli_args.parse_rsl_rl_cfg(args_cli.task, args_cli)
     env_cfg.scene.num_envs = args_cli.num_envs if args_cli.num_envs is not None else env_cfg.scene.num_envs
+    if hasattr(env_cfg, "grasp_data_path"):
+        if args_cli.grasp_path is not None:
+            env_cfg.grasp_data_path = args_cli.grasp_path
+            env_cfg.use_grasp_init = True
+        if args_cli.obj_urdf_path is not None:
+            env_cfg.object_urdf_path = args_cli.obj_urdf_path
+            env_cfg.use_grasp_init = True
+        if args_cli.obj_scale is not None:
+            env_cfg.object_scale_override = args_cli.obj_scale
+            env_cfg.use_grasp_init = True
+        if env_cfg.use_grasp_init:
+            env_cfg.apply_grasp_init()
 
     # specify directory for logging experiments
     log_root_path = os.path.join("logs", "rsl_rl", agent_cfg.experiment_name)

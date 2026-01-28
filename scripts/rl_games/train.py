@@ -20,6 +20,9 @@ parser.add_argument("--video_length", type=int, default=200, help="Length of the
 parser.add_argument("--video_interval", type=int, default=2000, help="Interval between video recordings (in steps).")
 parser.add_argument("--num_envs", type=int, default=None, help="Number of environments to simulate.")
 parser.add_argument("--task", type=str, default=None, help="Name of the task.")
+parser.add_argument("--grasp_path", type=str, default=None, help="Path to grasp data file (.npy).")
+parser.add_argument("--obj_urdf_path", type=str, default=None, help="Path to object URDF.")
+parser.add_argument("--obj_scale", type=float, default=None, help="Override object scale from grasp data.")
 parser.add_argument(
     "--agent", type=str, default="rl_games_cfg_entry_point", help="Name of the RL agent configuration entry point."
 )
@@ -103,6 +106,25 @@ def main(env_cfg: ManagerBasedRLEnvCfg | DirectRLEnvCfg | DirectMARLEnvCfg, agen
     # override configurations with non-hydra CLI arguments
     env_cfg.scene.num_envs = args_cli.num_envs if args_cli.num_envs is not None else env_cfg.scene.num_envs
     env_cfg.sim.device = args_cli.device if args_cli.device is not None else env_cfg.sim.device
+    if hasattr(env_cfg, "grasp_data_path"):
+        if args_cli.grasp_path is not None:
+            env_cfg.grasp_data_path = args_cli.grasp_path
+            env_cfg.use_grasp_init = True
+        if args_cli.obj_urdf_path is not None:
+            env_cfg.object_urdf_path = args_cli.obj_urdf_path
+            env_cfg.use_grasp_init = True
+        if args_cli.obj_scale is not None:
+            env_cfg.object_scale_override = args_cli.obj_scale
+            env_cfg.use_grasp_init = True
+        # apply grasp init once after overrides to avoid rerunning full __post_init__
+        if env_cfg.use_grasp_init:
+            env_cfg.apply_grasp_init()
+
+    # Re-run post init after CLI overrides so grasp/object init state is applied.
+    # The configclass decorator runs __post_init__ once at instantiation (before CLI overrides),
+    # so we need to call it again when we toggle use_grasp_init or update grasp parameters here.
+    if getattr(env_cfg, "use_grasp_init", False):
+        env_cfg.__post_init__()
     # check for invalid combination of CPU device with distributed training
     if args_cli.distributed and args_cli.device is not None and "cpu" in args_cli.device:
         raise ValueError(
@@ -230,6 +252,9 @@ def main(env_cfg: ManagerBasedRLEnvCfg | DirectRLEnvCfg | DirectMARLEnvCfg, agen
     # reset the agent and env
     runner.reset()
     # train the agent
+
+    import gc
+    import torch
 
     global_rank = int(os.getenv("RANK", "0"))
     if args_cli.track and global_rank == 0:
