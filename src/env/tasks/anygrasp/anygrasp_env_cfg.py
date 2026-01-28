@@ -183,6 +183,7 @@ class InHandObjectSceneCfg(InteractiveSceneCfg):
             spawn=sim_utils.UrdfFileCfg(
                 asset_path="/home/yizhao/yi/DexGraspBench/assets/object/DGN_2k/processed_data/core_camera_fb3b5fae94f7b02a3b269928487f8a4c/urdf/coacd.urdf",
                 scale=(0.08, 0.08, 0.08), #todo; fix this to configurable from grasp data.
+                activate_contact_sensors=True,
                 fix_base=False,
                 joint_drive=sim_utils.UrdfConverterCfg.JointDriveCfg(
                     gains=sim_utils.UrdfConverterCfg.JointDriveCfg.PDGainsCfg(

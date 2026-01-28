@@ -108,7 +108,18 @@ def fingertip_object_contacts(
         force_w = sensor.data.force_matrix_w.view(env.num_envs, 3)
         contact = (torch.norm(force_w, dim=-1) > threshold).float()
         contacts.append(contact)
-    return torch.stack(contacts, dim=1).sum(dim=1)
+    counts = torch.stack(contacts, dim=1).sum(dim=1)
+
+    # Optional debug: print per-sensor forces when reward debugging enabled
+    if getattr(env.cfg, "print_reward_terms", False):
+        try:
+            norms = [torch.norm(env.scene.sensors[name].data.force_matrix_w.view(env.num_envs, 3)[0]).item() for name in contact_sensor_names]
+            step = getattr(env, "common_step_counter", 0)
+            print(f"[ContactDebug][step {step}] norms {dict(zip(contact_sensor_names, norms))}")
+        except Exception:
+            pass
+
+    return counts
 
 
 def object_stay_close(
