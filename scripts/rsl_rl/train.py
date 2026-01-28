@@ -142,7 +142,13 @@ def main(env_cfg: ManagerBasedRLEnvCfg | DirectRLEnvCfg | DirectMARLEnvCfg, agen
             env_cfg.object_scale_override = args_cli.obj_scale
             env_cfg.use_grasp_init = True
         if env_cfg.use_grasp_init:
-            env_cfg.apply_grasp_init()
+            from src.env.tasks.anygrasp.utils.grasp_init import load_grasp_init
+
+            env_cfg.grasp_init = load_grasp_init(
+                env_cfg.grasp_data_path,
+                object_scale_override=env_cfg.object_scale_override,
+                object_urdf_path=env_cfg.object_urdf_path,
+            )
 
     # load the motion file from the wandb registry
     registry_name = args_cli.registry_name

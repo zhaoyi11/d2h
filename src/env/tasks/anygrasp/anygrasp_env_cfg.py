@@ -5,7 +5,7 @@
 
 from __future__ import annotations
 
-from dataclasses import MISSING
+from dataclasses import MISSING, dataclass
 
 import numpy as np
 
@@ -32,6 +32,17 @@ import src.env.tasks.anygrasp.mdps as mdp
 
 USD_PALM_LOWER_OFFSET = np.array([-0.1, 0.038, 0.098])
 USD_PALM_LOWER_QUAT = np.array([0.0, -0.7071, 0.0, -0.7071])
+
+
+@dataclass
+class GraspInitData:
+    """Precomputed grasp initialization data."""
+
+    object_pos: tuple[float, float, float]
+    object_quat: tuple[float, float, float, float]
+    object_scale: float
+    object_asset_path: str
+    robot_joint_pos: np.ndarray
 
 
 def np_quaternion_to_matrix(q: np.ndarray) -> np.ndarray:
@@ -492,6 +503,7 @@ class InHandObjectEnvCfg(ManagerBasedRLEnvCfg):
     rewards: RewardsCfg = RewardsCfg()
     terminations: TerminationsCfg = TerminationsCfg()
     events: EventCfg = EventCfg()
+    grasp_init: GraspInitData | None = None
 
     def __post_init__(self):
         """Post initialization."""
@@ -507,88 +519,53 @@ class InHandObjectEnvCfg(ManagerBasedRLEnvCfg):
         if self.grasp_data_path is not None:
             self.use_grasp_init = True
 
-        if self.use_grasp_init and not getattr(self, "_grasp_init_applied", False):
-            self.apply_grasp_init()
+        if self.use_grasp_init:
+            if self.grasp_init is None:
+                raise ValueError("use_grasp_init=True requires grasp_init to be precomputed and set on the cfg.")
+            # self._apply_grasp_events(self.grasp_init)
 
-    def apply_grasp_init(self):
-        pass
-        # """Apply grasp-based initialization once."""
-        # if getattr(self, "_grasp_init_applied", False):
-        #     return
+    def _apply_grasp_events(self, grasp_init: GraspInitData):
+        """Configure scene and reset events from precomputed grasp data."""
+        object_asset_path = (
+            grasp_init.object_asset_path if grasp_init.object_asset_path is not None else self.scene.object.spawn.asset_path
+        )
 
-        # if self.grasp_data_path is None:
-        #     raise ValueError("use_grasp_init=True requires grasp_data_path to be set.")
+        self.scene.object = self.scene.object.replace(
+            spawn=self.scene.object.spawn.replace(
+                asset_path=object_asset_path,
+                scale=(grasp_init.object_scale, grasp_init.object_scale, grasp_init.object_scale),
+            ),
+            init_state=RigidObjectCfg.InitialStateCfg(pos=grasp_init.object_pos, rot=grasp_init.object_quat),
+        )
 
-        # # Compatibility shim: some grasp files were pickled with NumPy 2.x which references
-        # # the internal module name `numpy._core.*`, while Isaac Sim ships NumPy 1.x that only
-        # # exposes `numpy.core`. Alias it so pickle loading works across versions.
-        # import sys
-        # import numpy.core as _np_core
+        self.events.reset_object = EventTerm(
+            func=mdp.reset_root_state_from_pose,
+            mode="reset",
+            params={
+                "asset_cfg": SceneEntityCfg("object", body_names=".*"),
+                "pose": (*grasp_init.object_pos, *grasp_init.object_quat),
+                "velocity": (0.0, 0.0, 0.0, 0.0, 0.0, 0.0),
+            },
+        )
 
-        # sys.modules.setdefault("numpy._core", _np_core)
+        self.events.reset_robot_joints = EventTerm(
+            func=mdp.reset_joints_to_fixed,
+            mode="reset",
+            params={
+                "asset_cfg": SceneEntityCfg("robot", joint_names=".*"),
+                "joint_pos": grasp_init.robot_joint_pos,
+            },
+        )
 
-        # grasp_data = np.load(self.grasp_data_path, allow_pickle=True).item()
-
-        # object_scale = (
-        #     float(self.object_scale_override)
-        #     if self.object_scale_override is not None
-        #     else float(grasp_data["obj_scale"])
-        # )
-        # orig_object_pos = np.array(grasp_data["obj_pose"][:3])
-        # orig_object_quat = np.array(grasp_data["obj_pose"][3:7])
-        # mj_palm_pos = np.array(grasp_data["grasp_qpos"][:3])
-        # mj_palm_quat = np.array(grasp_data["grasp_qpos"][3:7])
-
-        # new_object_pos, new_object_quat = transform_object_to_robot_frame(
-        #     mj_palm_pos, mj_palm_quat, orig_object_pos, orig_object_quat
-        # )
-
-        # object_pos = tuple(new_object_pos.tolist())
-        # object_quat = tuple(new_object_quat.tolist())
-
-        # if self.object_urdf_path is not None:
-        #     object_asset_path = self.object_urdf_path
-        # else:
-        #     object_asset_path = self.scene.object.spawn.asset_path
-
-        # self.scene.object = self.scene.object.replace(
-        #     spawn=self.scene.object.spawn.replace(
-        #         asset_path=object_asset_path,
-        #         scale=(object_scale, object_scale, object_scale),
-        #     ),
-        #     init_state=RigidObjectCfg.InitialStateCfg(pos=object_pos, rot=object_quat),
-        # )
-
-        # self.events.reset_object = EventTerm(
-        #     func=mdp.reset_root_state_from_pose,
-        #     mode="reset",
-        #     params={
-        #         "asset_cfg": SceneEntityCfg("object", body_names=".*"),
-        #         "pose": (*object_pos, *object_quat),
-        #         "velocity": (0.0, 0.0, 0.0, 0.0, 0.0, 0.0),
-        #     },
-        # )
-
-        # self.events.reset_robot_joints = EventTerm(
-        #     func=mdp.reset_joints_to_fixed,
-        #     mode="reset",
-        #     params={
-        #         "asset_cfg": SceneEntityCfg("robot", joint_names=".*"),
-        #         "joint_pos": grasp_data["grasp_qpos"][7:],
-        #     },
-        # )
-
-        # self.events.reset_robot_root = EventTerm(
-        #     func=mdp.reset_root_state_from_pose,
-        #     mode="reset",
-        #     params={
-        #         "asset_cfg": SceneEntityCfg("robot"),
-        #         "pose": (0.0, 0.0, 0.0, 1.0, 0.0, 0.0, 0.0),
-        #         "velocity": (0.0, 0.0, 0.0, 0.0, 0.0, 0.0),
-        #     },
-        # )
-
-        # self._grasp_init_applied = True
+        self.events.reset_robot_root = EventTerm(
+            func=mdp.reset_root_state_from_pose,
+            mode="reset",
+            params={
+                "asset_cfg": SceneEntityCfg("robot"),
+                "pose": (0.0, 0.0, 0.0, 1.0, 0.0, 0.0, 0.0),
+                "velocity": (0.0, 0.0, 0.0, 0.0, 0.0, 0.0),
+            },
+        )
 
 
 ##
