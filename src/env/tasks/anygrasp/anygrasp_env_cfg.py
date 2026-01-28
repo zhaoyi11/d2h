@@ -22,6 +22,7 @@ from isaaclab.scene import InteractiveSceneCfg
 from isaaclab.sim.simulation_cfg import PhysxCfg, SimulationCfg
 from isaaclab.sim import CapsuleCfg, ConeCfg, CuboidCfg, RigidBodyMaterialCfg, SphereCfg
 from isaaclab.sim.spawners.materials.physics_materials_cfg import RigidBodyMaterialCfg
+from isaaclab.sensors import ContactSensorCfg
 from isaaclab.utils import configclass
 from isaaclab.utils.assets import ISAAC_NUCLEUS_DIR
 from isaaclab.utils.noise import AdditiveGaussianNoiseCfg as Gnoise
@@ -443,6 +444,19 @@ class RewardsCfg:
     joint_vel_l2 = RewTerm(func=mdp.joint_vel_l2, weight=-2.5e-5)
     action_l2 = RewTerm(func=mdp.action_l2, weight=-0.0001)
     action_rate_l2 = RewTerm(func=mdp.action_rate_l2, weight=-0.01)
+    fingertip_contact = RewTerm(
+        func=mdp.fingertip_object_contacts,
+        weight=0.3,
+        params={
+            "contact_sensor_names": [
+                "thumb_tip_object_s",
+                "index_tip_object_s",
+                "middle_tip_object_s",
+                "ring_tip_object_s",
+            ],
+            "threshold": 1e-3,
+        },
+    )
 
     # -- optional penalties (these are disabled by default)
     # object_away_penalty = RewTerm(
@@ -585,6 +599,23 @@ class LeapObjectEnvCfg(InHandObjectEnvCfg):
 
         # switch robot to leap hand
         self.scene.robot = LEAP_HAND_CFG.replace(prim_path="{ENV_REGEX_NS}/Robot")
+
+        # attach contact sensors to fingertip links for contact-based rewards/observations
+        fingertip_prim_paths = {
+            "thumb_tip_object_s": "{ENV_REGEX_NS}/Robot/thumb_fingertip",
+            "index_tip_object_s": "{ENV_REGEX_NS}/Robot/fingertip",
+            "middle_tip_object_s": "{ENV_REGEX_NS}/Robot/fingertip_2",
+            "ring_tip_object_s": "{ENV_REGEX_NS}/Robot/fingertip_3",
+        }
+        for sensor_name, prim_path in fingertip_prim_paths.items():
+            setattr(
+                self.scene,
+                sensor_name,
+                ContactSensorCfg(
+                    prim_path=prim_path,
+                    filter_prim_paths_expr=["{ENV_REGEX_NS}/Object"],
+                ),
+            )
 
         if self.use_grasp_init:
             # self.scene.robot = self.scene.robot.replace(

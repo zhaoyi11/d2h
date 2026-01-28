@@ -13,6 +13,8 @@ from isaaclab.assets import RigidObject
 from isaaclab.envs import ManagerBasedRLEnv
 from isaaclab.managers import SceneEntityCfg
 
+from isaaclab.sensors import ContactSensor
+
 if TYPE_CHECKING:
     from .commands import InHandReOrientationCommand
 
@@ -94,3 +96,16 @@ def track_orientation_inv_l2(
     dtheta = math_utils.quat_error_magnitude(asset.data.root_quat_w, goal_quat_w)
 
     return 1.0 / (dtheta + rot_eps)
+
+
+def fingertip_object_contacts(
+    env: ManagerBasedRLEnv, contact_sensor_names: list[str], threshold: float = 1e-3
+) -> torch.Tensor:
+    """Counts fingertip contacts with object as binary contacts summed over listed sensors."""
+    contacts = []
+    for name in contact_sensor_names:
+        sensor: ContactSensor = env.scene.sensors[name]
+        force_w = sensor.data.force_matrix_w.view(env.num_envs, 3)
+        contact = (torch.norm(force_w, dim=-1) > threshold).float()
+        contacts.append(contact)
+    return torch.stack(contacts, dim=1).sum(dim=1)
