@@ -182,7 +182,7 @@ class InHandObjectSceneCfg(InteractiveSceneCfg):
             prim_path="{ENV_REGEX_NS}/Object",
             spawn=sim_utils.UrdfFileCfg(
                 asset_path="/home/yizhao/yi/DexGraspBench/assets/object/DGN_2k/processed_data/core_camera_fb3b5fae94f7b02a3b269928487f8a4c/urdf/coacd.urdf",
-                scale=(0.08, 0.08, 0.08),
+                scale=(0.08, 0.08, 0.08), #todo; fix this to configurable from grasp data.
                 fix_base=False,
                 joint_drive=sim_utils.UrdfConverterCfg.JointDriveCfg(
                     gains=sim_utils.UrdfConverterCfg.JointDriveCfg.PDGainsCfg(
@@ -406,6 +406,13 @@ class EventCfg:
             "asset_cfg": SceneEntityCfg("object", body_names=".*"),
         },
     )
+    record_object_init_state = EventTerm(
+        func=mdp.record_object_init_state,
+        mode="reset",
+        params={
+            "asset_cfg": SceneEntityCfg("object"),
+        },
+    )
     reset_robot_joints = EventTerm(
         func=mdp.reset_joints_within_limits_range,
         mode="reset",
@@ -456,6 +463,10 @@ class RewardsCfg:
             ],
             "threshold": 1e-3,
         },
+    )
+    object_stability = RewTerm(
+        func=mdp.object_stay_close,
+        weight=0.3,
     )
 
     # -- optional penalties (these are disabled by default)

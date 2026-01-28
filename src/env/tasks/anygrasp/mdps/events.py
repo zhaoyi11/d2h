@@ -228,6 +228,18 @@ class reset_root_state_from_pose(ManagerTermBase):
         self._asset.write_root_state_to_sim(root_states, env_ids=env_ids)
 
 
+class record_object_init_state(ManagerTermBase):
+    """Record object's post-reset position for per-episode reference."""
+
+    def __init__(self, cfg: EventTermCfg, env: ManagerBasedEnv):
+        super().__init__(cfg, env)
+        asset_cfg: SceneEntityCfg = cfg.params.get("asset_cfg", SceneEntityCfg("object"))
+        self._asset = env.scene[asset_cfg.name]
+
+    def __call__(self, env: ManagerBasedEnv, env_ids: torch.Tensor, asset_cfg: SceneEntityCfg = SceneEntityCfg("object")):
+        env.extras["object_init_pos"] = self._asset.data.root_pos_w.clone()
+
+
 class reset_joints_to_fixed(ManagerTermBase):
     """Reset an articulation's joints to a fixed pose (e.g., from grasp data)."""
 

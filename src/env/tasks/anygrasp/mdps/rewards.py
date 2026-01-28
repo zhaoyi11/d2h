@@ -109,3 +109,13 @@ def fingertip_object_contacts(
         contact = (torch.norm(force_w, dim=-1) > threshold).float()
         contacts.append(contact)
     return torch.stack(contacts, dim=1).sum(dim=1)
+
+
+def object_stay_close(
+    env: ManagerBasedRLEnv, asset_cfg: SceneEntityCfg = SceneEntityCfg("object"), eps: float = 1e-6
+) -> torch.Tensor:
+    """Rewards keeping object near its reset position."""
+    asset: RigidObject = env.scene[asset_cfg.name]
+    init_pos = env.extras.get("object_init_pos", asset.data.root_pos_w)
+    dist = torch.norm(asset.data.root_pos_w - init_pos, dim=-1)
+    return -dist
