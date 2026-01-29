@@ -105,6 +105,8 @@ def transform_object_to_robot_frame(
         new_object_quat = -new_object_quat
 
     return new_object_pos, new_object_quat
+
+
 ##
 # Scene definition
 ##
@@ -172,38 +174,40 @@ class InHandObjectSceneCfg(InteractiveSceneCfg):
     #         # mass_props=sim_utils.MassPropertiesCfg(density=1000.0),
     #     ),
     #     # init_state=RigidObjectCfg.InitialStateCfg(pos=(-0.55, 0.1, 0.35)),
-    #     init_state=RigidObjectCfg.InitialStateCfg(pos=(0.0, -0.10, 0.6), 
+    #     init_state=RigidObjectCfg.InitialStateCfg(pos=(0.0, -0.10, 0.6),
     #     # rot=(1.0, 0.0, 0.0, 0.0)
     #     rot=(0.7071, 0.0, 0.7071, 0.0)
     #     ),
     # )
 
     object = RigidObjectCfg(
-            prim_path="{ENV_REGEX_NS}/Object",
-            spawn=sim_utils.UrdfFileCfg(
-                asset_path="/home/yizhao/yi/DexGraspBench/assets/object/DGN_2k/processed_data/core_camera_fb3b5fae94f7b02a3b269928487f8a4c/urdf/coacd.urdf",
-                scale=(0.08, 0.08, 0.08), #todo; fix this to configurable from grasp data.
-                activate_contact_sensors=True,
-                fix_base=False,
-                joint_drive=sim_utils.UrdfConverterCfg.JointDriveCfg(
-                    gains=sim_utils.UrdfConverterCfg.JointDriveCfg.PDGainsCfg(
-                        stiffness=None, damping=None
-                    ),
+        prim_path="{ENV_REGEX_NS}/Object",
+        spawn=sim_utils.UrdfFileCfg(
+            asset_path="/home/yizhao/yi/DexGraspBench/assets/object/DGN_2k/processed_data/core_camera_fb3b5fae94f7b02a3b269928487f8a4c/urdf/coacd.urdf",
+            scale=(0.08, 0.08, 0.08),  # todo; fix this to configurable from grasp data.
+            activate_contact_sensors=True,
+            fix_base=False,
+            joint_drive=sim_utils.UrdfConverterCfg.JointDriveCfg(
+                gains=sim_utils.UrdfConverterCfg.JointDriveCfg.PDGainsCfg(
+                    stiffness=None, damping=None
                 ),
-                articulation_props=sim_utils.ArticulationRootPropertiesCfg(
-                    articulation_enabled=False,  # Disable articulation for rigid object
-                ),
-                rigid_props=sim_utils.RigidBodyPropertiesCfg(
-                    solver_position_iteration_count=16,
-                    solver_velocity_iteration_count=0,
-                    disable_gravity=False,
-                ),
-                collision_props=sim_utils.CollisionPropertiesCfg(),
-                mass_props=sim_utils.MassPropertiesCfg(mass=0.2),
             ),
-            init_state=RigidObjectCfg.InitialStateCfg(pos=(0.0, -0.10, 0.6), rot=(0.7071, 0.0, 0.7071, 0.0)),
+            articulation_props=sim_utils.ArticulationRootPropertiesCfg(
+                articulation_enabled=False,  # Disable articulation for rigid object
+            ),
+            rigid_props=sim_utils.RigidBodyPropertiesCfg(
+                solver_position_iteration_count=16,
+                solver_velocity_iteration_count=0,
+                disable_gravity=False,
+            ),
+            collision_props=sim_utils.CollisionPropertiesCfg(),
+            mass_props=sim_utils.MassPropertiesCfg(mass=0.2),
+        ),
+        init_state=RigidObjectCfg.InitialStateCfg(
+            pos=(0.0, -0.10, 0.6), rot=(0.7071, 0.0, 0.7071, 0.0)
+        ),
     )
-    
+
     # lights
     light = AssetBaseCfg(
         prim_path="/World/light",
@@ -261,18 +265,25 @@ class ObservationsCfg:
 
         # observation terms (order preserved)
         # -- robot terms
-        joint_pos = ObsTerm(func=mdp.joint_pos_limit_normalized, noise=Gnoise(std=0.005))
+        joint_pos = ObsTerm(
+            func=mdp.joint_pos_limit_normalized, noise=Gnoise(std=0.005)
+        )
         joint_vel = ObsTerm(func=mdp.joint_vel_rel, scale=0.2, noise=Gnoise(std=0.01))
 
         # -- object terms
         object_pos = ObsTerm(
-            func=mdp.root_pos_w, noise=Gnoise(std=0.002), params={"asset_cfg": SceneEntityCfg("object")}
+            func=mdp.root_pos_w,
+            noise=Gnoise(std=0.002),
+            params={"asset_cfg": SceneEntityCfg("object")},
         )
         object_quat = ObsTerm(
-            func=mdp.root_quat_w, params={"asset_cfg": SceneEntityCfg("object"), "make_quat_unique": False}
+            func=mdp.root_quat_w,
+            params={"asset_cfg": SceneEntityCfg("object"), "make_quat_unique": False},
         )
         object_lin_vel = ObsTerm(
-            func=mdp.root_lin_vel_w, noise=Gnoise(std=0.002), params={"asset_cfg": SceneEntityCfg("object")}
+            func=mdp.root_lin_vel_w,
+            noise=Gnoise(std=0.002),
+            params={"asset_cfg": SceneEntityCfg("object")},
         )
         object_ang_vel = ObsTerm(
             func=mdp.root_ang_vel_w,
@@ -282,10 +293,16 @@ class ObservationsCfg:
         )
 
         # -- command terms
-        goal_pose = ObsTerm(func=mdp.generated_commands, params={"command_name": "object_pose"})
+        goal_pose = ObsTerm(
+            func=mdp.generated_commands, params={"command_name": "object_pose"}
+        )
         goal_quat_diff = ObsTerm(
             func=mdp.goal_quat_diff,
-            params={"asset_cfg": SceneEntityCfg("object"), "command_name": "object_pose", "make_quat_unique": False},
+            params={
+                "asset_cfg": SceneEntityCfg("object"),
+                "command_name": "object_pose",
+                "make_quat_unique": False,
+            },
         )
 
         # -- action terms
@@ -328,6 +345,7 @@ class ObservationsCfg:
             self.concatenate_terms = True
             self.flatten_history_dim = True
             self.history_length = 5
+
     # observation groups
     policy: KinematicObsGroupCfg = KinematicObsGroupCfg()
     perception: PerceptionObsCfg = PerceptionObsCfg()
@@ -399,10 +417,12 @@ class EventCfg:
         mode="reset",
         params={
             # "pose_range": {"x": [-0.01, 0.01], "y": [-0.01, 0.01], # TODO: disable this for now. later can change this when generating grasp data.
-            "pose_range": {"x": [0.0, 0.0], "y": [0.0, 0.0],
-            #  "z": [-0.01, 0.01]
-            "z": [0., 0.]
-             },
+            "pose_range": {
+                "x": [0.0, 0.0],
+                "y": [0.0, 0.0],
+                #  "z": [-0.01, 0.01]
+                "z": [0.0, 0.0],
+            },
             "velocity_range": {},
             "asset_cfg": SceneEntityCfg("object", body_names=".*"),
         },
@@ -440,7 +460,11 @@ class RewardsCfg:
     track_orientation_inv_l2 = RewTerm(
         func=mdp.track_orientation_inv_l2,
         weight=1.0,
-        params={"object_cfg": SceneEntityCfg("object"), "rot_eps": 0.1, "command_name": "object_pose"},
+        params={
+            "object_cfg": SceneEntityCfg("object"),
+            "rot_eps": 0.1,
+            "command_name": "object_pose",
+        },
     )
     success_bonus = RewTerm(
         func=mdp.success_bonus,
@@ -452,22 +476,22 @@ class RewardsCfg:
     joint_vel_l2 = RewTerm(func=mdp.joint_vel_l2, weight=-2.5e-5)
     action_l2 = RewTerm(func=mdp.action_l2, weight=-0.0001)
     action_rate_l2 = RewTerm(func=mdp.action_rate_l2, weight=-0.01)
-    fingertip_contact = RewTerm(
-        func=mdp.fingertip_object_contacts,
-        weight=0.3,
-        params={
-            "contact_sensor_names": [
-                "thumb_tip_object_s",
-                "index_tip_object_s",
-                "middle_tip_object_s",
-                "ring_tip_object_s",
-            ],
-            "threshold": 1e-3,
-        },
-    )
+    # fingertip_contact = RewTerm(
+    #     func=mdp.fingertip_object_contacts,
+    #     weight=0.1,
+    #     params={
+    #         "contact_sensor_names": [
+    #             "thumb_tip_object_s",
+    #             "index_tip_object_s",
+    #             "middle_tip_object_s",
+    #             "ring_tip_object_s",
+    #         ],
+    #         "threshold": 1e-3,
+    #     },
+    # )
     object_stability = RewTerm(
         func=mdp.object_stay_close,
-        weight=0.3,
+        weight=0.01,
     )
 
     # -- optional penalties (these are disabled by default)
@@ -485,10 +509,13 @@ class TerminationsCfg:
     time_out = DoneTerm(func=mdp.time_out, time_out=True)
 
     max_consecutive_success = DoneTerm(
-        func=mdp.max_consecutive_success, params={"num_success": 50, "command_name": "object_pose"}
+        func=mdp.max_consecutive_success,
+        params={"num_success": 50, "command_name": "object_pose"},
     )
 
-    object_out_of_reach = DoneTerm(func=mdp.object_away_from_robot, params={"threshold": 0.3})
+    object_out_of_reach = DoneTerm(
+        func=mdp.object_away_from_robot, params={"threshold": 0.3}
+    )
 
     # object_out_of_reach = DoneTerm(
     #     func=mdp.object_away_from_goal, params={"threshold": 0.24, "command_name": "object_pose"}
@@ -510,7 +537,9 @@ class InHandObjectEnvCfg(ManagerBasedRLEnvCfg):
     use_grasp_init: bool = False
 
     # Scene settings
-    scene: InHandObjectSceneCfg = InHandObjectSceneCfg(num_envs=8192, env_spacing=0.6, replicate_physics=False)
+    scene: InHandObjectSceneCfg = InHandObjectSceneCfg(
+        num_envs=8192, env_spacing=0.6, replicate_physics=False
+    )
     # Simulation settings
     sim: SimulationCfg = SimulationCfg(
         gravity=(0.0, 0.0, 0.0),
@@ -550,21 +579,31 @@ class InHandObjectEnvCfg(ManagerBasedRLEnvCfg):
 
         if self.use_grasp_init:
             if self.grasp_init is None:
-                raise ValueError("use_grasp_init=True requires grasp_init to be precomputed and set on the cfg.")
+                raise ValueError(
+                    "use_grasp_init=True requires grasp_init to be precomputed and set on the cfg."
+                )
             self._apply_grasp_events(self.grasp_init)
 
     def _apply_grasp_events(self, grasp_init: GraspInitData):
         """Configure scene and reset events from precomputed grasp data."""
         object_asset_path = (
-            grasp_init.object_asset_path if grasp_init.object_asset_path is not None else self.scene.object.spawn.asset_path
+            grasp_init.object_asset_path
+            if grasp_init.object_asset_path is not None
+            else self.scene.object.spawn.asset_path
         )
 
         self.scene.object = self.scene.object.replace(
             spawn=self.scene.object.spawn.replace(
                 asset_path=object_asset_path,
-                scale=(grasp_init.object_scale, grasp_init.object_scale, grasp_init.object_scale),
+                scale=(
+                    grasp_init.object_scale,
+                    grasp_init.object_scale,
+                    grasp_init.object_scale,
+                ),
             ),
-            init_state=RigidObjectCfg.InitialStateCfg(pos=grasp_init.object_pos, rot=grasp_init.object_quat),
+            init_state=RigidObjectCfg.InitialStateCfg(
+                pos=grasp_init.object_pos, rot=grasp_init.object_quat
+            ),
         )
 
         self.events.reset_object = EventTerm(
