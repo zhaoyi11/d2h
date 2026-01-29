@@ -20,7 +20,9 @@ if TYPE_CHECKING:
 
 
 def success_bonus(
-    env: ManagerBasedRLEnv, command_name: str, object_cfg: SceneEntityCfg = SceneEntityCfg("object")
+    env: ManagerBasedRLEnv,
+    command_name: str,
+    object_cfg: SceneEntityCfg = SceneEntityCfg("object"),
 ) -> torch.Tensor:
     """Bonus reward for successfully reaching the goal.
 
@@ -34,7 +36,9 @@ def success_bonus(
     """
     # extract useful elements
     asset: RigidObject = env.scene[object_cfg.name]
-    command_term: InHandReOrientationCommand = env.command_manager.get_term(command_name)
+    command_term: InHandReOrientationCommand = env.command_manager.get_term(
+        command_name
+    )
 
     # obtain the goal orientation
     goal_quat_w = command_term.command[:, 3:7]
@@ -47,7 +51,9 @@ def success_bonus(
 
 
 def track_pos_l2(
-    env: ManagerBasedRLEnv, command_name: str, object_cfg: SceneEntityCfg = SceneEntityCfg("object")
+    env: ManagerBasedRLEnv,
+    command_name: str,
+    object_cfg: SceneEntityCfg = SceneEntityCfg("object"),
 ) -> torch.Tensor:
     """Reward for tracking the object position using the L2 norm.
 
@@ -60,7 +66,9 @@ def track_pos_l2(
     """
     # extract useful elements
     asset: RigidObject = env.scene[object_cfg.name]
-    command_term: InHandReOrientationCommand = env.command_manager.get_term(command_name)
+    command_term: InHandReOrientationCommand = env.command_manager.get_term(
+        command_name
+    )
 
     # obtain the goal position
     goal_pos_e = command_term.command[:, 0:3]
@@ -88,7 +96,9 @@ def track_orientation_inv_l2(
     """
     # extract useful elements
     asset: RigidObject = env.scene[object_cfg.name]
-    command_term: InHandReOrientationCommand = env.command_manager.get_term(command_name)
+    command_term: InHandReOrientationCommand = env.command_manager.get_term(
+        command_name
+    )
 
     # obtain the goal orientation
     goal_quat_w = command_term.command[:, 3:7]
@@ -98,24 +108,47 @@ def track_orientation_inv_l2(
     return 1.0 / (dtheta + rot_eps)
 
 
+# TODO: check the usage of contact force.
 def fingertip_object_contacts(
     env: ManagerBasedRLEnv, contact_sensor_names: list[str], threshold: float = 1e-3
 ) -> torch.Tensor:
-    """Counts fingertip contacts with object as binary contacts summed over listed sensors."""
+    """Counts fingertip contacts with object as binary contacts summed over listed sensors.
+
+    Uses "max mode" over the sensor's filtered force matrix: a fingertip is considered in contact if
+    any filtered body contact force magnitude exceeds the threshold.
+    """
     contacts = []
     for name in contact_sensor_names:
         sensor: ContactSensor = env.scene.sensors[name]
-        force_w = sensor.data.force_matrix_w.view(env.num_envs, 3)
-        contact = (torch.norm(force_w, dim=-1) > threshold).float()
+        force_matrix_w = sensor.data.force_matrix_w
+        if force_matrix_w is None:
+            # No filter configured / no data available.
+            max_mag = torch.zeros(env.num_envs, device=env.device, dtype=torch.float32)
+        else:
+            # force_matrix_w: (num_envs, num_bodies, num_filters, 3)
+            mag = torch.linalg.norm(force_matrix_w, dim=-1)
+            mag = torch.nan_to_num(mag, nan=0.0)
+            max_mag = mag.amax(dim=(1, 2))
+        contact = (max_mag > threshold).float()
         contacts.append(contact)
     counts = torch.stack(contacts, dim=1).sum(dim=1)
 
     # Optional debug: print per-sensor forces when reward debugging enabled
     if getattr(env.cfg, "print_reward_terms", False):
         try:
-            norms = [torch.norm(env.scene.sensors[name].data.force_matrix_w.view(env.num_envs, 3)[0]).item() for name in contact_sensor_names]
+            norms = []
+            for n in contact_sensor_names:
+                fm = env.scene.sensors[n].data.force_matrix_w
+                if fm is None:
+                    norms.append(0.0)
+                else:
+                    mag0 = torch.linalg.norm(fm[0], dim=-1)
+                    mag0 = torch.nan_to_num(mag0, nan=0.0)
+                    norms.append(mag0.amax().item())
             step = getattr(env, "common_step_counter", 0)
-            print(f"[ContactDebug][step {step}] norms {dict(zip(contact_sensor_names, norms))}")
+            print(
+                f"[ContactDebug][step {step}] norms {dict(zip(contact_sensor_names, norms))}"
+            )
         except Exception:
             pass
 
@@ -123,7 +156,9 @@ def fingertip_object_contacts(
 
 
 def object_stay_close(
-    env: ManagerBasedRLEnv, asset_cfg: SceneEntityCfg = SceneEntityCfg("object"), eps: float = 1e-6
+    env: ManagerBasedRLEnv,
+    asset_cfg: SceneEntityCfg = SceneEntityCfg("object"),
+    eps: float = 1e-6,
 ) -> torch.Tensor:
     """Rewards keeping object near its reset position."""
     asset: RigidObject = env.scene[asset_cfg.name]

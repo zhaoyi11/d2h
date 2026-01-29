@@ -5,7 +5,6 @@
 
 """Functions specific to the in-hand dexterous manipulation environments."""
 
-
 from __future__ import annotations
 
 import torch
@@ -110,12 +109,18 @@ class reset_joints_within_limits_range(ManagerTermBase):
                 self._pos_ranges[joint_ids] += default_joint_pos[joint_ids].unsqueeze(1)
 
         # store the joint pos ids (used later to sample the joint positions)
-        self._pos_joint_ids = torch.tensor(pos_joint_ids, device=self._pos_ranges.device)
+        self._pos_joint_ids = torch.tensor(
+            pos_joint_ids, device=self._pos_ranges.device
+        )
         self._pos_ranges = self._pos_ranges[self._pos_joint_ids]
 
         # create buffers to store the joint velocity range
         self._vel_ranges = torch.stack(
-            [-self._asset.data.soft_joint_vel_limits[0], self._asset.data.soft_joint_vel_limits[0]], dim=1
+            [
+                -self._asset.data.soft_joint_vel_limits[0],
+                self._asset.data.soft_joint_vel_limits[0],
+            ],
+            dim=1,
         )
         # parse joint velocity ranges
         vel_joint_ids = []
@@ -132,9 +137,13 @@ class reset_joints_within_limits_range(ManagerTermBase):
                     self._vel_ranges[joint_ids, 1] = joint_range[1]
             elif operation == "scale":
                 if joint_range[0] is not None:
-                    self._vel_ranges[joint_ids, 0] = joint_range[0] * self._vel_ranges[joint_ids, 0]
+                    self._vel_ranges[joint_ids, 0] = (
+                        joint_range[0] * self._vel_ranges[joint_ids, 0]
+                    )
                 if joint_range[1] is not None:
-                    self._vel_ranges[joint_ids, 1] = joint_range[1] * self._vel_ranges[joint_ids, 1]
+                    self._vel_ranges[joint_ids, 1] = (
+                        joint_range[1] * self._vel_ranges[joint_ids, 1]
+                    )
             else:
                 raise ValueError(
                     f"Unknown operation: '{operation}' for joint velocity ranges. Please use 'abs' or 'scale'."
@@ -144,7 +153,9 @@ class reset_joints_within_limits_range(ManagerTermBase):
                 self._vel_ranges[joint_ids] += default_joint_vel[joint_ids].unsqueeze(1)
 
         # store the joint vel ids (used later to sample the joint positions)
-        self._vel_joint_ids = torch.tensor(vel_joint_ids, device=self._vel_ranges.device)
+        self._vel_joint_ids = torch.tensor(
+            vel_joint_ids, device=self._vel_ranges.device
+        )
         self._vel_ranges = self._vel_ranges[self._vel_joint_ids]
 
     def __call__(
@@ -165,20 +176,30 @@ class reset_joints_within_limits_range(ManagerTermBase):
         if len(self._pos_joint_ids) > 0:
             joint_pos_shape = (len(env_ids), len(self._pos_joint_ids))
             joint_pos[:, self._pos_joint_ids] = sample_uniform(
-                self._pos_ranges[:, 0], self._pos_ranges[:, 1], joint_pos_shape, device=joint_pos.device
+                self._pos_ranges[:, 0],
+                self._pos_ranges[:, 1],
+                joint_pos_shape,
+                device=joint_pos.device,
             )
             # clip the joint positions to the joint limits
-            joint_pos_limits = self._asset.data.soft_joint_pos_limits[0, self._pos_joint_ids]
+            joint_pos_limits = self._asset.data.soft_joint_pos_limits[
+                0, self._pos_joint_ids
+            ]
             joint_pos = joint_pos.clamp(joint_pos_limits[:, 0], joint_pos_limits[:, 1])
 
         # sample random joint velocities for each joint
         if len(self._vel_joint_ids) > 0:
             joint_vel_shape = (len(env_ids), len(self._vel_joint_ids))
             joint_vel[:, self._vel_joint_ids] = sample_uniform(
-                self._vel_ranges[:, 0], self._vel_ranges[:, 1], joint_vel_shape, device=joint_vel.device
+                self._vel_ranges[:, 0],
+                self._vel_ranges[:, 1],
+                joint_vel_shape,
+                device=joint_vel.device,
             )
             # clip the joint velocities to the joint limits
-            joint_vel_limits = self._asset.data.soft_joint_vel_limits[0, self._vel_joint_ids]
+            joint_vel_limits = self._asset.data.soft_joint_vel_limits[
+                0, self._vel_joint_ids
+            ]
             joint_vel = joint_vel.clamp(-joint_vel_limits, joint_vel_limits)
 
         # set into the physics simulation
@@ -190,18 +211,24 @@ class reset_root_state_from_pose(ManagerTermBase):
 
     def __init__(self, cfg: EventTermCfg, env: ManagerBasedEnv):
         super().__init__(cfg, env)
-        asset_cfg: SceneEntityCfg = cfg.params.get("asset_cfg", SceneEntityCfg("object"))
+        asset_cfg: SceneEntityCfg = cfg.params.get(
+            "asset_cfg", SceneEntityCfg("object")
+        )
         self._asset = env.scene[asset_cfg.name]
 
         pose = cfg.params.get("pose", None)
         if pose is None or len(pose) != 7:
-            raise ValueError("reset_root_state_from_pose requires 'pose' as (x,y,z,w,x,y,z).")
+            raise ValueError(
+                "reset_root_state_from_pose requires 'pose' as (x,y,z,w,x,y,z)."
+            )
 
         velocity = cfg.params.get("velocity", None)
         if velocity is None:
             velocity = (0.0, 0.0, 0.0, 0.0, 0.0, 0.0)
         if len(velocity) != 6:
-            raise ValueError("reset_root_state_from_pose requires 'velocity' as (vx,vy,vz,wx,wy,wz).")
+            raise ValueError(
+                "reset_root_state_from_pose requires 'velocity' as (vx,vy,vz,wx,wy,wz)."
+            )
 
         self._pose = torch.tensor(pose, dtype=torch.float32, device=env.device)
         self._velocity = torch.tensor(velocity, dtype=torch.float32, device=env.device)
@@ -214,9 +241,15 @@ class reset_root_state_from_pose(ManagerTermBase):
         velocity: tuple[float, float, float, float, float, float] | None = None,
         asset_cfg: SceneEntityCfg = SceneEntityCfg("object"),
     ):
-        pose_tensor = self._pose if pose is None else torch.tensor(pose, dtype=torch.float32, device=env.device)
+        pose_tensor = (
+            self._pose
+            if pose is None
+            else torch.tensor(pose, dtype=torch.float32, device=env.device)
+        )
         vel_tensor = (
-            self._velocity if velocity is None else torch.tensor(velocity, dtype=torch.float32, device=env.device)
+            self._velocity
+            if velocity is None
+            else torch.tensor(velocity, dtype=torch.float32, device=env.device)
         )
 
         root_states = self._asset.data.default_root_state[env_ids].clone()
@@ -233,11 +266,31 @@ class record_object_init_state(ManagerTermBase):
 
     def __init__(self, cfg: EventTermCfg, env: ManagerBasedEnv):
         super().__init__(cfg, env)
-        asset_cfg: SceneEntityCfg = cfg.params.get("asset_cfg", SceneEntityCfg("object"))
+        asset_cfg: SceneEntityCfg = cfg.params.get(
+            "asset_cfg", SceneEntityCfg("object")
+        )
         self._asset = env.scene[asset_cfg.name]
 
-    def __call__(self, env: ManagerBasedEnv, env_ids: torch.Tensor, asset_cfg: SceneEntityCfg = SceneEntityCfg("object")):
-        env.extras["object_init_pos"] = self._asset.data.root_pos_w.clone()
+    def __call__(
+        self,
+        env: ManagerBasedEnv,
+        env_ids: torch.Tensor | slice | None,
+        asset_cfg: SceneEntityCfg = SceneEntityCfg("object"),
+    ):
+        root_pos_w = self._asset.data.root_pos_w
+        # initialize storage once (persisted across resets)
+        if (
+            "object_init_pos" not in env.extras
+            or env.extras["object_init_pos"] is None
+            or env.extras["object_init_pos"].shape != root_pos_w.shape
+        ):
+            env.extras["object_init_pos"] = root_pos_w.clone()
+
+        # update only the reset envs
+        if env_ids is None or env_ids == slice(None):
+            env.extras["object_init_pos"][:] = root_pos_w
+        else:
+            env.extras["object_init_pos"][env_ids] = root_pos_w[env_ids]
 
 
 class reset_joints_to_fixed(ManagerTermBase):
@@ -250,14 +303,20 @@ class reset_joints_to_fixed(ManagerTermBase):
 
         joint_pos = cfg.params.get("joint_pos", None)
         if joint_pos is None:
-            raise ValueError("reset_joints_to_fixed requires 'joint_pos' in MuJoCo/cuRobo order.")
+            raise ValueError(
+                "reset_joints_to_fixed requires 'joint_pos' in MuJoCo/cuRobo order."
+            )
 
-        self._joint_pos = torch.tensor(joint_pos, dtype=torch.float32, device=env.device)
+        self._joint_pos = torch.tensor(
+            joint_pos, dtype=torch.float32, device=env.device
+        )
         self._mapping = self._build_mujoco_to_isaaclab_mapping(self._asset.joint_names)
 
         self._joint_pos_isaac = self._joint_pos[self._mapping].clone()
 
-    def _build_mujoco_to_isaaclab_mapping(self, isaaclab_joint_names: list[str]) -> torch.Tensor:
+    def _build_mujoco_to_isaaclab_mapping(
+        self, isaaclab_joint_names: list[str]
+    ) -> torch.Tensor:
         curobo_joint_order = [
             "j1",
             "j0",
@@ -302,11 +361,15 @@ class reset_joints_to_fixed(ManagerTermBase):
         joint_pos_tensor = (
             self._joint_pos_isaac
             if joint_pos is None
-            else torch.tensor(joint_pos, dtype=torch.float32, device=env.device)[self._mapping]
+            else torch.tensor(joint_pos, dtype=torch.float32, device=env.device)[
+                self._mapping
+            ]
         )
 
         joint_pos_out = self._asset.data.default_joint_pos[env_ids].clone()
         joint_pos_out[:] = joint_pos_tensor
         joint_vel_out = torch.zeros_like(joint_pos_out)
 
-        self._asset.write_joint_state_to_sim(joint_pos_out, joint_vel_out, env_ids=env_ids)
+        self._asset.write_joint_state_to_sim(
+            joint_pos_out, joint_vel_out, env_ids=env_ids
+        )

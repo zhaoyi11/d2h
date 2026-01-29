@@ -12,7 +12,13 @@ import isaaclab.utils.math as math_utils
 from isaaclab.envs import ManagerBasedRLEnv
 from isaaclab.assets import Articulation, RigidObject
 from isaaclab.managers import ManagerTermBase, SceneEntityCfg
-from isaaclab.utils.math import quat_apply, quat_apply_inverse, quat_inv, quat_mul, subtract_frame_transforms
+from isaaclab.utils.math import (
+    quat_apply,
+    quat_apply_inverse,
+    quat_inv,
+    quat_mul,
+    subtract_frame_transforms,
+)
 
 from src.utils.point_cloud import sample_object_point_cloud
 
@@ -37,7 +43,9 @@ def object_pos_b(
     """
     robot: RigidObject = env.scene[robot_cfg.name]
     object: RigidObject = env.scene[object_cfg.name]
-    return quat_apply_inverse(robot.data.root_quat_w, object.data.root_pos_w - robot.data.root_pos_w)
+    return quat_apply_inverse(
+        robot.data.root_quat_w, object.data.root_pos_w - robot.data.root_pos_w
+    )
 
 
 def object_quat_b(
@@ -83,14 +91,28 @@ def body_state_b(
     # get world pose of bodies
     body_pos_w = body_asset.data.body_pos_w[:, body_asset_cfg.body_ids].view(-1, 3)
     body_quat_w = body_asset.data.body_quat_w[:, body_asset_cfg.body_ids].view(-1, 4)
-    body_lin_vel_w = body_asset.data.body_lin_vel_w[:, body_asset_cfg.body_ids].view(-1, 3)
-    body_ang_vel_w = body_asset.data.body_ang_vel_w[:, body_asset_cfg.body_ids].view(-1, 3)
+    body_lin_vel_w = body_asset.data.body_lin_vel_w[:, body_asset_cfg.body_ids].view(
+        -1, 3
+    )
+    body_ang_vel_w = body_asset.data.body_ang_vel_w[:, body_asset_cfg.body_ids].view(
+        -1, 3
+    )
     num_bodies = int(body_pos_w.shape[0] / env.num_envs)
     # get world pose of base frame
-    root_pos_w = base_asset.data.root_link_pos_w.unsqueeze(1).repeat_interleave(num_bodies, dim=1).view(-1, 3)
-    root_quat_w = base_asset.data.root_link_quat_w.unsqueeze(1).repeat_interleave(num_bodies, dim=1).view(-1, 4)
+    root_pos_w = (
+        base_asset.data.root_link_pos_w.unsqueeze(1)
+        .repeat_interleave(num_bodies, dim=1)
+        .view(-1, 3)
+    )
+    root_quat_w = (
+        base_asset.data.root_link_quat_w.unsqueeze(1)
+        .repeat_interleave(num_bodies, dim=1)
+        .view(-1, 4)
+    )
     # transform from world body pose to local body pose
-    body_pos_b, body_quat_b = subtract_frame_transforms(root_pos_w, root_quat_w, body_pos_w, body_quat_w)
+    body_pos_b, body_quat_b = subtract_frame_transforms(
+        root_pos_w, root_quat_w, body_pos_w, body_quat_w
+    )
     body_lin_vel_b = quat_apply_inverse(root_quat_w, body_lin_vel_w)
     body_ang_vel_b = quat_apply_inverse(root_quat_w, body_ang_vel_w)
     # concate and return
@@ -119,8 +141,12 @@ class object_point_cloud_b(ManagerTermBase):
     def __init__(self, cfg, env: ManagerBasedRLEnv):
         super().__init__(cfg, env)
 
-        self.object_cfg: SceneEntityCfg = cfg.params.get("object_cfg", SceneEntityCfg("object"))
-        self.ref_asset_cfg: SceneEntityCfg = cfg.params.get("ref_asset_cfg", SceneEntityCfg("robot"))
+        self.object_cfg: SceneEntityCfg = cfg.params.get(
+            "object_cfg", SceneEntityCfg("object")
+        )
+        self.ref_asset_cfg: SceneEntityCfg = cfg.params.get(
+            "ref_asset_cfg", SceneEntityCfg("robot")
+        )
         num_points: int = cfg.params.get("num_points", 10)
         self.object: RigidObject = env.scene[self.object_cfg.name]
         self.ref_asset: Articulation = env.scene[self.ref_asset_cfg.name]
@@ -129,7 +155,9 @@ class object_point_cloud_b(ManagerTermBase):
             from isaaclab.markers import VisualizationMarkers
             from isaaclab.markers.config import RAY_CASTER_MARKER_CFG
 
-            ray_cfg = RAY_CASTER_MARKER_CFG.replace(prim_path="/Visuals/ObservationPointCloud")
+            ray_cfg = RAY_CASTER_MARKER_CFG.replace(
+                prim_path="/Visuals/ObservationPointCloud"
+            )
             ray_cfg.markers["hit"].radius = 0.0025
             self.visualizer = VisualizationMarkers(ray_cfg)
         self.points_local = sample_object_point_cloud(
@@ -164,17 +192,27 @@ class object_point_cloud_b(ManagerTermBase):
             Tensor of shape ``(num_envs, num_points, 3)`` or flattened if requested.
         """
         ref_pos_w = self.ref_asset.data.root_pos_w.unsqueeze(1).repeat(1, num_points, 1)
-        ref_quat_w = self.ref_asset.data.root_quat_w.unsqueeze(1).repeat(1, num_points, 1)
+        ref_quat_w = self.ref_asset.data.root_quat_w.unsqueeze(1).repeat(
+            1, num_points, 1
+        )
 
         object_pos_w = self.object.data.root_pos_w.unsqueeze(1).repeat(1, num_points, 1)
-        object_quat_w = self.object.data.root_quat_w.unsqueeze(1).repeat(1, num_points, 1)
+        object_quat_w = self.object.data.root_quat_w.unsqueeze(1).repeat(
+            1, num_points, 1
+        )
         # apply rotation + translation
         self.points_w = quat_apply(object_quat_w, self.points_local) + object_pos_w
         if visualize:
             self.visualizer.visualize(translations=self.points_w.view(-1, 3))
-        object_point_cloud_pos_b, _ = subtract_frame_transforms(ref_pos_w, ref_quat_w, self.points_w, None)
+        object_point_cloud_pos_b, _ = subtract_frame_transforms(
+            ref_pos_w, ref_quat_w, self.points_w, None
+        )
 
-        return object_point_cloud_pos_b.view(env.num_envs, -1) if flatten else object_point_cloud_pos_b
+        return (
+            object_point_cloud_pos_b.view(env.num_envs, -1)
+            if flatten
+            else object_point_cloud_pos_b
+        )
 
 
 def fingers_contact_force_b(
@@ -189,18 +227,35 @@ def fingers_contact_force_b(
         contact_sensor_names: Names of contact sensors in ``env.scene.sensors`` to read.
 
     Returns:
-        Tensor of shape ``(num_envs, 3 * num_sensors)`` with forces stacked horizontally as
+        Tensor of shape ``(num_envs, num_sensors, 3)`` with forces stacked along dimension 1 as
         ``[fx, fy, fz]`` per sensor.
     """
-    force_w = [env.scene.sensors[name].data.force_matrix_w.view(env.num_envs, 3) for name in contact_sensor_names]
-    force_w = torch.stack(force_w, dim=1)
+    # force_matrix_w is shaped (num_envs, num_bodies, num_filters, 3). We aggregate over bodies and
+    # filtered bodies to get a single force vector per sensor per environment.
+    # TODO: check the usage of contact force.
+    forces_w = []
+    for name in contact_sensor_names:
+        fm = env.scene.sensors[name].data.force_matrix_w
+        if fm is None:
+            forces_w.append(
+                torch.zeros(env.num_envs, 3, device=env.device, dtype=torch.float32)
+            )
+        else:
+            fm = torch.nan_to_num(fm, nan=0.0)
+            forces_w.append(fm.sum(dim=(1, 2)))
+    force_w = torch.stack(forces_w, dim=1)
     robot: Articulation = env.scene[asset_cfg.name]
-    forces_b = quat_apply_inverse(robot.data.root_link_quat_w.unsqueeze(1).repeat(1, force_w.shape[1], 1), force_w)
+    forces_b = quat_apply_inverse(
+        robot.data.root_link_quat_w.unsqueeze(1).repeat(1, force_w.shape[1], 1), force_w
+    )
     return forces_b
 
 
 def goal_quat_diff(
-    env: ManagerBasedRLEnv, asset_cfg: SceneEntityCfg, command_name: str, make_quat_unique: bool
+    env: ManagerBasedRLEnv,
+    asset_cfg: SceneEntityCfg,
+    command_name: str,
+    make_quat_unique: bool,
 ) -> torch.Tensor:
     """Goal orientation relative to the asset's root frame.
 
@@ -208,7 +263,9 @@ def goal_quat_diff(
     """
     # extract useful elements
     asset: RigidObject = env.scene[asset_cfg.name]
-    command_term: InHandReOrientationCommand = env.command_manager.get_term(command_name)
+    command_term: InHandReOrientationCommand = env.command_manager.get_term(
+        command_name
+    )
 
     # obtain the orientations
     goal_quat_w = command_term.command[:, 3:7]
