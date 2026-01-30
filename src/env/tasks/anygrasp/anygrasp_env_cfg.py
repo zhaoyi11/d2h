@@ -104,6 +104,9 @@ def transform_object_to_robot_frame(
     if new_object_quat[0] < 0:
         new_object_quat = -new_object_quat
 
+    # example
+    # pos  array([0.14013682, 0.02385659, 0.09118012])
+    # quat array([0.02073345, 0.96638001, 0.24646428, 0.07025066])
     return new_object_pos, new_object_quat
 
 
@@ -231,7 +234,8 @@ class CommandsCfg:
 
     object_pose = mdp.InHandReOrientationCommandCfg(
         asset_name="object",
-        init_pos_offset=(0.0, 0.0, -0.04),
+        # init_pos_offset=(0.0, 0.0, -0.04),
+        init_pos_offset=(0.0, 0.0, 0.0),  # TODO: remove z offset, confirm this.
         update_goal_on_success=True,
         orientation_success_threshold=0.1,
         make_quat_unique=False,

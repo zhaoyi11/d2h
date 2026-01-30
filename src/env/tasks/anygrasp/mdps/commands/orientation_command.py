@@ -56,22 +56,37 @@ class InHandReOrientationCommand(CommandTerm):
 
         # create buffers to store the command
         # -- command: (x, y, z)
-        init_pos_offset = torch.tensor(cfg.init_pos_offset, dtype=torch.float, device=self.device)
-        self.pos_command_e = self.object.data.default_root_state[:, :3] + init_pos_offset
+        init_pos_offset = torch.tensor(
+            cfg.init_pos_offset, dtype=torch.float, device=self.device
+        )
+        self.pos_command_e = (
+            self.object.data.default_root_state[:, :3] + init_pos_offset
+        )
         self.pos_command_w = self.pos_command_e + self._env.scene.env_origins
+
         # -- orientation: (w, x, y, z)
         self.quat_command_w = torch.zeros(self.num_envs, 4, device=self.device)
         self.quat_command_w[:, 0] = 1.0  # set the scalar component to 1.0
 
         # -- unit vectors
-        self._X_UNIT_VEC = torch.tensor([1.0, 0, 0], device=self.device).repeat((self.num_envs, 1))
-        self._Y_UNIT_VEC = torch.tensor([0, 1.0, 0], device=self.device).repeat((self.num_envs, 1))
-        self._Z_UNIT_VEC = torch.tensor([0, 0, 1.0], device=self.device).repeat((self.num_envs, 1))
+        self._X_UNIT_VEC = torch.tensor([1.0, 0, 0], device=self.device).repeat(
+            (self.num_envs, 1)
+        )
+        self._Y_UNIT_VEC = torch.tensor([0, 1.0, 0], device=self.device).repeat(
+            (self.num_envs, 1)
+        )
+        self._Z_UNIT_VEC = torch.tensor([0, 0, 1.0], device=self.device).repeat(
+            (self.num_envs, 1)
+        )
 
         # -- metrics
-        self.metrics["orientation_error"] = torch.zeros(self.num_envs, device=self.device)
+        self.metrics["orientation_error"] = torch.zeros(
+            self.num_envs, device=self.device
+        )
         self.metrics["position_error"] = torch.zeros(self.num_envs, device=self.device)
-        self.metrics["consecutive_success"] = torch.zeros(self.num_envs, device=self.device)
+        self.metrics["consecutive_success"] = torch.zeros(
+            self.num_envs, device=self.device
+        )
 
     def __str__(self) -> str:
         msg = "InHandManipulationCommandGenerator:\n"
@@ -98,9 +113,13 @@ class InHandReOrientationCommand(CommandTerm):
             self.object.data.root_quat_w, self.quat_command_w
         )
         # -- compute the position error
-        self.metrics["position_error"] = torch.norm(self.object.data.root_pos_w - self.pos_command_w, dim=1)
+        self.metrics["position_error"] = torch.norm(
+            self.object.data.root_pos_w - self.pos_command_w, dim=1
+        )
         # -- compute the number of consecutive successes
-        successes = self.metrics["orientation_error"] < self.cfg.orientation_success_threshold
+        successes = (
+            self.metrics["orientation_error"] < self.cfg.orientation_success_threshold
+        )
         self.metrics["consecutive_success"] += successes.float()
 
     def _resample_command(self, env_ids: Sequence[int]):
@@ -108,17 +127,26 @@ class InHandReOrientationCommand(CommandTerm):
         rand_floats = 2.0 * torch.rand((len(env_ids), 2), device=self.device) - 1.0
         # rotate randomly about x-axis and then y-axis
         quat = math_utils.quat_mul(
-            math_utils.quat_from_angle_axis(rand_floats[:, 0] * torch.pi, self._X_UNIT_VEC[env_ids]),
-            math_utils.quat_from_angle_axis(rand_floats[:, 1] * torch.pi, self._Y_UNIT_VEC[env_ids]),
+            math_utils.quat_from_angle_axis(
+                rand_floats[:, 0] * torch.pi, self._X_UNIT_VEC[env_ids]
+            ),
+            math_utils.quat_from_angle_axis(
+                rand_floats[:, 1] * torch.pi, self._Y_UNIT_VEC[env_ids]
+            ),
         )
         # make sure the quaternion real-part is always positive
-        self.quat_command_w[env_ids] = math_utils.quat_unique(quat) if self.cfg.make_quat_unique else quat
+        self.quat_command_w[env_ids] = (
+            math_utils.quat_unique(quat) if self.cfg.make_quat_unique else quat
+        )
 
     def _update_command(self):
         # update the command if goal is reached
         if self.cfg.update_goal_on_success:
             # compute the goal resets
-            goal_resets = self.metrics["orientation_error"] < self.cfg.orientation_success_threshold
+            goal_resets = (
+                self.metrics["orientation_error"]
+                < self.cfg.orientation_success_threshold
+            )
             goal_reset_ids = goal_resets.nonzero(as_tuple=False).squeeze(-1)
             # resample the goals
             self._resample(goal_reset_ids)
@@ -129,9 +157,13 @@ class InHandReOrientationCommand(CommandTerm):
         if debug_vis:
             # create markers if necessary for the first time
             if not hasattr(self, "goal_pose_visualizer"):
-                self.goal_pose_visualizer = VisualizationMarkers(self.cfg.goal_pose_visualizer_cfg)
+                self.goal_pose_visualizer = VisualizationMarkers(
+                    self.cfg.goal_pose_visualizer_cfg
+                )
             if not hasattr(self, "current_pose_visualizer"):
-                self.current_pose_visualizer = VisualizationMarkers(self.cfg.current_pose_visualizer_cfg)
+                self.current_pose_visualizer = VisualizationMarkers(
+                    self.cfg.current_pose_visualizer_cfg
+                )
             # set visibility
             self.goal_pose_visualizer.set_visibility(True)
             self.current_pose_visualizer.set_visibility(True)
@@ -144,14 +176,19 @@ class InHandReOrientationCommand(CommandTerm):
     def _debug_vis_callback(self, event):
         # Goal pose visualization
         # add an offset to the marker position to visualize the goal
-        marker_pos = self.pos_command_w + torch.tensor(self.cfg.marker_pos_offset, device=self.device)
+        marker_pos = self.pos_command_w + torch.tensor(
+            self.cfg.marker_pos_offset, device=self.device
+        )
         marker_quat = self.quat_command_w
         # visualize the goal marker
-        self.goal_pose_visualizer.visualize(translations=marker_pos, orientations=marker_quat)
+        self.goal_pose_visualizer.visualize(
+            translations=marker_pos, orientations=marker_quat
+        )
 
         # Current object pose visualization
         # visualize at actual object position
         current_pos = self.object.data.root_pos_w
         current_quat = self.object.data.root_quat_w
-        self.current_pose_visualizer.visualize(translations=current_pos, orientations=current_quat)
-
+        self.current_pose_visualizer.visualize(
+            translations=current_pos, orientations=current_quat
+        )
