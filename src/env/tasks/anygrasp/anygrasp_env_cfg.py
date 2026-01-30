@@ -34,6 +34,30 @@ import src.env.tasks.anygrasp.mdps as mdp
 USD_PALM_LOWER_OFFSET = np.array([-0.1, 0.038, 0.098])
 USD_PALM_LOWER_QUAT = np.array([0.0, -0.7071, 0.0, -0.7071])
 
+# Fixed rotation to apply to initial wrist/object poses.
+# Quaternion format is (w, x, y, z). Using world +Y axis, +90deg.
+_Q_Y_POS_90_WXYZ = (0.7071067811865476, 0.0, 0.7071067811865476, 0.0)
+
+
+def _quat_mul_wxyz(
+    q1: tuple[float, float, float, float], q2: tuple[float, float, float, float]
+) -> tuple[float, float, float, float]:
+    """Quaternion multiply (wxyz): q = q1 * q2."""
+    w1, x1, y1, z1 = q1
+    w2, x2, y2, z2 = q2
+    return (
+        w1 * w2 - x1 * x2 - y1 * y2 - z1 * z2,
+        w1 * x2 + x1 * w2 + y1 * z2 - z1 * y2,
+        w1 * y2 - x1 * z2 + y1 * w2 + z1 * x2,
+        w1 * z2 + x1 * y2 - y1 * x2 + z1 * w2,
+    )
+
+
+def _rotate_pos_y_pos_90(pos: tuple[float, float, float]) -> tuple[float, float, float]:
+    """Rotate a position by +90deg about world +Y: (x,y,z) -> (z, y, -x)."""
+    x, y, z = pos
+    return (z, y, -x)
+
 
 @dataclass
 class GraspInitData:
@@ -207,7 +231,8 @@ class InHandObjectSceneCfg(InteractiveSceneCfg):
             mass_props=sim_utils.MassPropertiesCfg(mass=0.2),
         ),
         init_state=RigidObjectCfg.InitialStateCfg(
-            pos=(0.0, -0.10, 0.6), rot=(0.7071, 0.0, 0.7071, 0.0)
+            pos=_rotate_pos_y_pos_90((0.0, -0.10, 0.6)),
+            rot=_quat_mul_wxyz(_Q_Y_POS_90_WXYZ, (0.7071, 0.0, 0.7071, 0.0)),
         ),
     )
 
@@ -546,7 +571,7 @@ class InHandObjectEnvCfg(ManagerBasedRLEnvCfg):
     )
     # Simulation settings
     sim: SimulationCfg = SimulationCfg(
-        gravity=(0.0, 0.0, 0.0),
+        gravity=(0.0, 0.0, -9.8),
         physics_material=RigidBodyMaterialCfg(
             static_friction=1.0,
             dynamic_friction=1.0,
@@ -596,6 +621,9 @@ class InHandObjectEnvCfg(ManagerBasedRLEnvCfg):
             else self.scene.object.spawn.asset_path
         )
 
+        object_pos_rot = _rotate_pos_y_pos_90(grasp_init.object_pos)
+        object_quat_rot = _quat_mul_wxyz(_Q_Y_POS_90_WXYZ, grasp_init.object_quat)
+
         self.scene.object = self.scene.object.replace(
             spawn=self.scene.object.spawn.replace(
                 asset_path=object_asset_path,
@@ -606,7 +634,7 @@ class InHandObjectEnvCfg(ManagerBasedRLEnvCfg):
                 ),
             ),
             init_state=RigidObjectCfg.InitialStateCfg(
-                pos=grasp_init.object_pos, rot=grasp_init.object_quat
+                pos=object_pos_rot, rot=object_quat_rot
             ),
         )
 
@@ -615,7 +643,7 @@ class InHandObjectEnvCfg(ManagerBasedRLEnvCfg):
             mode="reset",
             params={
                 "asset_cfg": SceneEntityCfg("object", body_names=".*"),
-                "pose": (*grasp_init.object_pos, *grasp_init.object_quat),
+                "pose": (*object_pos_rot, *object_quat_rot),
                 "velocity": (0.0, 0.0, 0.0, 0.0, 0.0, 0.0),
             },
         )
@@ -634,7 +662,7 @@ class InHandObjectEnvCfg(ManagerBasedRLEnvCfg):
             mode="reset",
             params={
                 "asset_cfg": SceneEntityCfg("robot"),
-                "pose": (0.0, 0.0, 0.0, 1.0, 0.0, 0.0, 0.0),
+                "pose": (0.0, 0.0, 0.0, *_Q_Y_POS_90_WXYZ),
                 "velocity": (0.0, 0.0, 0.0, 0.0, 0.0, 0.0),
             },
         )
@@ -684,9 +712,18 @@ class LeapObjectEnvCfg(InHandObjectEnvCfg):
             self.scene.robot = self.scene.robot.replace(
                 init_state=ArticulationCfg.InitialStateCfg(
                     pos=(0.0, 0.0, 0.0),
-                    rot=(1.0, 0.0, 0.0, 0.0),
+                    rot=_Q_Y_POS_90_WXYZ,
                     joint_pos=self.scene.robot.init_state.joint_pos,
                 ),
+            )
+        else:
+            # Rotate the default wrist/root initial orientation.
+            self.scene.robot = self.scene.robot.replace(
+                init_state=self.scene.robot.init_state.replace(
+                    rot=_quat_mul_wxyz(
+                        _Q_Y_POS_90_WXYZ, self.scene.robot.init_state.rot
+                    )
+                )
             )
         # enable clone in fabric
         # self.scene.clone_in_fabric = True
