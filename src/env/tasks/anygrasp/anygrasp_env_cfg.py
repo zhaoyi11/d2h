@@ -299,6 +299,18 @@ class ObservationsCfg:
         )
         joint_vel = ObsTerm(func=mdp.joint_vel_rel, scale=0.2, noise=Gnoise(std=0.01))
 
+        # # fingertip
+        # fingers_contact_force_b = ObsTerm(
+        #     func=mdp.fingers_contact_force_b,
+        #     params={
+        #         "contact_sensor_names": [
+        #             "thumb_tip_object_s",
+        #             "index_tip_object_s",
+        #             "middle_tip_object_s",
+        #             "ring_tip_object_s",
+        #         ],
+        #     },
+        # )
         # -- object terms
         object_pos = ObsTerm(
             func=mdp.root_pos_w,
@@ -481,11 +493,11 @@ class RewardsCfg:
     """Reward terms for the MDP."""
 
     # -- task
-    # track_pos_l2 = RewTerm(
-    #     func=mdp.track_pos_l2,
-    #     weight=-10.0,
-    #     params={"object_cfg": SceneEntityCfg("object"), "command_name": "object_pose"},
-    # )
+    track_pos_l2 = RewTerm(
+        func=mdp.track_pos_l2,
+        weight=-10.0,
+        params={"object_cfg": SceneEntityCfg("object"), "command_name": "object_pose"},
+    )
     track_orientation_inv_l2 = RewTerm(
         func=mdp.track_orientation_inv_l2,
         weight=1.0,
@@ -505,30 +517,31 @@ class RewardsCfg:
     joint_vel_l2 = RewTerm(func=mdp.joint_vel_l2, weight=-2.5e-5)
     action_l2 = RewTerm(func=mdp.action_l2, weight=-0.0001)
     action_rate_l2 = RewTerm(func=mdp.action_rate_l2, weight=-0.01)
-    # fingertip_contact = RewTerm(
-    #     func=mdp.fingertip_object_contacts,
-    #     weight=0.1,
-    #     params={
-    #         "contact_sensor_names": [
-    #             "thumb_tip_object_s",
-    #             "index_tip_object_s",
-    #             "middle_tip_object_s",
-    #             "ring_tip_object_s",
-    #         ],
-    #         "threshold": 1e-3,
-    #     },
-    # )
-    object_stability = RewTerm(
-        func=mdp.object_stay_close,
-        weight=0.01,
+
+    fingertip_contact = RewTerm(
+        func=mdp.fingertip_object_contacts,
+        weight=0.1,
+        params={
+            "contact_sensor_names": [
+                "thumb_tip_object_s",
+                "index_tip_object_s",
+                "middle_tip_object_s",
+                "ring_tip_object_s",
+            ],
+            "threshold": 1e-3,
+        },
     )
+    # object_stability = RewTerm(
+    #     func=mdp.object_stay_close,
+    #     weight=0.01,
+    # )
 
     # -- optional penalties (these are disabled by default)
-    # object_away_penalty = RewTerm(
-    #     func=mdp.is_terminated_term,
-    #     weight=-0.0,
-    #     params={"term_keys": "object_out_of_reach"},
-    # )
+    object_away_penalty = RewTerm(
+        func=mdp.is_terminated_term,
+        weight=-2.0,
+        params={"term_keys": "object_out_of_reach"},
+    )
 
 
 @configclass
@@ -697,6 +710,9 @@ class LeapObjectEnvCfg(InHandObjectEnvCfg):
                 ContactSensorCfg(
                     prim_path=prim_path,
                     filter_prim_paths_expr=["{ENV_REGEX_NS}/Object"],
+                    update_period=0.0,
+                    history_length=6,
+                    debug_vis=True,
                 ),
             )
 

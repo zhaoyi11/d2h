@@ -248,6 +248,7 @@ def fingers_contact_force_b(
     forces_b = quat_apply_inverse(
         robot.data.root_link_quat_w.unsqueeze(1).repeat(1, force_w.shape[1], 1), force_w
     )
+    print(forces_b)
     return forces_b
 
 

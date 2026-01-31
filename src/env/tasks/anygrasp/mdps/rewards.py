@@ -74,7 +74,6 @@ def track_pos_l2(
     goal_pos_e = command_term.command[:, 0:3]
     # obtain the object position in the environment frame
     object_pos_e = asset.data.root_pos_w - env.scene.env_origins
-
     return torch.norm(goal_pos_e - object_pos_e, p=2, dim=-1)
 
 
@@ -118,9 +117,11 @@ def fingertip_object_contacts(
     any filtered body contact force magnitude exceeds the threshold.
     """
     contacts = []
+
     for name in contact_sensor_names:
         sensor: ContactSensor = env.scene.sensors[name]
         force_matrix_w = sensor.data.force_matrix_w
+        print(force_matrix_w)
         if force_matrix_w is None:
             # No filter configured / no data available.
             max_mag = torch.zeros(env.num_envs, device=env.device, dtype=torch.float32)
@@ -151,7 +152,6 @@ def fingertip_object_contacts(
             )
         except Exception:
             pass
-
     return counts
 
 
