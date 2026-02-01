@@ -372,7 +372,6 @@ class ObservationsCfg:
 
     @configclass
     class PerceptionObsCfg(ObsGroup):
-
         object_point_cloud = ObsTerm(
             func=mdp.object_point_cloud_b,
             noise=Unoise(n_min=-0.0, n_max=0.0),
@@ -493,11 +492,11 @@ class RewardsCfg:
     """Reward terms for the MDP."""
 
     # -- task
-    track_pos_l2 = RewTerm(
-        func=mdp.track_pos_l2,
-        weight=-10.0,
-        params={"object_cfg": SceneEntityCfg("object"), "command_name": "object_pose"},
-    )
+    # track_pos_l2 = RewTerm(
+    #     func=mdp.track_pos_l2,
+    #     weight=-10.0,
+    #     params={"object_cfg": SceneEntityCfg("object"), "command_name": "object_pose"},
+    # )
     track_orientation_inv_l2 = RewTerm(
         func=mdp.track_orientation_inv_l2,
         weight=1.0,
@@ -519,18 +518,33 @@ class RewardsCfg:
     action_rate_l2 = RewTerm(func=mdp.action_rate_l2, weight=-0.01)
 
     fingertip_contact = RewTerm(
-        func=mdp.fingertip_object_contacts,
-        weight=0.1,
+        func=mdp.FingertipObjectProximityReward,
+        weight=1,
         params={
-            "contact_sensor_names": [
-                "thumb_tip_object_s",
-                "index_tip_object_s",
-                "middle_tip_object_s",
-                "ring_tip_object_s",
+            "robot_cfg": SceneEntityCfg(
+                "robot",
+                body_names=[
+                    "thumb_fingertip",
+                    "fingertip",
+                    "fingertip_2",
+                    "fingertip_3",
+                ],
+            ),
+            "object_cfg": SceneEntityCfg("object"),
+            "fingertip_prim_paths": [
+                "{ENV_REGEX_NS}/Robot/thumb_fingertip",
+                "{ENV_REGEX_NS}/Robot/fingertip",
+                "{ENV_REGEX_NS}/Robot/fingertip_2",
+                "{ENV_REGEX_NS}/Robot/fingertip_3",
             ],
-            "threshold": 1e-3,
+            "num_tip_points": 12,
+            "num_object_points": 64,
+            "object_chunk_size": 16,
+            "mode": "neg",
+            "sigma": 0.01,
         },
     )
+
     # object_stability = RewTerm(
     #     func=mdp.object_stay_close,
     #     weight=0.01,
@@ -696,25 +710,26 @@ class LeapObjectEnvCfg(InHandObjectEnvCfg):
         # switch robot to leap hand
         self.scene.robot = LEAP_HAND_CFG.replace(prim_path="{ENV_REGEX_NS}/Robot")
 
-        # attach contact sensors to fingertip links for contact-based rewards/observations
-        fingertip_prim_paths = {
-            "thumb_tip_object_s": "{ENV_REGEX_NS}/Robot/thumb_fingertip",
-            "index_tip_object_s": "{ENV_REGEX_NS}/Robot/fingertip",
-            "middle_tip_object_s": "{ENV_REGEX_NS}/Robot/fingertip_2",
-            "ring_tip_object_s": "{ENV_REGEX_NS}/Robot/fingertip_3",
-        }
-        for sensor_name, prim_path in fingertip_prim_paths.items():
-            setattr(
-                self.scene,
-                sensor_name,
-                ContactSensorCfg(
-                    prim_path=prim_path,
-                    filter_prim_paths_expr=["{ENV_REGEX_NS}/Object"],
-                    update_period=0.0,
-                    history_length=6,
-                    debug_vis=True,
-                ),
-            )
+        # # attach contact sensors to fingertip links for contact-based rewards/observations
+        # fingertip_prim_paths = {
+        #     "thumb_tip_object_s": "{ENV_REGEX_NS}/Robot/thumb_fingertip",
+        #     "index_tip_object_s": "{ENV_REGEX_NS}/Robot/fingertip",
+        #     "middle_tip_object_s": "{ENV_REGEX_NS}/Robot/fingertip_2",
+        #     "ring_tip_object_s": "{ENV_REGEX_NS}/Robot/fingertip_3",
+        # }
+        # for sensor_name, prim_path in fingertip_prim_paths.items():
+        #     setattr(
+        #         self.scene,
+        #         sensor_name,
+        #         ContactSensorCfg(
+        #             prim_path=prim_path,
+        #             filter_prim_paths_expr=["{ENV_REGEX_NS}/Object/*/*/*"],
+        #             # filter_prim_paths_expr=["{ENV_REGEX_NS}/Object/*/*"],
+        #             update_period=0.0,
+        #             history_length=6,
+        #             debug_vis=True,
+        #         ),
+        #     )
 
         if self.use_grasp_init:
             # self.scene.robot = self.scene.robot.replace(

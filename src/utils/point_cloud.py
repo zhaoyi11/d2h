@@ -15,8 +15,12 @@ from pxr import UsdGeom
 import isaaclab.sim.utils as sim_utils
 
 # ---- module-scope caches ----
-_PRIM_SAMPLE_CACHE: dict[tuple[str, int], np.ndarray] = {}  # (prim_hash, num_points) -> (N,3) in root frame
-_FINAL_SAMPLE_CACHE: dict[str, np.ndarray] = {}  # env_hash -> (num_points,3) in root frame
+_PRIM_SAMPLE_CACHE: dict[
+    tuple[str, int], np.ndarray
+] = {}  # (prim_hash, num_points) -> (N,3) in root frame
+_FINAL_SAMPLE_CACHE: dict[
+    str, np.ndarray
+] = {}  # env_hash -> (num_points,3) in root frame
 
 
 def clear_pointcloud_caches():
@@ -24,7 +28,9 @@ def clear_pointcloud_caches():
     _FINAL_SAMPLE_CACHE.clear()
 
 
-def sample_object_point_cloud(num_envs: int, num_points: int, prim_path: str, device: str = "cpu") -> torch.Tensor:
+def sample_object_point_cloud(
+    num_envs: int, num_points: int, prim_path: str, device: str = "cpu"
+) -> torch.Tensor:
     """
     Samples point clouds for each environment instance by collecting points
     from all matching USD prims under `prim_path`, then downsamples to
@@ -47,14 +53,24 @@ def sample_object_point_cloud(num_envs: int, num_points: int, prim_path: str, de
         obj_path = prim_path.replace("{ENV_REGEX_NS}", f"/World/envs/env_{i}")
         obj_path = obj_path.replace(".*", str(i))  # backward compatibility
 
+        object_prim = stage.GetPrimAtPath(obj_path)
+        # scale on root (default to 1 if missing)
+        attr = object_prim.GetAttribute("xformOp:scale")
+        scale_val = attr.Get() if attr else None
+        if scale_val is None:
+            base_scale = torch.ones(3, dtype=torch.float32, device=device)
+        else:
+            base_scale = torch.tensor(scale_val, dtype=torch.float32, device=device)
+
         # Gather prims
         prims = sim_utils.get_all_matching_child_prims(
-            obj_path, predicate=lambda p: p.GetTypeName() in ("Mesh", "Cube", "Sphere", "Cylinder", "Capsule", "Cone")
+            obj_path,
+            predicate=lambda p: p.GetTypeName()
+            in ("Mesh", "Cube", "Sphere", "Cylinder", "Capsule", "Cone"),
         )
         if not prims:
             raise KeyError(f"No valid prims under {obj_path}")
 
-        object_prim = stage.GetPrimAtPath(obj_path)
         world_root = xform_cache.GetLocalToWorldTransform(object_prim)
 
         # hash each child prim by its rel transform + geometry
@@ -63,8 +79,12 @@ def sample_object_point_cloud(num_envs: int, num_points: int, prim_path: str, de
             prim_type = prim.GetTypeName()
             hasher = hashlib.sha256()
 
-            rel = world_root.GetInverse() * xform_cache.GetLocalToWorldTransform(prim)  # prim -> root
-            mat_np = np.array([[rel[r][c] for c in range(4)] for r in range(4)], dtype=np.float32)
+            rel = world_root.GetInverse() * xform_cache.GetLocalToWorldTransform(
+                prim
+            )  # prim -> root
+            mat_np = np.array(
+                [[rel[r][c] for c in range(4)] for r in range(4)], dtype=np.float32
+            )
             hasher.update(mat_np.tobytes())
 
             if prim_type == "Mesh":
@@ -93,14 +113,6 @@ def sample_object_point_cloud(num_envs: int, num_points: int, prim_path: str, de
 
             prim_hashes.append(hasher.hexdigest())
 
-        # scale on root (default to 1 if missing)
-        attr = object_prim.GetAttribute("xformOp:scale")
-        scale_val = attr.Get() if attr else None
-        if scale_val is None:
-            base_scale = torch.ones(3, dtype=torch.float32, device=device)
-        else:
-            base_scale = torch.tensor(scale_val, dtype=torch.float32, device=device)
-
         # env-level cache key (includes num_points)
         env_key = "_".join(sorted(prim_hashes)) + f"_{num_points}"
         env_hash = hashlib.sha256(env_key.encode()).hexdigest()
@@ -123,12 +135,16 @@ def sample_object_point_cloud(num_envs: int, num_points: int, prim_path: str, de
                     mesh = UsdGeom.Mesh(prim)
                     verts = np.asarray(mesh.GetPointsAttr().Get(), dtype=np.float32)
                     faces = _triangulate_faces(prim)
-                    mesh_tm = trimesh.Trimesh(vertices=verts, faces=faces, process=False)
+                    mesh_tm = trimesh.Trimesh(
+                        vertices=verts, faces=faces, process=False
+                    )
                 else:
                     mesh_tm = create_primitive_mesh(prim)
 
                 face_weights = mesh_tm.area_faces
-                samples_np, _ = sample_surface(mesh_tm, num_points * 2, face_weight=face_weights)
+                samples_np = sample_surface(
+                    mesh_tm, num_points * 2, face_weight=face_weights
+                )[0]
 
                 # FPS to num_points on chosen device
                 tensor_pts = torch.from_numpy(samples_np.astype(np.float32)).to(device)
@@ -136,8 +152,12 @@ def sample_object_point_cloud(num_envs: int, num_points: int, prim_path: str, de
                 local_pts = tensor_pts[prim_idxs]
 
                 # prim -> root transform
-                rel = xform_cache.GetLocalToWorldTransform(prim) * world_root.GetInverse()
-                mat_np = np.array([[rel[r][c] for c in range(4)] for r in range(4)], dtype=np.float32)
+                rel = (
+                    xform_cache.GetLocalToWorldTransform(prim) * world_root.GetInverse()
+                )
+                mat_np = np.array(
+                    [[rel[r][c] for c in range(4)] for r in range(4)], dtype=np.float32
+                )
                 mat_t = torch.from_numpy(mat_np).to(device)
 
                 ones = torch.ones((num_points, 1), device=device)
@@ -156,7 +176,9 @@ def sample_object_point_cloud(num_envs: int, num_points: int, prim_path: str, de
         if len(all_samples_np) == 1:
             samples_final = torch.from_numpy(all_samples_np[0]).to(device)
         else:
-            combined = torch.from_numpy(np.concatenate(all_samples_np, axis=0)).to(device)
+            combined = torch.from_numpy(np.concatenate(all_samples_np, axis=0)).to(
+                device
+            )
             idxs = farthest_point_sampling(combined, num_points)
             samples_final = combined[idxs]
 
@@ -194,13 +216,19 @@ def create_primitive_mesh(prim) -> trimesh.Trimesh:
         return trimesh.creation.icosphere(subdivisions=3, radius=r)
     elif prim_type == "Cylinder":
         c = UsdGeom.Cylinder(prim)
-        return trimesh.creation.cylinder(radius=c.GetRadiusAttr().Get(), height=c.GetHeightAttr().Get())
+        return trimesh.creation.cylinder(
+            radius=c.GetRadiusAttr().Get(), height=c.GetHeightAttr().Get()
+        )
     elif prim_type == "Capsule":
         c = UsdGeom.Capsule(prim)
-        return trimesh.creation.capsule(radius=c.GetRadiusAttr().Get(), height=c.GetHeightAttr().Get())
+        return trimesh.creation.capsule(
+            radius=c.GetRadiusAttr().Get(), height=c.GetHeightAttr().Get()
+        )
     elif prim_type == "Cone":  # Cone
         c = UsdGeom.Cone(prim)
-        return trimesh.creation.cone(radius=c.GetRadiusAttr().Get(), height=c.GetHeightAttr().Get())
+        return trimesh.creation.cone(
+            radius=c.GetRadiusAttr().Get(), height=c.GetHeightAttr().Get()
+        )
     else:
         raise KeyError(f"{prim_type} is not a valid primitive mesh type")
 
@@ -237,7 +265,9 @@ def farthest_point_sampling(
             min_dists = torch.minimum(min_dists, dist_mat[farthest].view(-1))
             farthest = torch.argmax(min_dists)
         return sampled_idx
-    logging.warning(f"FPS fallback to iterative (needed {bytes_needed} > {memory_threashold})")
+    logging.warning(
+        f"FPS fallback to iterative (needed {bytes_needed} > {memory_threashold})"
+    )
     sampled_idx = torch.zeros(n_samples, dtype=torch.long, device=device)
     distances = torch.full((N,), float("inf"), device=device)
     farthest = torch.randint(0, N, (1,), device=device)

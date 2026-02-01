@@ -9,11 +9,15 @@ import torch
 from typing import TYPE_CHECKING
 
 import isaaclab.utils.math as math_utils
-from isaaclab.assets import RigidObject
+from isaaclab.assets import Articulation, RigidObject
 from isaaclab.envs import ManagerBasedRLEnv
-from isaaclab.managers import SceneEntityCfg
+from isaaclab.managers import ManagerTermBase, SceneEntityCfg
 
 from isaaclab.sensors import ContactSensor
+
+from isaaclab.utils.math import quat_apply
+
+from src.utils.point_cloud import sample_object_point_cloud
 
 if TYPE_CHECKING:
     from .commands import InHandReOrientationCommand
@@ -121,7 +125,8 @@ def fingertip_object_contacts(
     for name in contact_sensor_names:
         sensor: ContactSensor = env.scene.sensors[name]
         force_matrix_w = sensor.data.force_matrix_w
-        print(force_matrix_w)
+        # net_matrix_w = sensor.data.net_forces_w
+
         if force_matrix_w is None:
             # No filter configured / no data available.
             max_mag = torch.zeros(env.num_envs, device=env.device, dtype=torch.float32)
@@ -130,6 +135,7 @@ def fingertip_object_contacts(
             mag = torch.linalg.norm(force_matrix_w, dim=-1)
             mag = torch.nan_to_num(mag, nan=0.0)
             max_mag = mag.amax(dim=(1, 2))
+
         contact = (max_mag > threshold).float()
         contacts.append(contact)
     counts = torch.stack(contacts, dim=1).sum(dim=1)
@@ -153,6 +159,133 @@ def fingertip_object_contacts(
         except Exception:
             pass
     return counts
+
+
+class FingertipObjectProximityReward(ManagerTermBase):
+    """Geometric fingertip-to-object proximity reward using sampled surface points.
+
+    This term samples:
+    - ``num_object_points`` points on each environment's object surface (in the object's root frame)
+    - ``num_tip_points`` points on each fingertip link surface (in the fingertip link frame)
+
+    At runtime, it transforms both sets into world frame and computes, for each fingertip, the minimal
+    distance between the fingertip point set and the object point set.
+
+    Note:
+        Object point sampling is per-environment.
+        Fingertip point sampling is done from env_0 and reused across environments.
+    """
+
+    def __init__(self, cfg, env: ManagerBasedRLEnv):
+        super().__init__(cfg, env)
+
+        self.robot_cfg: SceneEntityCfg = cfg.params.get(
+            "robot_cfg", SceneEntityCfg("robot")
+        )
+        self.object_cfg: SceneEntityCfg = cfg.params.get(
+            "object_cfg", SceneEntityCfg("object")
+        )
+        self.fingertip_prim_paths: list[str] = cfg.params.get(
+            "fingertip_prim_paths", []
+        )
+
+        self.num_tip_points: int = int(cfg.params.get("num_tip_points", 12))
+        self.num_object_points: int = int(cfg.params.get("num_object_points", 64))
+        self.object_chunk_size: int = int(cfg.params.get("object_chunk_size", 16))
+
+        self._robot: Articulation = env.scene[self.robot_cfg.name]
+        self._object: RigidObject = env.scene[self.object_cfg.name]
+
+        if self.robot_cfg.body_ids is None:
+            raise ValueError(
+                "FingertipObjectProximityReward requires robot_cfg with resolved body_ids (provide body_names)."
+            )
+        self._tip_body_ids = torch.as_tensor(
+            self.robot_cfg.body_ids, device=env.device, dtype=torch.long
+        )
+
+        if len(self.fingertip_prim_paths) != int(self._tip_body_ids.numel()):
+            raise ValueError(
+                "fingertip_prim_paths length must match robot_cfg.body_ids length. "
+                f"Got {len(self.fingertip_prim_paths)} vs {int(self._tip_body_ids.numel())}."
+            )
+
+        # Per-env object surface points in object root frame: (N, P_obj, 3)
+        self._object_points_local = sample_object_point_cloud(
+            env.num_envs,
+            self.num_object_points,
+            self._object.cfg.prim_path,
+            device=env.device,
+        )
+
+        # Fingertip surface points in fingertip link frame, sampled from env_0 only.
+        tip_pts_local = []
+        for prim_path in self.fingertip_prim_paths:
+            pts = sample_object_point_cloud(
+                1, self.num_tip_points, prim_path, device=env.device
+            )[0]
+            tip_pts_local.append(pts)
+        self._tip_points_local = torch.stack(tip_pts_local, dim=0)  # (N_tip, P_tip, 3)
+
+    def __call__(
+        self,
+        env: ManagerBasedRLEnv,
+        robot_cfg: SceneEntityCfg = SceneEntityCfg("robot"),
+        object_cfg: SceneEntityCfg = SceneEntityCfg("object"),
+        fingertip_prim_paths: list[str] | None = None,
+        num_tip_points: int = 12,
+        num_object_points: int = 64,
+        object_chunk_size: int = 16,
+        distance_threshold: float = 0.01,
+        mode: str = "neg",
+        sigma: float = 0.01,
+    ) -> torch.Tensor:
+        # object points in world: (N, P_obj, 3)
+        obj_pos_w = self._object.data.root_pos_w
+        obj_quat_w = self._object.data.root_quat_w
+        obj_quat_w_rep = obj_quat_w.unsqueeze(1).repeat(1, self.num_object_points, 1)
+        obj_pts_w = quat_apply(
+            obj_quat_w_rep, self._object_points_local
+        ) + obj_pos_w.unsqueeze(1)
+
+        # fingertip points in world: (N, N_tip, P_tip, 3)
+        tip_pos_w = self._robot.data.body_pos_w[:, self._tip_body_ids]
+        tip_quat_w = self._robot.data.body_quat_w[:, self._tip_body_ids]
+        tip_pts_local = self._tip_points_local.unsqueeze(0).expand(
+            env.num_envs, -1, -1, -1
+        )
+        tip_quat_w_rep = tip_quat_w.unsqueeze(2).repeat(1, 1, self.num_tip_points, 1)
+        tip_pts_w = quat_apply(tip_quat_w_rep, tip_pts_local) + tip_pos_w.unsqueeze(2)
+
+        # Flatten fingertip points and compute per-fingertip min distance to object points.
+        tip_flat = tip_pts_w.reshape(env.num_envs, -1, 3)  # (N, Q, 3)
+        a2 = (tip_flat * tip_flat).sum(dim=-1, keepdim=True)  # (N, Q, 1)
+
+        q = tip_flat.shape[1]
+        min_d2_flat = torch.full(
+            (env.num_envs, q), float("inf"), device=env.device, dtype=tip_flat.dtype
+        )
+
+        # allow overriding chunk size at call-time (config passes it as a param)
+        chunk = max(1, int(object_chunk_size))
+        for start in range(0, self.num_object_points, chunk):
+            end = min(self.num_object_points, start + chunk)
+            b = obj_pts_w[:, start:end, :]  # (N, K, 3)
+            b2 = (b * b).sum(dim=-1).unsqueeze(1)  # (N, 1, K)
+            ab = torch.bmm(tip_flat, b.transpose(1, 2))  # (N, Q, K)
+            d2 = (a2 + b2 - 2.0 * ab).clamp_min(0.0)
+            min_d2_flat = torch.minimum(min_d2_flat, d2.amin(dim=-1))
+
+        # reshape Q -> (N_tip, P_tip) and reduce
+        min_d2 = min_d2_flat.view(env.num_envs, -1, self.num_tip_points).amin(dim=-1)
+        min_d = torch.sqrt(min_d2.clamp_min(1e-12))
+
+        if mode == "count":
+            return (min_d < distance_threshold).to(dtype=torch.float32).sum(dim=1)
+        if mode == "neg":
+            return -min_d.sum(dim=1)
+        # default: smooth proximity
+        return torch.exp(-min_d / max(sigma, 1e-6)).sum(dim=1)
 
 
 def object_stay_close(
