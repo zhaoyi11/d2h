@@ -517,33 +517,34 @@ class RewardsCfg:
     action_l2 = RewTerm(func=mdp.action_l2, weight=-0.0001)
     action_rate_l2 = RewTerm(func=mdp.action_rate_l2, weight=-0.01)
 
-    fingertip_contact = RewTerm(
-        func=mdp.FingertipObjectProximityReward,
-        weight=1,
-        params={
-            "robot_cfg": SceneEntityCfg(
-                "robot",
-                body_names=[
-                    "thumb_fingertip",
-                    "fingertip",
-                    "fingertip_2",
-                    "fingertip_3",
-                ],
-            ),
-            "object_cfg": SceneEntityCfg("object"),
-            "fingertip_prim_paths": [
-                "{ENV_REGEX_NS}/Robot/thumb_fingertip",
-                "{ENV_REGEX_NS}/Robot/fingertip",
-                "{ENV_REGEX_NS}/Robot/fingertip_2",
-                "{ENV_REGEX_NS}/Robot/fingertip_3",
-            ],
-            "num_tip_points": 12,
-            "num_object_points": 64,
-            "object_chunk_size": 16,
-            "mode": "neg",
-            "sigma": 0.01,
-        },
-    )
+    # TODO: check the fingertip cloud point (the reward looks encourage the joint to be close to the object.)
+    # fingertip_contact = RewTerm(
+    #     func=mdp.FingertipObjectProximityReward,
+    #     weight=1,
+    #     params={
+    #         "robot_cfg": SceneEntityCfg(
+    #             "robot",
+    #             body_names=[
+    #                 "thumb_fingertip",
+    #                 "fingertip",
+    #                 "fingertip_2",
+    #                 "fingertip_3",
+    #             ],
+    #         ),
+    #         "object_cfg": SceneEntityCfg("object"),
+    #         "fingertip_prim_paths": [
+    #             "{ENV_REGEX_NS}/Robot/thumb_fingertip",
+    #             "{ENV_REGEX_NS}/Robot/fingertip",
+    #             "{ENV_REGEX_NS}/Robot/fingertip_2",
+    #             "{ENV_REGEX_NS}/Robot/fingertip_3",
+    #         ],
+    #         "num_tip_points": 12,
+    #         "num_object_points": 64,
+    #         "object_chunk_size": 16,
+    #         "mode": "neg",
+    #         "sigma": 0.01,
+    #     },
+    # )
 
     # object_stability = RewTerm(
     #     func=mdp.object_stay_close,
