@@ -35,8 +35,8 @@ USD_PALM_LOWER_OFFSET = np.array([-0.1, 0.038, 0.098])
 USD_PALM_LOWER_QUAT = np.array([0.0, -0.7071, 0.0, -0.7071])
 
 # Fixed rotation to apply to initial wrist/object poses.
-# Quaternion format is (w, x, y, z). Using world +Y axis, -90deg.
-_Q_Y_NEG_90_WXYZ = (0.7071067811865476, 0.0, -0.7071067811865476, 0.0)
+# Quaternion format is (w, x, y, z). Using world +Y axis, +90deg.
+_Q_Y_POS_90_WXYZ = (0.7071067811865476, 0.0, 0.7071067811865476, 0.0)
 
 
 def _quat_mul_wxyz(
@@ -53,10 +53,10 @@ def _quat_mul_wxyz(
     )
 
 
-def _rotate_pos_y_neg_90(pos: tuple[float, float, float]) -> tuple[float, float, float]:
-    """Rotate a position by -90deg about world +Y: (x,y,z) -> (-z, y, x)."""
+def _rotate_pos_y_pos_90(pos: tuple[float, float, float]) -> tuple[float, float, float]:
+    """Rotate a position by +90deg about world +Y: (x,y,z) -> (z, y, -x)."""
     x, y, z = pos
-    return (-z, y, x)
+    return (z, y, -x)
 
 
 @dataclass
@@ -233,8 +233,8 @@ class InHandObjectSceneCfg(InteractiveSceneCfg):
             mass_props=sim_utils.MassPropertiesCfg(mass=0.2),
         ),
         init_state=RigidObjectCfg.InitialStateCfg(
-            pos=_rotate_pos_y_neg_90((0.0, -0.10, 0.6)),
-            rot=_quat_mul_wxyz(_Q_Y_NEG_90_WXYZ, (0.7071, 0.0, 0.7071, 0.0)),
+            pos=_rotate_pos_y_pos_90((0.0, -0.10, 0.6)),
+            rot=_quat_mul_wxyz(_Q_Y_POS_90_WXYZ, (0.7071, 0.0, 0.7071, 0.0)),
         ),
     )
 
@@ -651,8 +651,8 @@ class InHandObjectEnvCfg(ManagerBasedRLEnvCfg):
             else self.scene.object.spawn.asset_path
         )
 
-        object_pos_rot = _rotate_pos_y_neg_90(grasp_init.object_pos)
-        object_quat_rot = _quat_mul_wxyz(_Q_Y_NEG_90_WXYZ, grasp_init.object_quat)
+        object_pos_rot = _rotate_pos_y_pos_90(grasp_init.object_pos)
+        object_quat_rot = _quat_mul_wxyz(_Q_Y_POS_90_WXYZ, grasp_init.object_quat)
 
         self.scene.object = self.scene.object.replace(
             spawn=self.scene.object.spawn.replace(
@@ -692,7 +692,7 @@ class InHandObjectEnvCfg(ManagerBasedRLEnvCfg):
             mode="reset",
             params={
                 "asset_cfg": SceneEntityCfg("robot"),
-                "pose": (0.0, 0.0, 0.0, *_Q_Y_NEG_90_WXYZ),
+                "pose": (0.0, 0.0, 0.0, *_Q_Y_POS_90_WXYZ),
                 "velocity": (0.0, 0.0, 0.0, 0.0, 0.0, 0.0),
             },
         )
@@ -746,7 +746,7 @@ class LeapObjectEnvCfg(InHandObjectEnvCfg):
             self.scene.robot = self.scene.robot.replace(
                 init_state=ArticulationCfg.InitialStateCfg(
                     pos=(0.0, 0.0, 0.0),
-                    rot=_Q_Y_NEG_90_WXYZ,
+                    rot=_Q_Y_POS_90_WXYZ,
                     joint_pos=self.scene.robot.init_state.joint_pos,
                 ),
             )
@@ -755,7 +755,7 @@ class LeapObjectEnvCfg(InHandObjectEnvCfg):
             self.scene.robot = self.scene.robot.replace(
                 init_state=self.scene.robot.init_state.replace(
                     rot=_quat_mul_wxyz(
-                        _Q_Y_NEG_90_WXYZ, self.scene.robot.init_state.rot
+                        _Q_Y_POS_90_WXYZ, self.scene.robot.init_state.rot
                     )
                 )
             )
