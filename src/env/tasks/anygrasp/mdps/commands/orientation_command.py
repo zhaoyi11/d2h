@@ -87,6 +87,7 @@ class InHandReOrientationCommand(CommandTerm):
         self.metrics["consecutive_success"] = torch.zeros(
             self.num_envs, device=self.device
         )
+        self.random_range = cfg.random_range
 
     def __str__(self) -> str:
         msg = "InHandManipulationCommandGenerator:\n"
@@ -126,7 +127,10 @@ class InHandReOrientationCommand(CommandTerm):
         # sample new orientation targets
         # range in pi (i.e. 0.25 * pi = 45 deg)
         # TODO: set up a curriculum for the range (e.g., 0.1->0.25->0.5->1.0)
-        r_range = 0.1
+        # r_range = self.random_range
+        r_range = 0.5
+        # if r_range > 0.1:
+        #     print("r_range", r_range)
 
         rand_floats = 2.0 * torch.rand((len(env_ids), 3), device=self.device) - 1.0
         # rotate randomly about x-axis, y-axis, and z-axis with small angles

@@ -18,6 +18,7 @@ from isaaclab.managers import ObservationTermCfg as ObsTerm
 from isaaclab.managers import RewardTermCfg as RewTerm
 from isaaclab.managers import SceneEntityCfg
 from isaaclab.managers import TerminationTermCfg as DoneTerm
+from isaaclab.managers import CurriculumTermCfg as CurrTerm
 from isaaclab.scene import InteractiveSceneCfg
 from isaaclab.sim.simulation_cfg import PhysxCfg, SimulationCfg
 from isaaclab.sim import CapsuleCfg, ConeCfg, CuboidCfg, RigidBodyMaterialCfg, SphereCfg
@@ -255,12 +256,42 @@ class InHandObjectSceneCfg(InteractiveSceneCfg):
 ##
 
 
+@dataclass
+class CurriculumCfg:
+    """Curriculum configuration."""
+
+    adr = CurrTerm(
+        func=mdp.DifficultyScheduler,
+        params={
+            "pos_tol": 1.0,
+            "rot_tol": 1.0,
+            "init_difficulty": 1,
+            "min_difficulty": 1,
+            "max_difficulty": 10,
+        },
+    )
+
+    goal_sample_range_adr = CurrTerm(
+        func=mdp.modify_term_cfg,
+        params={
+            "address": "commands.object_pose.random_range",
+            "modify_fn": mdp.initial_final_interpolate_fn,
+            "modify_params": {
+                "initial_value": 0.1,
+                "final_value": 1.0,
+                "difficulty_term_str": "adr",
+            },
+        },
+    )
+
+
 @configclass
 class CommandsCfg:
     """Command specifications for the MDP."""
 
     object_pose = mdp.InHandReOrientationCommandCfg(
         asset_name="object",
+        random_range=0.1,
         # init_pos_offset=(0.0, 0.0, -0.04),
         init_pos_offset=(0.0, 0.0, 0.0),  # TODO: remove z offset, confirm this.
         update_goal_on_success=True,
@@ -647,18 +678,23 @@ class InHandObjectEnvCfg(ManagerBasedRLEnvCfg):
     rewards: RewardsCfg = RewardsCfg()
     terminations: TerminationsCfg = TerminationsCfg()
     events: EventCfg = EventCfg()
+    curriculum: CurriculumCfg = CurriculumCfg()
     grasp_init: GraspInitData | None = None
 
     def __post_init__(self):
         """Post initialization."""
         # general settings
         self.decimation = 4
-        self.episode_length_s = 20.0
+        self.episode_length_s = 20
         # simulation settings
         self.sim.dt = 1.0 / 120.0
         self.sim.render_interval = self.decimation
         # change viewer settings
         self.viewer.eye = (2.0, 2.0, 2.0)
+        # if self.curriculum is not None:
+        #     self.curriculum.adr.params["rot_tol"] = (
+        #         self.commands.object_pose.orientation_success_threshold
+        #     )
 
         if self.grasp_data_path is not None:
             self.use_grasp_init = True

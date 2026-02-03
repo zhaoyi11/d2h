@@ -22,8 +22,14 @@ class InHandReOrientationCommandCfg(CommandTermCfg):
     Please refer to the :class:`InHandReOrientationCommand` class for more details.
     """
 
+    random_range: float = 0.1
+    """Range for the random orientation."""
+
     class_type: type = InHandReOrientationCommand
-    resampling_time_range: tuple[float, float] = (1e6, 1e6)  # no resampling based on time
+    resampling_time_range: tuple[float, float] = (
+        1e6,
+        1e6,
+    )  # no resampling based on time
 
     asset_name: str = MISSING
     """Name of the asset in the environment for which the commands are generated."""
