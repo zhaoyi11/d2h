@@ -22,7 +22,7 @@ from isaaclab.scene import InteractiveSceneCfg
 from isaaclab.sim.simulation_cfg import PhysxCfg, SimulationCfg
 from isaaclab.sim import CapsuleCfg, ConeCfg, CuboidCfg, RigidBodyMaterialCfg, SphereCfg
 from isaaclab.sim.spawners.materials.physics_materials_cfg import RigidBodyMaterialCfg
-from isaaclab.sensors import ContactSensorCfg
+from isaaclab.sensors import ContactSensorCfg, FrameTransformerCfg
 from isaaclab.utils import configclass
 from isaaclab.utils.assets import ISAAC_NUCLEUS_DIR
 from isaaclab.utils.noise import AdditiveGaussianNoiseCfg as Gnoise
@@ -519,6 +519,33 @@ class RewardsCfg:
     action_l2 = RewTerm(func=mdp.action_l2, weight=-0.0001)
     action_rate_l2 = RewTerm(func=mdp.action_rate_l2, weight=-0.01)
 
+    fingertip_obj_dist = RewTerm(
+        func=mdp.fingertip_object_distance,
+        weight=1.0,
+        params={
+            #     finger_bodies = []
+            # for body_name in ["thumb_fingertip", "fingertip", "fingertip_2", "fingertip_3"]:
+            #     finger_bodies.append(robot.body_names.index(body_name))
+            "fingertip_body_idx": [
+                14,
+                13,
+                15,
+                16,
+            ],  # TODO: change this. (thumb_fingertip, fingertip, fingertip_2, fingertip_3)
+            # "fingertip_offset_pos": [
+            #     [0.0, 0.0, 0.0],
+            #     [0.0, 0.0, 0.0],
+            #     [0.0, 0.0, 0.0],
+            #     [0.0, 0.0, 0.0],
+            # ],
+            # "fingertip_offset_rot": [
+            #     [1.0, 0.0, 0.0, 0.0],
+            #     [1.0, 0.0, 0.0, 0.0],
+            #     [1.0, 0.0, 0.0, 0.0],
+            #     [1.0, 0.0, 0.0, 0.0],
+            # ],
+        },
+    )
     # TODO: check the fingertip cloud point (the reward looks encourage the joint to be close to the object.)
     # fingertip_contact = RewTerm(
     #     func=mdp.FingertipObjectProximityReward,
@@ -556,7 +583,7 @@ class RewardsCfg:
     # -- optional penalties (these are disabled by default)
     object_away_penalty = RewTerm(
         func=mdp.is_terminated_term,
-        weight=-2.0,
+        weight=-20.0,
         params={"term_keys": "object_out_of_reach"},
     )
 
@@ -658,9 +685,12 @@ class InHandObjectEnvCfg(ManagerBasedRLEnvCfg):
             spawn=self.scene.object.spawn.replace(
                 asset_path=object_asset_path,
                 scale=(
-                    grasp_init.object_scale,
-                    grasp_init.object_scale,
-                    grasp_init.object_scale,
+                    0.1,
+                    0.1,
+                    0.1,  # TODO: !!!!! change this
+                    # grasp_init.object_scale,
+                    # grasp_init.object_scale,
+                    # grasp_init.object_scale,
                 ),
             ),
             init_state=RigidObjectCfg.InitialStateCfg(
@@ -712,6 +742,17 @@ class LeapObjectEnvCfg(InHandObjectEnvCfg):
 
         # switch robot to leap hand
         self.scene.robot = LEAP_HAND_CFG.replace(prim_path="{ENV_REGEX_NS}/Robot")
+
+        # # attach transform sensors to fingertip links for contact-based rewards/observations
+        # self.scene.robot_transforms = FrameTransformerCfg(
+        #     prim_path="{ENV_REGEX_NS}/Object/.*",
+        #     target_frames=[
+        #         FrameTransformerCfg.FrameCfg(
+        #             prim_path="{ENV_REGEX_NS}/Robot/thumb_fingertip"
+        #         )
+        #     ],
+        #     debug_vis=True,
+        # )
 
         # # attach contact sensors to fingertip links for contact-based rewards/observations
         # fingertip_prim_paths = {

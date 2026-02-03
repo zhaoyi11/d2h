@@ -124,16 +124,31 @@ class InHandReOrientationCommand(CommandTerm):
 
     def _resample_command(self, env_ids: Sequence[int]):
         # sample new orientation targets
-        rand_floats = 2.0 * torch.rand((len(env_ids), 2), device=self.device) - 1.0
-        # rotate randomly about x-axis and then y-axis
-        quat = math_utils.quat_mul(
+        # range in pi (i.e. 0.25 * pi = 45 deg)
+        # TODO: set up a curriculum for the range (e.g., 0.1->0.25->0.5->1.0)
+        r_range = 0.1
+
+        rand_floats = 2.0 * torch.rand((len(env_ids), 3), device=self.device) - 1.0
+        # rotate randomly about x-axis, y-axis, and z-axis with small angles
+        quat_delta = math_utils.quat_mul(
             math_utils.quat_from_angle_axis(
-                rand_floats[:, 0] * torch.pi, self._X_UNIT_VEC[env_ids]
+                rand_floats[:, 0] * r_range * torch.pi, self._X_UNIT_VEC[env_ids]
             ),
-            math_utils.quat_from_angle_axis(
-                rand_floats[:, 1] * torch.pi, self._Y_UNIT_VEC[env_ids]
+            math_utils.quat_mul(
+                math_utils.quat_from_angle_axis(
+                    rand_floats[:, 1] * r_range * torch.pi, self._Y_UNIT_VEC[env_ids]
+                ),
+                math_utils.quat_from_angle_axis(
+                    rand_floats[:, 2] * r_range * torch.pi, self._Z_UNIT_VEC[env_ids]
+                ),
             ),
         )
+
+        # apply delta to the default orientation
+        init_quat = self.object.data.default_root_state[env_ids, 3:7]
+
+        quat = math_utils.quat_mul(init_quat, quat_delta)
+
         # make sure the quaternion real-part is always positive
         self.quat_command_w[env_ids] = (
             math_utils.quat_unique(quat) if self.cfg.make_quat_unique else quat
