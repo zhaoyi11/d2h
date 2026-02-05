@@ -23,11 +23,12 @@ from isaaclab.scene import InteractiveSceneCfg
 from isaaclab.sim.simulation_cfg import PhysxCfg, SimulationCfg
 from isaaclab.sim import CapsuleCfg, ConeCfg, CuboidCfg, RigidBodyMaterialCfg, SphereCfg
 from isaaclab.sim.spawners.materials.physics_materials_cfg import RigidBodyMaterialCfg
-from isaaclab.sensors import ContactSensorCfg, FrameTransformerCfg
+from isaaclab.sensors import ContactSensorCfg, FrameTransformerCfg, OffsetCfg
 from isaaclab.utils import configclass
 from isaaclab.utils.assets import ISAAC_NUCLEUS_DIR
 from isaaclab.utils.noise import AdditiveGaussianNoiseCfg as Gnoise
 from isaaclab.utils.noise import AdditiveUniformNoiseCfg as Unoise
+from isaaclab.markers.config import FRAME_MARKER_CFG
 
 import src.env.tasks.anygrasp.mdps as mdp
 from src.env.tasks.anygrasp.utils.grasp_init import GraspInitData, load_grasp_init
@@ -570,16 +571,40 @@ class LeapObjectEnvCfg(InHandObjectEnvCfg):
         # switch robot to leap hand
         self.scene.robot = LEAP_HAND_CFG.replace(prim_path="{ENV_REGEX_NS}/Robot")
 
-        # # attach transform sensors to fingertip links for contact-based rewards/observations
-        # self.scene.robot_transforms = FrameTransformerCfg(
-        #     prim_path="{ENV_REGEX_NS}/Object/.*",
-        #     target_frames=[
-        #         FrameTransformerCfg.FrameCfg(
-        #             prim_path="{ENV_REGEX_NS}/Robot/thumb_fingertip"
-        #         )
-        #     ],
-        #     debug_vis=True,
-        # )
+        # attach transform sensors to fingertip links for contact-based rewards/observations
+        self.scene.fingertip_transforms = FrameTransformerCfg(
+            prim_path="{ENV_REGEX_NS}/Robot/base",
+            target_frames=[
+                FrameTransformerCfg.FrameCfg(
+                    prim_path="{ENV_REGEX_NS}/Robot/thumb_fingertip",
+                    offset=OffsetCfg(pos=(0.0, -0.045, -0.015)),
+                ),
+                FrameTransformerCfg.FrameCfg(
+                    prim_path="{ENV_REGEX_NS}/Robot/fingertip",
+                    offset=OffsetCfg(pos=(0.0, -0.03, 0.015)),
+                ),
+                FrameTransformerCfg.FrameCfg(
+                    prim_path="{ENV_REGEX_NS}/Robot/fingertip_2",
+                    offset=OffsetCfg(pos=(0.0, -0.03, 0.015)),
+                ),
+                FrameTransformerCfg.FrameCfg(
+                    prim_path="{ENV_REGEX_NS}/Robot/fingertip_3",
+                    offset=OffsetCfg(pos=(0.0, -0.03, 0.015)),
+                ),
+            ],
+            debug_vis=False,
+            visualizer_cfg=FRAME_MARKER_CFG.replace(
+                prim_path="/Visuals/FrameTransformer",
+                markers={
+                    "frame": FRAME_MARKER_CFG.markers["frame"].replace(
+                        scale=(0.05, 0.05, 0.05)
+                    ),
+                    "connecting_line": FRAME_MARKER_CFG.markers[
+                        "connecting_line"
+                    ].replace(radius=0.0005),
+                },
+            ),
+        )
 
         # # attach contact sensors to fingertip links for contact-based rewards/observations
         # fingertip_prim_paths = {

@@ -119,45 +119,8 @@ def fingertip_object_distance(
     threshold: float = 1e-3,
 ) -> torch.Tensor:
     """Calculate the average distance between the object and the robot's fingertips as a reward term."""
-    # import ipdb
 
-    # ipdb.set_trace()
-    # extract robot's fingertips pose
-    robot: Articulation = env.scene["robot"]
-    fingertip_pos = robot.data.body_pos_w[:, fingertip_body_idx]
-    # fingertip_rot = robot.data.body_quat_w[:, fingertip_body_idx]
-
-    # # apply offsets if provided
-    # if fingertip_offset_pos is not None:
-    #     # convert to tensor
-    #     offset_pos = torch.tensor(
-    #         fingertip_offset_pos, device=env.device, dtype=torch.float32
-    #     )
-    #     if fingertip_offset_rot is None:
-    #         offset_rot = torch.zeros_like(offset_pos)
-    #         offset_rot[:, 0] = 1.0  # (w, x, y, z) = (1, 0, 0, 0)
-    #         offset_rot = torch.tensor(
-    #             [[1.0, 0.0, 0.0, 0.0]] * len(fingertip_offset_pos),
-    #             device=env.device,
-    #             dtype=torch.float32,
-    #         )
-    #     else:
-    #         offset_rot = torch.tensor(
-    #             fingertip_offset_rot, device=env.device, dtype=torch.float32
-    #         )
-
-    #     # expand to batch size
-    #     # (num_fingers, 3) -> (num_envs, num_fingers, 3)
-    #     offset_pos_b = offset_pos.expand(env.num_envs, -1, -1)
-    #     # (num_fingers, 4) -> (num_envs, num_fingers, 4)
-    #     offset_rot_b = offset_rot.expand(env.num_envs, -1, -1)
-
-    #     # combine transforms
-    #     fingertip_pos, fingertip_rot = math_utils.combine_frame_transforms(
-    #         fingertip_pos, fingertip_rot, offset_pos_b, offset_rot_b
-    #     )
-
-    # transform to environment frame
+    fingertip_pos = env.scene.sensors["fingertip_transforms"].data.target_pos_w
     fingertip_pos -= env.scene.env_origins.repeat((1, len(fingertip_body_idx))).reshape(
         env.num_envs, len(fingertip_body_idx), 3
     )
@@ -165,11 +128,12 @@ def fingertip_object_distance(
     # extract obj's pose
     obj: RigidObject = env.scene["object"]
     # obtain the object position in the environment frame
-    obj_pos_e = obj.data.root_pos_w - env.scene.env_origins
+    obj_pos = obj.data.root_pos_w - env.scene.env_origins
 
     # calculate the average distance between fingertips and obj
-    object_pos_expanded = obj_pos_e.unsqueeze(1)
+    object_pos_expanded = obj_pos.unsqueeze(1)
     dists = torch.norm(fingertip_pos - object_pos_expanded, p=2, dim=-1)
+
     return torch.mean(dists, dim=-1)
 
 
