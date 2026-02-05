@@ -30,161 +30,7 @@ from isaaclab.utils.noise import AdditiveGaussianNoiseCfg as Gnoise
 from isaaclab.utils.noise import AdditiveUniformNoiseCfg as Unoise
 
 import src.env.tasks.anygrasp.mdps as mdp
-
-
-USD_PALM_LOWER_OFFSET = np.array([-0.1, 0.038, 0.098])
-USD_PALM_LOWER_QUAT = np.array([0.0, -0.7071, 0.0, -0.7071])
-
-# Fixed rotation to apply to initial wrist/object poses.
-# Quaternion format is (w, x, y, z). Using world +Y axis, +90deg.
-_Q_Y_POS_90_WXYZ = (0.7071067811865476, 0.0, 0.7071067811865476, 0.0)
-
-
-def _quat_mul_wxyz(
-    q1: tuple[float, float, float, float], q2: tuple[float, float, float, float]
-) -> tuple[float, float, float, float]:
-    """Quaternion multiply (wxyz): q = q1 * q2."""
-    w1, x1, y1, z1 = q1
-    w2, x2, y2, z2 = q2
-    return (
-        w1 * w2 - x1 * x2 - y1 * y2 - z1 * z2,
-        w1 * x2 + x1 * w2 + y1 * z2 - z1 * y2,
-        w1 * y2 - x1 * z2 + y1 * w2 + z1 * x2,
-        w1 * z2 + x1 * y2 - y1 * x2 + z1 * w2,
-    )
-
-
-def _rotate_pos_y_pos_90(pos: tuple[float, float, float]) -> tuple[float, float, float]:
-    """Rotate a position by +90deg about world +Y: (x,y,z) -> (z, y, -x)."""
-    x, y, z = pos
-    return (z, y, -x)
-
-
-@dataclass
-class GraspInitData:
-    """Precomputed grasp initialization data."""
-
-    object_pos: tuple[float, float, float]
-    object_quat: tuple[float, float, float, float]
-    object_scale: float
-    object_asset_path: str
-    robot_joint_pos: np.ndarray
-
-
-def np_quaternion_to_matrix(q: np.ndarray) -> np.ndarray:
-    """Convert quaternion [w, x, y, z] to 3x3 rotation matrix."""
-    w, x, y, z = q
-    return np.array(
-        [
-            [1 - 2 * y * y - 2 * z * z, 2 * x * y - 2 * w * z, 2 * x * z + 2 * w * y],
-            [2 * x * y + 2 * w * z, 1 - 2 * x * x - 2 * z * z, 2 * y * z - 2 * w * x],
-            [2 * x * z - 2 * w * y, 2 * y * z + 2 * w * x, 1 - 2 * x * x - 2 * y * y],
-        ]
-    )
-
-
-def np_quaternion_inverse(q: np.ndarray) -> np.ndarray:
-    """Compute the inverse of a quaternion [w, x, y, z]."""
-    w, x, y, z = q
-    return np.array([w, -x, -y, -z])
-
-
-def np_quaternion_multiply(q1: np.ndarray, q2: np.ndarray) -> np.ndarray:
-    """Multiply two quaternions [w, x, y, z]."""
-    w1, x1, y1, z1 = q1
-    w2, x2, y2, z2 = q2
-    return np.array(
-        [
-            w1 * w2 - x1 * x2 - y1 * y2 - z1 * z2,
-            w1 * x2 + x1 * w2 + y1 * z2 - z1 * y2,
-            w1 * y2 - x1 * z2 + y1 * w2 + z1 * x2,
-            w1 * z2 + x1 * y2 - y1 * x2 + z1 * w2,
-        ]
-    )
-
-
-def transform_object_to_robot_frame(
-    mj_palm_pos: np.ndarray,
-    mj_palm_quat: np.ndarray,
-    object_pos: np.ndarray,
-    object_quat: np.ndarray,
-) -> tuple[np.ndarray, np.ndarray]:
-    """Transform object pose so base is identity while preserving palm-to-object relationship."""
-    R_palm_mj = np_quaternion_to_matrix(mj_palm_quat)
-    R_palm_mj_inv = R_palm_mj.T
-    obj_rel_pos_mj = R_palm_mj_inv @ (object_pos - mj_palm_pos)
-
-    palm_quat_inv = np_quaternion_inverse(mj_palm_quat)
-    obj_rel_quat = np_quaternion_multiply(palm_quat_inv, object_quat)
-
-    new_palm_pos = USD_PALM_LOWER_OFFSET.copy()
-    new_palm_quat = USD_PALM_LOWER_QUAT.copy()
-    new_palm_rot = np_quaternion_to_matrix(new_palm_quat)
-
-    obj_rel_pos_transformed = new_palm_rot @ obj_rel_pos_mj
-    new_object_pos = new_palm_pos + obj_rel_pos_transformed
-    new_object_quat = np_quaternion_multiply(new_palm_quat, obj_rel_quat)
-
-    new_object_quat = new_object_quat / np.linalg.norm(new_object_quat)
-    if new_object_quat[0] < 0:
-        new_object_quat = -new_object_quat
-
-    # example
-    # pos  array([0.14013682, 0.02385659, 0.09118012])
-    # quat array([0.02073345, 0.96638001, 0.24646428, 0.07025066])
-    return new_object_pos, new_object_quat
-
-
-##
-# Scene definition
-##
-
-
-@configclass
-class InHandObjectSceneCfg(InteractiveSceneCfg):
-    """Configuration for a scene with an object and a dexterous hand."""
-
-    # robots
-    robot: ArticulationCfg = MISSING
-    object = RigidObjectCfg(
-        prim_path="{ENV_REGEX_NS}/Object",
-        spawn=sim_utils.UrdfFileCfg(
-            asset_path="",  # will be set from grasp data.
-            scale=(1, 1, 1),  # will be set from grasp data.
-            activate_contact_sensors=True,
-            fix_base=False,
-            joint_drive=sim_utils.UrdfConverterCfg.JointDriveCfg(
-                gains=sim_utils.UrdfConverterCfg.JointDriveCfg.PDGainsCfg(
-                    stiffness=None, damping=None
-                ),
-            ),
-            articulation_props=sim_utils.ArticulationRootPropertiesCfg(
-                articulation_enabled=False,  # Disable articulation for rigid object
-            ),
-            rigid_props=sim_utils.RigidBodyPropertiesCfg(
-                solver_position_iteration_count=16,
-                solver_velocity_iteration_count=0,
-                disable_gravity=False,
-            ),
-            collision_props=sim_utils.CollisionPropertiesCfg(),
-            mass_props=sim_utils.MassPropertiesCfg(mass=0.2),
-        ),
-        init_state=RigidObjectCfg.InitialStateCfg(
-            pos=_rotate_pos_y_pos_90((0.0, -0.10, 0.6)),
-            rot=_quat_mul_wxyz(_Q_Y_POS_90_WXYZ, (0.7071, 0.0, 0.7071, 0.0)),
-        ),
-    )
-
-    # lights
-    light = AssetBaseCfg(
-        prim_path="/World/light",
-        spawn=sim_utils.DistantLightCfg(color=(0.95, 0.95, 0.95), intensity=1000.0),
-    )
-
-    dome_light = AssetBaseCfg(
-        prim_path="/World/domeLight",
-        spawn=sim_utils.DomeLightCfg(color=(0.02, 0.02, 0.02), intensity=1000.0),
-    )
+from src.env.tasks.anygrasp.utils.grasp_init import GraspInitData, load_grasp_init
 
 
 ##
@@ -577,6 +423,58 @@ class TerminationsCfg:
 
 
 ##
+# Scene definition
+##
+
+
+@configclass
+class InHandObjectSceneCfg(InteractiveSceneCfg):
+    """Configuration for a scene with an object and a dexterous hand."""
+
+    # robots
+    robot: ArticulationCfg = MISSING
+    object = RigidObjectCfg(
+        prim_path="{ENV_REGEX_NS}/Object",
+        spawn=sim_utils.UrdfFileCfg(
+            asset_path=MISSING,  # will be set from grasp data.
+            scale=MISSING,  # will be set from grasp data.
+            activate_contact_sensors=True,
+            fix_base=False,
+            joint_drive=sim_utils.UrdfConverterCfg.JointDriveCfg(
+                gains=sim_utils.UrdfConverterCfg.JointDriveCfg.PDGainsCfg(
+                    stiffness=None, damping=None
+                ),
+            ),
+            articulation_props=sim_utils.ArticulationRootPropertiesCfg(
+                articulation_enabled=False,  # Disable articulation for rigid object
+            ),
+            rigid_props=sim_utils.RigidBodyPropertiesCfg(
+                solver_position_iteration_count=16,
+                solver_velocity_iteration_count=0,
+                disable_gravity=False,
+            ),
+            collision_props=sim_utils.CollisionPropertiesCfg(),
+            mass_props=sim_utils.MassPropertiesCfg(mass=0.2),  # 200g
+        ),
+        init_state=RigidObjectCfg.InitialStateCfg(
+            pos=MISSING,
+            rot=MISSING,
+        ),
+    )
+
+    # lights
+    light = AssetBaseCfg(
+        prim_path="/World/light",
+        spawn=sim_utils.DistantLightCfg(color=(0.95, 0.95, 0.95), intensity=1000.0),
+    )
+
+    dome_light = AssetBaseCfg(
+        prim_path="/World/domeLight",
+        spawn=sim_utils.DomeLightCfg(color=(0.02, 0.02, 0.02), intensity=1000.0),
+    )
+
+
+##
 # Environment configuration
 ##
 
@@ -584,11 +482,6 @@ class TerminationsCfg:
 @configclass
 class InHandObjectEnvCfg(ManagerBasedRLEnvCfg):
     """Configuration for the in hand reorientation environment."""
-
-    grasp_data_path: str | None = None
-    object_urdf_path: str | None = None
-    object_scale_override: float | None = None
-    use_grasp_init: bool = False
 
     # Scene settings
     scene: InHandObjectSceneCfg = InHandObjectSceneCfg(
@@ -616,7 +509,6 @@ class InHandObjectEnvCfg(ManagerBasedRLEnvCfg):
     terminations: TerminationsCfg = TerminationsCfg()
     events: EventCfg = EventCfg()
     curriculum: CurriculumCfg = CurriculumCfg()
-    grasp_init: GraspInitData | None = None
 
     def __post_init__(self):
         """Post initialization."""
@@ -633,82 +525,44 @@ class InHandObjectEnvCfg(ManagerBasedRLEnvCfg):
         #         self.commands.object_pose.orientation_success_threshold
         #     )
 
-        if self.grasp_data_path is not None:
-            self.use_grasp_init = True
-
-        if self.use_grasp_init:
-            if self.grasp_init is None:
-                raise ValueError(
-                    "use_grasp_init=True requires grasp_init to be precomputed and set on the cfg."
-                )
-            self._apply_grasp_events(self.grasp_init)
-
-    def _apply_grasp_events(self, grasp_init: GraspInitData):
-        """Configure scene and reset events from precomputed grasp data."""
-        object_asset_path = (
-            grasp_init.object_asset_path
-            if grasp_init.object_asset_path is not None
-            else self.scene.object.spawn.asset_path
-        )
-
-        object_pos_rot = _rotate_pos_y_pos_90(grasp_init.object_pos)
-        object_quat_rot = _quat_mul_wxyz(_Q_Y_POS_90_WXYZ, grasp_init.object_quat)
-
-        self.scene.object = self.scene.object.replace(
-            spawn=self.scene.object.spawn.replace(
-                asset_path=object_asset_path,
-                scale=(
-                    # 0.1,
-                    # 0.1,
-                    # 0.1,  # TODO: !!!!! change this
-                    grasp_init.object_scale,
-                    grasp_init.object_scale,
-                    grasp_init.object_scale,
-                ),
-            ),
-            init_state=RigidObjectCfg.InitialStateCfg(
-                pos=object_pos_rot, rot=object_quat_rot
-            ),
-        )
-
-        self.events.reset_object = EventTerm(
-            func=mdp.reset_root_state_from_pose,
-            mode="reset",
-            params={
-                "asset_cfg": SceneEntityCfg("object", body_names=".*"),
-                "pose": (*object_pos_rot, *object_quat_rot),
-                "velocity": (0.0, 0.0, 0.0, 0.0, 0.0, 0.0),
-            },
-        )
-
-        self.events.reset_robot_joints = EventTerm(
-            func=mdp.reset_joints_to_fixed,
-            mode="reset",
-            params={
-                "asset_cfg": SceneEntityCfg("robot", joint_names=".*"),
-                "joint_pos": grasp_init.robot_joint_pos,
-            },
-        )
-
-        self.events.reset_robot_root = EventTerm(
-            func=mdp.reset_root_state_from_pose,
-            mode="reset",
-            params={
-                "asset_cfg": SceneEntityCfg("robot"),
-                "pose": (0.0, 0.0, 0.0, *_Q_Y_POS_90_WXYZ),
-                "velocity": (0.0, 0.0, 0.0, 0.0, 0.0, 0.0),
-            },
-        )
-
 
 ##
 # Pre-defined configs
 ##
 from src.assets.leap_hand.leap import LEAP_HAND_CFG
 
+# TODO: move this to config (initial rotation of the wrist)
+# Fixed rotation to apply to initial wrist/object poses.
+# Quaternion format is (w, x, y, z). Using world +Y axis, +90deg.
+_Q_Y_POS_90_WXYZ = (0.7071067811865476, 0.0, 0.7071067811865476, 0.0)
+
+
+def _quat_mul_wxyz(
+    q1: tuple[float, float, float, float], q2: tuple[float, float, float, float]
+) -> tuple[float, float, float, float]:
+    """Quaternion multiply (wxyz): q = q1 * q2."""
+    w1, x1, y1, z1 = q1
+    w2, x2, y2, z2 = q2
+    return (
+        w1 * w2 - x1 * x2 - y1 * y2 - z1 * z2,
+        w1 * x2 + x1 * w2 + y1 * z2 - z1 * y2,
+        w1 * y2 - x1 * z2 + y1 * w2 + z1 * x2,
+        w1 * z2 + x1 * y2 - y1 * x2 + z1 * w2,
+    )
+
+
+def _rotate_pos_y_pos_90(pos: tuple[float, float, float]) -> tuple[float, float, float]:
+    """Rotate a position by +90deg about world +Y: (x,y,z) -> (z, y, -x)."""
+    x, y, z = pos
+    return (z, y, -x)
+
 
 @configclass
 class LeapObjectEnvCfg(InHandObjectEnvCfg):
+    object_urdf_path: str | None = None
+    grasp_path: str | None = None
+    object_scale_override: float | None = None
+
     def __post_init__(self):
         # post init of parent
         super().__post_init__()
@@ -748,33 +602,88 @@ class LeapObjectEnvCfg(InHandObjectEnvCfg):
         #         ),
         #     )
 
-        if self.use_grasp_init:
-            # self.scene.robot = self.scene.robot.replace(
-            #     spawn=self.scene.robot.spawn.replace(
-            #         articulation_props=self.scene.robot.spawn.articulation_props.replace(
-            #             fix_root_link=False,
-            #         ),
-            #     ),
-            # )
-            # TODO: check the init state here.
+        # Initial robot and object state
+        if self.grasp_path is not None and self.object_urdf_path is not None:
+            grasp_init = load_grasp_init(
+                self.grasp_path,
+                self.object_urdf_path,
+                self.object_scale_override,
+                base_pos=(0, 0, 0),
+                base_rot=_Q_Y_POS_90_WXYZ,
+            )
+
             self.scene.robot = self.scene.robot.replace(
                 init_state=ArticulationCfg.InitialStateCfg(
-                    pos=(0.0, 0.0, 0.0),
+                    pos=(0, 0, 0),
                     rot=_Q_Y_POS_90_WXYZ,
-                    joint_pos=self.scene.robot.init_state.joint_pos,
                 ),
             )
-        else:
-            # Rotate the default wrist/root initial orientation.
-            self.scene.robot = self.scene.robot.replace(
-                init_state=self.scene.robot.init_state.replace(
-                    rot=_quat_mul_wxyz(
-                        _Q_Y_POS_90_WXYZ, self.scene.robot.init_state.rot
-                    )
-                )
-            )
-        # enable clone in fabric
-        # self.scene.clone_in_fabric = True
+            # self.scene.object = self.scene.object.replace(
+            #     init_state=RigidObjectCfg.InitialStateCfg(
+            #         pos=grasp_init.object_pos,
+            #         rot=grasp_init.object_rot,
+            #     ),
+            # )
+            self._apply_grasp_events(grasp_init)
+
+    # TODO: check this later.
+    def _apply_grasp_events(self, grasp_init: GraspInitData):
+        """Configure scene and reset events from precomputed grasp data."""
+        object_asset_path = (
+            grasp_init.object_asset_path
+            if grasp_init.object_asset_path is not None
+            else self.scene.object.spawn.asset_path
+        )
+
+        object_pos_rot = _rotate_pos_y_pos_90(grasp_init.object_pos)
+        object_quat_rot = _quat_mul_wxyz(_Q_Y_POS_90_WXYZ, grasp_init.object_quat)
+
+        self.scene.object = self.scene.object.replace(
+            spawn=self.scene.object.spawn.replace(
+                asset_path=object_asset_path,
+                scale=(
+                    # 0.1,
+                    # 0.1,
+                    # 0.1,  # TODO: !!!!! change this
+                    grasp_init.object_scale,
+                    grasp_init.object_scale,
+                    grasp_init.object_scale,
+                ),
+            ),
+            init_state=RigidObjectCfg.InitialStateCfg(
+                pos=object_pos_rot, rot=object_quat_rot
+            ),
+        )
+
+        self.events.reset_object = EventTerm(
+            func=mdp.reset_root_state_from_pose,
+            mode="reset",
+            params={
+                "asset_cfg": SceneEntityCfg("object", body_names=".*"),
+                "pose": (*object_pos_rot, *object_quat_rot),
+                "velocity": (0.0, 0.0, 0.0, 0.0, 0.0, 0.0),
+            },
+        )
+
+        # set robot joint positions to the precomputed grasp joint positions (conversion between MuJoCo order and IsaacGym order)
+        self.events.reset_robot_joints = EventTerm(
+            func=mdp.reset_joints_to_fixed,
+            mode="reset",
+            params={
+                "asset_cfg": SceneEntityCfg("robot", joint_names=".*"),
+                "joint_pos": grasp_init.robot_joint_pos,
+            },
+        )
+
+        self.events.reset_robot_root = EventTerm(
+            func=mdp.reset_root_state_from_pose,
+            mode="reset",
+            params={
+                "asset_cfg": SceneEntityCfg("robot"),
+                "pose": (0.0, 0.0, 0.0, *_Q_Y_POS_90_WXYZ),
+                "velocity": (0.0, 0.0, 0.0, 0.0, 0.0, 0.0),
+            },
+        )
 
 
 @configclass

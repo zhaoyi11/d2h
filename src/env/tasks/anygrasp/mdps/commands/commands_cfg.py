@@ -22,7 +22,7 @@ class InHandReOrientationCommandCfg(CommandTermCfg):
     Please refer to the :class:`InHandReOrientationCommand` class for more details.
     """
 
-    random_range: float = 0.1
+    random_range: float = 1.0  # TODO: tune this one, and set up a curriculum for the range (e.g., 0.1->0.25->0.5->1.0)
     """Range for the random orientation."""
 
     class_type: type = InHandReOrientationCommand

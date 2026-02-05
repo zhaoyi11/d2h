@@ -15,8 +15,10 @@ gym.register(
     entry_point="isaaclab.envs:ManagerBasedRLEnv",
     disable_env_checker=True,
     kwargs={
-        "env_cfg_entry_point": f"{__name__}.tasks.anygrasp.anygrasp_env_cfg:LeapObjectEnvCfg",
+        # "env_cfg_entry_point": f"{__name__}.tasks.anygrasp.anygrasp_env_cfg:LeapObjectEnvCfg",
+        "env_cfg_entry_point": f"{__name__}.tasks.anygrasp.reorient_env_cfg:LeapObjectEnvCfg",
         "rl_games_cfg_entry_point": _RL_GAMES_CFG_PATH,
+        # "rsl_rl_cfg_entry_point": ,
     },
 )
 
