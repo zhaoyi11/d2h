@@ -116,8 +116,19 @@ class ObservationsCfg:
         )
         joint_vel = ObsTerm(func=mdp.joint_vel_rel, scale=0.2, noise=Gnoise(std=0.01))
 
-        # # fingertip
-        # fingers_contact_force_b = ObsTerm(
+        # fingertip
+        # fingertip_pos = ObsTerm(
+        #     func=mdp.fingertip_pos_source,
+        #     noise=Gnoise(std=0.002),
+        #     params={"sensor_name": "fingertip_transforms", "flatten": True},
+        # )
+        # fingertip_quat = ObsTerm(
+        #     func=mdp.fingertip_quat_source,
+        #     params={"sensor_name": "fingertip_transforms", "flatten": True},
+        # )
+
+        # # fingertip contact (net force)
+        # fingertip_contact_force_b = ObsTerm(
         #     func=mdp.fingers_contact_force_b,
         #     params={
         #         "contact_sensor_names": [
@@ -128,6 +139,7 @@ class ObservationsCfg:
         #         ],
         #     },
         # )
+
         # -- object terms
         object_pos = ObsTerm(
             func=mdp.root_pos_w,
@@ -334,65 +346,22 @@ class RewardsCfg:
     action_l2 = RewTerm(func=mdp.action_l2, weight=-0.0001)
     action_rate_l2 = RewTerm(func=mdp.action_rate_l2, weight=-0.01)
 
-    fingertip_obj_dist = RewTerm(
-        func=mdp.fingertip_object_distance,
-        weight=1.0,
-        params={
-            #     finger_bodies = []
-            # for body_name in ["thumb_fingertip", "fingertip", "fingertip_2", "fingertip_3"]:
-            #     finger_bodies.append(robot.body_names.index(body_name))
-            "fingertip_body_idx": [
-                14,
-                13,
-                15,
-                16,
-            ],  # TODO: change this. (thumb_fingertip, fingertip, fingertip_2, fingertip_3)
-            # "fingertip_offset_pos": [
-            #     [0.0, 0.0, 0.0],
-            #     [0.0, 0.0, 0.0],
-            #     [0.0, 0.0, 0.0],
-            #     [0.0, 0.0, 0.0],
-            # ],
-            # "fingertip_offset_rot": [
-            #     [1.0, 0.0, 0.0, 0.0],
-            #     [1.0, 0.0, 0.0, 0.0],
-            #     [1.0, 0.0, 0.0, 0.0],
-            #     [1.0, 0.0, 0.0, 0.0],
-            # ],
-        },
-    )
-    # TODO: check the fingertip cloud point (the reward looks encourage the joint to be close to the object.)
+    # fingertip_obj_dist = RewTerm(
+    #     func=mdp.neg_fingertip_object_distance,
+    #     weight=1.0,
+    # )
+    # TODO: this might not correct
     # fingertip_contact = RewTerm(
-    #     func=mdp.FingertipObjectProximityReward,
+    #     func=mdp.fingertip_object_contacts,
     #     weight=1,
     #     params={
-    #         "robot_cfg": SceneEntityCfg(
-    #             "robot",
-    #             body_names=[
-    #                 "thumb_fingertip",
-    #                 "fingertip",
-    #                 "fingertip_2",
-    #                 "fingertip_3",
-    #             ],
-    #         ),
-    #         "object_cfg": SceneEntityCfg("object"),
-    #         "fingertip_prim_paths": [
-    #             "{ENV_REGEX_NS}/Robot/thumb_fingertip",
-    #             "{ENV_REGEX_NS}/Robot/fingertip",
-    #             "{ENV_REGEX_NS}/Robot/fingertip_2",
-    #             "{ENV_REGEX_NS}/Robot/fingertip_3",
+    #         "contact_sensor_names": [
+    #             "thumb_tip_object_s",
+    #             "index_tip_object_s",
+    #             "middle_tip_object_s",
+    #             "ring_tip_object_s",
     #         ],
-    #         "num_tip_points": 12,
-    #         "num_object_points": 64,
-    #         "object_chunk_size": 16,
-    #         "mode": "neg",
-    #         "sigma": 0.01,
     #     },
-    # )
-
-    # object_stability = RewTerm(
-    #     func=mdp.object_stay_close,
-    #     weight=0.01,
     # )
 
     # -- optional penalties (these are disabled by default)
@@ -571,42 +540,44 @@ class LeapObjectEnvCfg(InHandObjectEnvCfg):
         # switch robot to leap hand
         self.scene.robot = LEAP_HAND_CFG.replace(prim_path="{ENV_REGEX_NS}/Robot")
 
-        # attach transform sensors to fingertip links for contact-based rewards/observations
-        self.scene.fingertip_transforms = FrameTransformerCfg(
-            prim_path="{ENV_REGEX_NS}/Robot/base",
-            target_frames=[
-                FrameTransformerCfg.FrameCfg(
-                    prim_path="{ENV_REGEX_NS}/Robot/thumb_fingertip",
-                    offset=OffsetCfg(pos=(0.0, -0.045, -0.015)),
-                ),
-                FrameTransformerCfg.FrameCfg(
-                    prim_path="{ENV_REGEX_NS}/Robot/fingertip",
-                    offset=OffsetCfg(pos=(0.0, -0.03, 0.015)),
-                ),
-                FrameTransformerCfg.FrameCfg(
-                    prim_path="{ENV_REGEX_NS}/Robot/fingertip_2",
-                    offset=OffsetCfg(pos=(0.0, -0.03, 0.015)),
-                ),
-                FrameTransformerCfg.FrameCfg(
-                    prim_path="{ENV_REGEX_NS}/Robot/fingertip_3",
-                    offset=OffsetCfg(pos=(0.0, -0.03, 0.015)),
-                ),
-            ],
-            debug_vis=False,
-            visualizer_cfg=FRAME_MARKER_CFG.replace(
-                prim_path="/Visuals/FrameTransformer",
-                markers={
-                    "frame": FRAME_MARKER_CFG.markers["frame"].replace(
-                        scale=(0.05, 0.05, 0.05)
-                    ),
-                    "connecting_line": FRAME_MARKER_CFG.markers[
-                        "connecting_line"
-                    ].replace(radius=0.0005),
-                },
-            ),
-        )
+        # # attach transform sensors to fingertip links for contact-based rewards/observations
+        # self.scene.fingertip_transforms = FrameTransformerCfg(
+        #     prim_path="{ENV_REGEX_NS}/Robot/base",
+        #     target_frames=[
+        #         FrameTransformerCfg.FrameCfg(
+        #             prim_path="{ENV_REGEX_NS}/Robot/thumb_fingertip",
+        #             offset=OffsetCfg(pos=(0.0, -0.045, -0.015)),
+        #         ),
+        #         FrameTransformerCfg.FrameCfg(
+        #             prim_path="{ENV_REGEX_NS}/Robot/fingertip",
+        #             offset=OffsetCfg(pos=(0.0, -0.03, 0.015)),
+        #         ),
+        #         FrameTransformerCfg.FrameCfg(
+        #             prim_path="{ENV_REGEX_NS}/Robot/fingertip_2",
+        #             offset=OffsetCfg(pos=(0.0, -0.03, 0.015)),
+        #         ),
+        #         FrameTransformerCfg.FrameCfg(
+        #             prim_path="{ENV_REGEX_NS}/Robot/fingertip_3",
+        #             offset=OffsetCfg(pos=(0.0, -0.03, 0.015)),
+        #         ),
+        #     ],
+        #     debug_vis=False,
+        #     visualizer_cfg=FRAME_MARKER_CFG.replace(
+        #         prim_path="/Visuals/FrameTransformer",
+        #         markers={
+        #             "frame": FRAME_MARKER_CFG.markers["frame"].replace(
+        #                 scale=(0.05, 0.05, 0.05)
+        #             ),
+        #             "connecting_line": FRAME_MARKER_CFG.markers[
+        #                 "connecting_line"
+        #             ].replace(radius=0.0005),
+        #         },
+        #     ),
+        # )
 
+        # # TODO: change the urdf obj, the current urdf file can't be filtered properly.
         # # attach contact sensors to fingertip links for contact-based rewards/observations
+        # # Note: use net force here, all forces are considered.
         # fingertip_prim_paths = {
         #     "thumb_tip_object_s": "{ENV_REGEX_NS}/Robot/thumb_fingertip",
         #     "index_tip_object_s": "{ENV_REGEX_NS}/Robot/fingertip",
@@ -619,8 +590,9 @@ class LeapObjectEnvCfg(InHandObjectEnvCfg):
         #         sensor_name,
         #         ContactSensorCfg(
         #             prim_path=prim_path,
-        #             filter_prim_paths_expr=["{ENV_REGEX_NS}/Object/*/*/*"],
-        #             # filter_prim_paths_expr=["{ENV_REGEX_NS}/Object/*/*"],
+        #             filter_prim_paths_expr=[
+        #                 "{ENV_REGEX_NS}/Object"
+        #             ],  # TODO: check this, can't filter the object properly now.
         #             update_period=0.0,
         #             history_length=6,
         #             debug_vis=True,
@@ -643,12 +615,7 @@ class LeapObjectEnvCfg(InHandObjectEnvCfg):
                     rot=_Q_Y_POS_90_WXYZ,
                 ),
             )
-            # self.scene.object = self.scene.object.replace(
-            #     init_state=RigidObjectCfg.InitialStateCfg(
-            #         pos=grasp_init.object_pos,
-            #         rot=grasp_init.object_rot,
-            #     ),
-            # )
+
             self._apply_grasp_events(grasp_init)
 
     # TODO: check this later.

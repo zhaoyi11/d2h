@@ -26,6 +26,54 @@ if TYPE_CHECKING:
     from .commands import InHandReOrientationCommand
 
 
+def fingertip_pos_source(
+    env: ManagerBasedRLEnv,
+    sensor_name: str = "fingertip_transforms",
+    flatten: bool = True,
+) -> torch.Tensor:
+    """Fingertip positions relative to the source frame (robot base).
+
+    Uses the FrameTransformer sensor's target_pos_source data.
+
+    Args:
+        env: The environment.
+        sensor_name: Name of the FrameTransformer sensor. Defaults to "fingertip_transforms".
+        flatten: If True, returns flattened tensor of shape (num_envs, num_fingers * 3).
+                 If False, returns tensor of shape (num_envs, num_fingers, 3).
+
+    Returns:
+        Tensor of fingertip positions relative to the robot base frame.
+    """
+    fingertip_pos = env.scene.sensors[sensor_name].data.target_pos_source
+    if flatten:
+        return fingertip_pos.view(env.num_envs, -1)
+    return fingertip_pos
+
+
+def fingertip_quat_source(
+    env: ManagerBasedRLEnv,
+    sensor_name: str = "fingertip_transforms",
+    flatten: bool = True,
+) -> torch.Tensor:
+    """Fingertip orientations (quaternions) relative to the source frame (robot base).
+
+    Uses the FrameTransformer sensor's target_quat_source data.
+
+    Args:
+        env: The environment.
+        sensor_name: Name of the FrameTransformer sensor. Defaults to "fingertip_transforms".
+        flatten: If True, returns flattened tensor of shape (num_envs, num_fingers * 4).
+                 If False, returns tensor of shape (num_envs, num_fingers, 4).
+
+    Returns:
+        Tensor of fingertip orientations (w, x, y, z) relative to the robot base frame.
+    """
+    fingertip_quat = env.scene.sensors[sensor_name].data.target_quat_source
+    if flatten:
+        return fingertip_quat.view(env.num_envs, -1)
+    return fingertip_quat
+
+
 def object_pos_b(
     env: ManagerBasedRLEnv,
     robot_cfg: SceneEntityCfg = SceneEntityCfg("robot"),
@@ -230,25 +278,28 @@ def fingers_contact_force_b(
         Tensor of shape ``(num_envs, num_sensors, 3)`` with forces stacked along dimension 1 as
         ``[fx, fy, fz]`` per sensor.
     """
-    # force_matrix_w is shaped (num_envs, num_bodies, num_filters, 3). We aggregate over bodies and
-    # filtered bodies to get a single force vector per sensor per environment.
-    # TODO: check the usage of contact force.
+    # We want one 3D force vector per sensor per environment in the robot base frame.
+    # Prefer filtered contact forces (force_matrix_w) when a filter is configured; otherwise fall back
+    # to net_forces_w (unfiltered sum over all contacts on the sensor bodies).
     forces_w = []
     for name in contact_sensor_names:
-        fm = env.scene.sensors[name].data.force_matrix_w
-        if fm is None:
-            forces_w.append(
-                torch.zeros(env.num_envs, 3, device=env.device, dtype=torch.float32)
-            )
+        sensor = env.scene.sensors[name]
+        # Filtered matrix: (num_envs, num_bodies, num_filters, 3)
+        fm = getattr(sensor.data, "net_force_w", None)
+        if fm is not None and fm.numel() > 0:
+            f_w = torch.nan_to_num(fm, nan=0.0).sum(dim=(1, 2))
         else:
-            fm = torch.nan_to_num(fm, nan=0.0)
-            forces_w.append(fm.sum(dim=(1, 2)))
+            # Net forces: (num_envs, num_bodies, 3)
+            net = sensor.data.net_forces_w
+            f_w = torch.nan_to_num(net, nan=0.0).sum(dim=1)
+        forces_w.append(f_w)
     force_w = torch.stack(forces_w, dim=1)
     robot: Articulation = env.scene[asset_cfg.name]
     forces_b = quat_apply_inverse(
         robot.data.root_link_quat_w.unsqueeze(1).repeat(1, force_w.shape[1], 1), force_w
     )
-    return forces_b
+
+    return forces_b.view(env.num_envs, -1)
 
 
 def goal_quat_diff(
