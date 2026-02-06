@@ -75,7 +75,7 @@ class CommandsCfg:
 
     object_pose = mdp.InHandReOrientationCommandCfg(
         asset_name="object",
-        random_range=0.1,
+        random_range=0.5,
         # init_pos_offset=(0.0, 0.0, -0.04),
         init_pos_offset=(0.0, 0.0, 0.0),  # TODO: remove z offset, confirm this.
         update_goal_on_success=True,
@@ -116,7 +116,7 @@ class ObservationsCfg:
         )
         joint_vel = ObsTerm(func=mdp.joint_vel_rel, scale=0.2, noise=Gnoise(std=0.01))
 
-        # fingertip
+        # # fingertip
         # fingertip_pos = ObsTerm(
         #     func=mdp.fingertip_pos_source,
         #     noise=Gnoise(std=0.002),
@@ -346,10 +346,11 @@ class RewardsCfg:
     action_l2 = RewTerm(func=mdp.action_l2, weight=-0.0001)
     action_rate_l2 = RewTerm(func=mdp.action_rate_l2, weight=-0.01)
 
-    # fingertip_obj_dist = RewTerm(
-    #     func=mdp.neg_fingertip_object_distance,
-    #     weight=1.0,
-    # )
+    fingertip_obj_dist = RewTerm(
+        func=mdp.neg_fingertip_object_distance,
+        weight=1.0,
+    )
+
     # TODO: this might not correct
     # fingertip_contact = RewTerm(
     #     func=mdp.fingertip_object_contacts,
@@ -540,40 +541,40 @@ class LeapObjectEnvCfg(InHandObjectEnvCfg):
         # switch robot to leap hand
         self.scene.robot = LEAP_HAND_CFG.replace(prim_path="{ENV_REGEX_NS}/Robot")
 
-        # # attach transform sensors to fingertip links for contact-based rewards/observations
-        # self.scene.fingertip_transforms = FrameTransformerCfg(
-        #     prim_path="{ENV_REGEX_NS}/Robot/base",
-        #     target_frames=[
-        #         FrameTransformerCfg.FrameCfg(
-        #             prim_path="{ENV_REGEX_NS}/Robot/thumb_fingertip",
-        #             offset=OffsetCfg(pos=(0.0, -0.045, -0.015)),
-        #         ),
-        #         FrameTransformerCfg.FrameCfg(
-        #             prim_path="{ENV_REGEX_NS}/Robot/fingertip",
-        #             offset=OffsetCfg(pos=(0.0, -0.03, 0.015)),
-        #         ),
-        #         FrameTransformerCfg.FrameCfg(
-        #             prim_path="{ENV_REGEX_NS}/Robot/fingertip_2",
-        #             offset=OffsetCfg(pos=(0.0, -0.03, 0.015)),
-        #         ),
-        #         FrameTransformerCfg.FrameCfg(
-        #             prim_path="{ENV_REGEX_NS}/Robot/fingertip_3",
-        #             offset=OffsetCfg(pos=(0.0, -0.03, 0.015)),
-        #         ),
-        #     ],
-        #     debug_vis=False,
-        #     visualizer_cfg=FRAME_MARKER_CFG.replace(
-        #         prim_path="/Visuals/FrameTransformer",
-        #         markers={
-        #             "frame": FRAME_MARKER_CFG.markers["frame"].replace(
-        #                 scale=(0.05, 0.05, 0.05)
-        #             ),
-        #             "connecting_line": FRAME_MARKER_CFG.markers[
-        #                 "connecting_line"
-        #             ].replace(radius=0.0005),
-        #         },
-        #     ),
-        # )
+        # attach transform sensors to fingertip links for contact-based rewards/observations
+        self.scene.fingertip_transforms = FrameTransformerCfg(
+            prim_path="{ENV_REGEX_NS}/Robot/base",
+            target_frames=[
+                FrameTransformerCfg.FrameCfg(
+                    prim_path="{ENV_REGEX_NS}/Robot/thumb_fingertip",
+                    offset=OffsetCfg(pos=(0.0, -0.045, -0.015)),
+                ),
+                FrameTransformerCfg.FrameCfg(
+                    prim_path="{ENV_REGEX_NS}/Robot/fingertip",
+                    offset=OffsetCfg(pos=(0.0, -0.03, 0.015)),
+                ),
+                FrameTransformerCfg.FrameCfg(
+                    prim_path="{ENV_REGEX_NS}/Robot/fingertip_2",
+                    offset=OffsetCfg(pos=(0.0, -0.03, 0.015)),
+                ),
+                FrameTransformerCfg.FrameCfg(
+                    prim_path="{ENV_REGEX_NS}/Robot/fingertip_3",
+                    offset=OffsetCfg(pos=(0.0, -0.03, 0.015)),
+                ),
+            ],
+            debug_vis=False,
+            visualizer_cfg=FRAME_MARKER_CFG.replace(
+                prim_path="/Visuals/FrameTransformer",
+                markers={
+                    "frame": FRAME_MARKER_CFG.markers["frame"].replace(
+                        scale=(0.05, 0.05, 0.05)
+                    ),
+                    "connecting_line": FRAME_MARKER_CFG.markers[
+                        "connecting_line"
+                    ].replace(radius=0.0005),
+                },
+            ),
+        )
 
         # # TODO: change the urdf obj, the current urdf file can't be filtered properly.
         # # attach contact sensors to fingertip links for contact-based rewards/observations
