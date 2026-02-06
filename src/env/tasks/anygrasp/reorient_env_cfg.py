@@ -39,34 +39,47 @@ from src.env.tasks.anygrasp.utils.grasp_init import GraspInitData, load_grasp_in
 ##
 
 
-# TODO: finish the curriculum of goal and gravity.
 @dataclass
 class CurriculumCfg:
     """Curriculum configuration."""
 
     adr = CurrTerm(
-        func=mdp.DifficultyScheduler,
+        func=mdp.EpisodeSuccessCountScheduler,
         params={
-            "pos_tol": 1.0,
-            "rot_tol": 1.0,
-            "init_difficulty": 1,
-            "min_difficulty": 1,
+            "command_name": "object_pose",
+            "successes_required": 3,
+            "init_difficulty": 0,
+            "min_difficulty": 0,
             "max_difficulty": 10,
+            "promotion_only": True,
         },
     )
 
-    goal_sample_range_adr = CurrTerm(
+    gravity_adr = CurrTerm(
         func=mdp.modify_term_cfg,
         params={
-            "address": "commands.object_pose.random_range",
+            "address": "events.variable_gravity.params.gravity_distribution_params",
             "modify_fn": mdp.initial_final_interpolate_fn,
             "modify_params": {
-                "initial_value": 0.1,
-                "final_value": 1.0,
+                "initial_value": ((0.0, 0.0, 0.0), (0.0, 0.0, 0.0)),
+                "final_value": ((0.0, 0.0, -9.81), (0.0, 0.0, -9.81)),
                 "difficulty_term_str": "adr",
             },
         },
     )
+
+    # goal_sample_range_adr = CurrTerm(
+    #     func=mdp.modify_term_cfg,
+    #     params={
+    #         "address": "commands.object_pose.random_range",
+    #         "modify_fn": mdp.initial_final_interpolate_fn,
+    #         "modify_params": {
+    #             "initial_value": 0.1,
+    #             "final_value": 1.0,
+    #             "difficulty_term_str": "adr",
+    #         },
+    #     },
+    # )
 
 
 @configclass
@@ -75,7 +88,7 @@ class CommandsCfg:
 
     object_pose = mdp.InHandReOrientationCommandCfg(
         asset_name="object",
-        random_range=0.5,
+        random_range=1.0,
         # init_pos_offset=(0.0, 0.0, -0.04),
         init_pos_offset=(0.0, 0.0, 0.0),  # TODO: remove z offset, confirm this.
         update_goal_on_success=True,
@@ -315,6 +328,15 @@ class EventCfg:
         },
     )
 
+    variable_gravity = EventTerm(
+        func=mdp.randomize_physics_scene_gravity,
+        mode="reset",
+        params={
+            "gravity_distribution_params": ([0.0, 0.0, 0.0], [0.0, 0.0, 0.0]),
+            "operation": "abs",
+        },
+    )
+
 
 @configclass
 class RewardsCfg:
@@ -460,7 +482,7 @@ class InHandObjectEnvCfg(ManagerBasedRLEnvCfg):
     )
     # Simulation settings
     sim: SimulationCfg = SimulationCfg(
-        gravity=(0.0, 0.0, -9.81),
+        gravity=(0.0, 0.0, 0.0),
         physics_material=RigidBodyMaterialCfg(
             static_friction=1.0,
             dynamic_friction=1.0,

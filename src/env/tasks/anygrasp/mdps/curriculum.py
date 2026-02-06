@@ -107,10 +107,6 @@ class DifficultyScheduler(ManagerTermBase):
         max_difficulty: int = 50,
         promotion_only: bool = False,
     ):
-        print("--------")
-        import ipdb
-
-        ipdb.set_trace()
         object: RigidObject = env.scene[object_cfg.name]
         command = env.command_manager.get_command("object_pose")
         des_pos_w = command[env_ids, :3] + env.scene.env_origins[env_ids]
@@ -142,3 +138,83 @@ class DifficultyScheduler(ManagerTermBase):
             max_difficulty, 1
         )
         return self.difficulty_frac
+
+
+class EpisodeSuccessCountScheduler(ManagerTermBase):
+    """Difficulty scheduler based on number of goal completions within an episode.
+
+    This scheduler is intended for goal-updating tasks (i.e., command resamples on success).
+    It promotes an environment's difficulty by one level when the number of completed goals
+    within the episode meets a threshold. Optionally, it can demote on failure.
+
+    Notes:
+        For IsaacLab command terms, `command_counter` is incremented on every resample. Since
+        a resample is performed at episode reset, the number of goal completions in an episode
+        is typically `command_counter - 1`.
+    """
+
+    def __init__(self, cfg, env):
+        super().__init__(cfg, env)
+        init_difficulty = int(self.cfg.params.get("init_difficulty", 0))
+        self.current_adr_difficulties = (
+            torch.ones(env.num_envs, device=env.device) * init_difficulty
+        )
+        self.difficulty_frac = 0.0
+
+    def get_state(self) -> torch.Tensor:
+        return self.current_adr_difficulties
+
+    def set_state(self, state: torch.Tensor):
+        self.current_adr_difficulties = state.clone().to(self._env.device)
+
+    def __call__(
+        self,
+        env: ManagerBasedRLEnv,
+        env_ids: Sequence[int],
+        command_name: str,
+        successes_required: int,
+        init_difficulty: int = 0,
+        min_difficulty: int = 0,
+        max_difficulty: int = 10,
+        promotion_only: bool = True,
+    ) -> dict[str, float]:
+        command_term = env.command_manager.get_term(command_name)
+
+        # command_counter is incremented on every resample, including at reset.
+        # Thus, completed goals in episode ~= command_counter - 1.
+        command_counter = command_term.command_counter[env_ids]
+        valid_episode = command_counter > 0
+        episode_successes = torch.clamp(command_counter - 1, min=0)
+
+        promote = valid_episode & (episode_successes >= int(successes_required))
+
+        if torch.any(valid_episode):
+            selected_difficulties = self.current_adr_difficulties[env_ids]
+            if promotion_only:
+                updated = torch.where(promote, selected_difficulties + 1, selected_difficulties)
+            else:
+                updated = torch.where(promote, selected_difficulties + 1, selected_difficulties - 1)
+            self.current_adr_difficulties[env_ids] = updated.clamp(
+                min=int(min_difficulty), max=int(max_difficulty)
+            )
+
+        mean_difficulty = torch.mean(self.current_adr_difficulties).item()
+        self.difficulty_frac = mean_difficulty / max(int(max_difficulty), 1)
+
+        # logging (episode-local stats are computed over valid episodes only)
+        num_valid = int(torch.sum(valid_episode).item())
+        if num_valid > 0:
+            mean_episode_successes = (
+                torch.mean(episode_successes[valid_episode].float()).item()
+            )
+            promotion_rate = torch.mean(promote[valid_episode].float()).item()
+        else:
+            mean_episode_successes = 0.0
+            promotion_rate = 0.0
+
+        return {
+            "difficulty_frac": float(self.difficulty_frac),
+            "mean_difficulty": float(mean_difficulty),
+            "mean_episode_successes": float(mean_episode_successes),
+            "promotion_rate": float(promotion_rate),
+        }
