@@ -61,7 +61,7 @@ class CurriculumCfg:
             "address": "events.variable_gravity.params.gravity_distribution_params",
             "modify_fn": mdp.initial_final_interpolate_fn,
             "modify_params": {
-                "initial_value": ((0.0, 0.0, 0.0), (0.0, 0.0, 0.0)),
+                "initial_value": ((0.0, 0.0, 1.0), (0.0, 0.0, 1.0)),
                 "final_value": ((0.0, 0.0, -9.81), (0.0, 0.0, -9.81)),
                 "difficulty_term_str": "adr",
             },
@@ -88,7 +88,7 @@ class CommandsCfg:
 
     object_pose = mdp.InHandReOrientationCommandCfg(
         asset_name="object",
-        random_range=1.0,
+        random_range=0.5,
         # init_pos_offset=(0.0, 0.0, -0.04),
         init_pos_offset=(0.0, 0.0, 0.0),  # TODO: remove z offset, confirm this.
         update_goal_on_success=True,
@@ -130,15 +130,15 @@ class ObservationsCfg:
         joint_vel = ObsTerm(func=mdp.joint_vel_rel, scale=0.2, noise=Gnoise(std=0.01))
 
         # # fingertip
-        # fingertip_pos = ObsTerm(
-        #     func=mdp.fingertip_pos_source,
-        #     noise=Gnoise(std=0.002),
-        #     params={"sensor_name": "fingertip_transforms", "flatten": True},
-        # )
-        # fingertip_quat = ObsTerm(
-        #     func=mdp.fingertip_quat_source,
-        #     params={"sensor_name": "fingertip_transforms", "flatten": True},
-        # )
+        fingertip_pos = ObsTerm(
+            func=mdp.fingertip_pos_source,
+            noise=Gnoise(std=0.002),
+            params={"sensor_name": "fingertip_transforms", "flatten": True},
+        )
+        fingertip_quat = ObsTerm(
+            func=mdp.fingertip_quat_source,
+            params={"sensor_name": "fingertip_transforms", "flatten": True},
+        )
 
         # # fingertip contact (net force)
         # fingertip_contact_force_b = ObsTerm(

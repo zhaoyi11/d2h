@@ -103,8 +103,10 @@ params:
     clip_observations: 100.0
     clip_actions: 1.0
     obs_groups:
-      obs: ["policy", "perception"]
-      states: ["policy", "perception"]
+      # obs: ["policy", "perception"]
+      obs: ["policy"]
+      # states: ["policy", "perception"]
+      states: ["policy"]
     concate_obs_groups: True
 
   algo:
@@ -149,6 +151,7 @@ params:
     normalize_input: True
     normalize_value: True
     value_bootstrap: False
+    # value_bootstrap: True
     num_actors: -1
     reward_shaper:
       scale_value: 0.01
@@ -168,8 +171,10 @@ params:
     entropy_coef: 0.001
     truncate_grads: True
     e_clip: 0.2
-    horizon_length: 36
-    minibatch_size: 36864
+    # horizon_length: 36
+    horizon_length: 8
+    # minibatch_size: 36864
+    minibatch_size: 16384
     mini_epochs: 5
     critic_coef: 4
     clip_value: True

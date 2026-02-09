@@ -94,27 +94,16 @@ def main(env_cfg: ManagerBasedRLEnvCfg | DirectRLEnvCfg | DirectMARLEnvCfg, agen
     # override configurations with non-hydra CLI arguments
     env_cfg.scene.num_envs = args_cli.num_envs if args_cli.num_envs is not None else env_cfg.scene.num_envs
     env_cfg.sim.device = args_cli.device if args_cli.device is not None else env_cfg.sim.device
-    if hasattr(env_cfg, "grasp_data_path"):
-        if args_cli.grasp_path is not None:
-            env_cfg.grasp_data_path = args_cli.grasp_path
-            env_cfg.use_grasp_init = True
-        if args_cli.obj_urdf_path is not None:
-            env_cfg.object_urdf_path = args_cli.obj_urdf_path
-            env_cfg.use_grasp_init = True
-        if args_cli.obj_scale is not None:
-            env_cfg.object_scale_override = args_cli.obj_scale
-            env_cfg.use_grasp_init = True
-        if env_cfg.use_grasp_init:
-            from src.env.tasks.anygrasp.utils.grasp_init import load_grasp_init
-
-            env_cfg.grasp_init = load_grasp_init(
-                env_cfg.grasp_data_path,
-                object_scale_override=env_cfg.object_scale_override,
-                object_urdf_path=env_cfg.object_urdf_path,
-            )
+    # load grasp data
+    if args_cli.grasp_path is not None:
+        env_cfg.grasp_path = args_cli.grasp_path
+    if args_cli.obj_urdf_path is not None:
+        env_cfg.object_urdf_path = args_cli.obj_urdf_path
+    if args_cli.obj_scale is not None:
+        env_cfg.object_scale_override = args_cli.obj_scale
 
     # Re-run post init after CLI overrides so grasp/object init state is applied.
-    if getattr(env_cfg, "use_grasp_init", False):
+    if env_cfg.grasp_path is not None and env_cfg.object_urdf_path is not None:
         env_cfg.__post_init__()
     # update agent device to match simulation device
     if args_cli.device is not None:
