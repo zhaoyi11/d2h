@@ -39,7 +39,7 @@ from src.env.tasks.anygrasp.utils.grasp_init import GraspInitData, load_grasp_in
 ##
 
 
-@dataclass
+@configclass
 class CurriculumCfg:
     """Curriculum configuration."""
 
@@ -530,9 +530,10 @@ class InHandObjectEnvCfg(ManagerBasedRLEnvCfg):
     scene: InHandObjectSceneCfg = InHandObjectSceneCfg(
         num_envs=8192, env_spacing=0.6, replicate_physics=False
     )
-    # Simulation settings
+    # # Simulation settings
+    # TODO: check this
     sim: SimulationCfg = SimulationCfg(
-        gravity=(0.0, 0.0, 0.0),
+        gravity=(0.0, 0.0, -9.81),
         physics_material=RigidBodyMaterialCfg(
             static_friction=1.0,
             dynamic_friction=1.0,
@@ -706,14 +707,14 @@ class LeapObjectEnvCfg(InHandObjectEnvCfg):
         self.scene.object = self.scene.object.replace(
             spawn=self.scene.object.spawn.replace(
                 asset_path=object_asset_path,
-                    scale=(
-                        # 0.1,
-                        # 0.1,
-                        # 0.1,  # TODO: !!!!! change this
-                        grasp_init.object_scale,
-                        grasp_init.object_scale,
-                        grasp_init.object_scale,
-                    ),
+                scale=(
+                    # 0.1,
+                    # 0.1,
+                    # 0.1,  # TODO: !!!!! change this
+                    grasp_init.object_scale,
+                    grasp_init.object_scale,
+                    grasp_init.object_scale,
+                ),
             ),
             init_state=RigidObjectCfg.InitialStateCfg(
                 pos=object_pos_rot, rot=object_quat_rot

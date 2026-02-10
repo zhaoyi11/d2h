@@ -170,7 +170,7 @@ params:
     grad_norm: 1.0
     entropy_coef: 0.005 # or 0? 0.001
     truncate_grads: True
-    e_clip: 0.1 # 0.2
+    e_clip: 0.2 # 0.2
     # horizon_length: 36
     horizon_length: 16
     # minibatch_size: 36864

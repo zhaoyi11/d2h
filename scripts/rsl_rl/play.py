@@ -11,7 +11,7 @@ from isaaclab.app import AppLauncher
 import cli_args  # isort: skip
 
 # add argparse arguments
-parser = argparse.ArgumentParser(description="Train an RL agent with RSL-RL.")
+parser = argparse.ArgumentParser(description="Play a checkpoint of an RL agent from RSL-RL.")
 parser.add_argument("--video", action="store_true", default=False, help="Record videos during training.")
 parser.add_argument("--video_length", type=int, default=200, help="Length of the recorded video (in steps).")
 parser.add_argument(
@@ -19,10 +19,21 @@ parser.add_argument(
 )
 parser.add_argument("--num_envs", type=int, default=None, help="Number of environments to simulate.")
 parser.add_argument("--task", type=str, default=None, help="Name of the task.")
+parser.add_argument(
+    "--agent", type=str, default="rsl_rl_cfg_entry_point", help="Name of the RL agent configuration entry point."
+)
 parser.add_argument("--motion_file", type=str, default=None, help="Path to the motion file.")
 parser.add_argument("--grasp_path", type=str, default=None, help="Path to grasp data file (.npy).")
 parser.add_argument("--obj_urdf_path", type=str, default=None, help="Path to object URDF.")
 parser.add_argument("--obj_scale", type=float, default=None, help="Override object scale from grasp data.")
+parser.add_argument("--checkpoint", type=str, default=None, help="Path to model checkpoint.")
+parser.add_argument("--seed", type=int, default=None, help="Seed used for the environment")
+parser.add_argument(
+    "--use_last_checkpoint",
+    action="store_true",
+    help="When no checkpoint provided, use the last saved model.",
+)
+parser.add_argument("--real-time", action="store_true", default=False, help="Run in real-time, if possible.")
 # append RSL-RL cli arguments
 cli_args.add_rsl_rl_args(parser)
 # append AppLauncher cli args
@@ -44,6 +55,7 @@ simulation_app = app_launcher.app
 import gymnasium as gym
 import os
 import pathlib
+import time
 import torch
 
 from rsl_rl.runners import OnPolicyRunner
@@ -55,6 +67,7 @@ from isaaclab.envs import (
     ManagerBasedRLEnvCfg,
     multi_agent_to_single_agent,
 )
+from isaaclab.utils.assets import retrieve_file_path
 from isaaclab.utils.dict import print_dict
 from isaaclab_rl.rsl_rl import RslRlOnPolicyRunnerCfg, RslRlVecEnvWrapper
 from isaaclab_tasks.utils import get_checkpoint_path
@@ -65,11 +78,21 @@ import whole_body_tracking.tasks  # noqa: F401
 from whole_body_tracking.utils.exporter import attach_onnx_metadata, export_motion_policy_as_onnx
 
 
-@hydra_task_config(args_cli.task, "rsl_rl_cfg_entry_point")
-def main(env_cfg: ManagerBasedRLEnvCfg | DirectRLEnvCfg | DirectMARLEnvCfg, agent_cfg: RslRlOnPolicyRunnerCfg):
-    """Play with RSL-RL agent."""
-    agent_cfg: RslRlOnPolicyRunnerCfg = cli_args.parse_rsl_rl_cfg(args_cli.task, args_cli)
-    env_cfg.scene.num_envs = args_cli.num_envs if args_cli.num_envs is not None else env_cfg.scene.num_envs
+def _apply_grasp_overrides(env_cfg, args_cli):
+    """Apply grasp/object overrides for both legacy and current env config schemas."""
+    if hasattr(env_cfg, "grasp_path"):
+        if args_cli.grasp_path is not None:
+            env_cfg.grasp_path = args_cli.grasp_path
+        if args_cli.obj_urdf_path is not None:
+            env_cfg.object_urdf_path = args_cli.obj_urdf_path
+        if args_cli.obj_scale is not None:
+            env_cfg.object_scale_override = args_cli.obj_scale
+
+        # Re-run post init after CLI overrides so grasp/object init state is applied.
+        if env_cfg.grasp_path is not None and env_cfg.object_urdf_path is not None:
+            env_cfg.__post_init__()
+        return
+
     if hasattr(env_cfg, "grasp_data_path"):
         if args_cli.grasp_path is not None:
             env_cfg.grasp_data_path = args_cli.grasp_path
@@ -88,6 +111,20 @@ def main(env_cfg: ManagerBasedRLEnvCfg | DirectRLEnvCfg | DirectMARLEnvCfg, agen
                 object_scale_override=env_cfg.object_scale_override,
                 object_urdf_path=env_cfg.object_urdf_path,
             )
+
+
+@hydra_task_config(args_cli.task, args_cli.agent)
+def main(env_cfg: ManagerBasedRLEnvCfg | DirectRLEnvCfg | DirectMARLEnvCfg, agent_cfg: RslRlOnPolicyRunnerCfg):
+    """Play with RSL-RL agent."""
+    agent_cfg = cli_args.update_rsl_rl_cfg(agent_cfg, args_cli)
+    env_cfg.scene.num_envs = args_cli.num_envs if args_cli.num_envs is not None else env_cfg.scene.num_envs
+    env_cfg.sim.device = args_cli.device if args_cli.device is not None else env_cfg.sim.device
+    env_cfg.seed = agent_cfg.seed
+    _apply_grasp_overrides(env_cfg, args_cli)
+
+    if args_cli.motion_file is not None and hasattr(env_cfg, "commands") and hasattr(env_cfg.commands, "motion"):
+        print(f"[INFO]: Using motion file from CLI: {args_cli.motion_file}")
+        env_cfg.commands.motion.motion_file = args_cli.motion_file
 
     # specify directory for logging experiments
     log_root_path = os.path.join("logs", "rsl_rl", agent_cfg.experiment_name)
@@ -116,25 +153,29 @@ def main(env_cfg: ManagerBasedRLEnvCfg | DirectRLEnvCfg | DirectMARLEnvCfg, agen
         print(f"[INFO]: Loading model checkpoint from: {run_path}/{file}")
         resume_path = f"./logs/rsl_rl/temp/{file}"
 
-        if args_cli.motion_file is not None:
-            print(f"[INFO]: Using motion file from CLI: {args_cli.motion_file}")
-            env_cfg.commands.motion.motion_file = args_cli.motion_file
-
         art = next((a for a in wandb_run.used_artifacts() if a.type == "motions"), None)
         if art is None:
             print("[WARN] No model artifact found in the run.")
-        else:
+        elif args_cli.motion_file is None and hasattr(env_cfg, "commands") and hasattr(env_cfg.commands, "motion"):
             env_cfg.commands.motion.motion_file = str(pathlib.Path(art.download()) / "motion.npz")
 
     else:
-        print(f"[INFO] Loading experiment from directory: {log_root_path}")
-        resume_path = get_checkpoint_path(log_root_path, agent_cfg.load_run, agent_cfg.load_checkpoint)
+        if args_cli.checkpoint is not None:
+            resume_path = retrieve_file_path(args_cli.checkpoint)
+        else:
+            print(f"[INFO] Loading experiment from directory: {log_root_path}")
+            if args_cli.use_last_checkpoint:
+                run_dir = agent_cfg.load_run if agent_cfg.load_run else ".*"
+                resume_path = get_checkpoint_path(log_root_path, run_dir, "model_.*.pt")
+            else:
+                resume_path = get_checkpoint_path(log_root_path, agent_cfg.load_run, agent_cfg.load_checkpoint)
         print(f"[INFO]: Loading model checkpoint from: {resume_path}")
 
     # create isaac environment
     env = gym.make(args_cli.task, cfg=env_cfg, render_mode="rgb_array" if args_cli.video else None)
 
     log_dir = os.path.dirname(resume_path)
+    env_cfg.log_dir = log_dir
 
     # wrap for video recording
     if args_cli.video:
@@ -175,9 +216,11 @@ def main(env_cfg: ManagerBasedRLEnvCfg | DirectRLEnvCfg | DirectMARLEnvCfg, agen
     attach_onnx_metadata(env.unwrapped, args_cli.wandb_path if args_cli.wandb_path else "none", export_model_dir)
     # reset environment
     obs, _ = env.get_observations()
+    dt = env.unwrapped.step_dt
     timestep = 0
     # simulate environment
     while simulation_app.is_running():
+        start_time = time.time()
         # run everything in inference mode
         with torch.inference_mode():
             # agent stepping
@@ -189,6 +232,10 @@ def main(env_cfg: ManagerBasedRLEnvCfg | DirectRLEnvCfg | DirectMARLEnvCfg, agen
             # Exit the play loop after recording one video
             if timestep == args_cli.video_length:
                 break
+        # time delay for real-time evaluation
+        sleep_time = dt - (time.time() - start_time)
+        if args_cli.real_time and sleep_time > 0:
+            time.sleep(sleep_time)
 
     # close the simulator
     env.close()
