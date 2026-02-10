@@ -109,6 +109,11 @@ class ActionsCfg:
         alpha=0.95,
         rescale_to_limits=True,
     )
+    # joint_pos = mdp.EMACumulativeRelativeJointPositionActionCfg(
+    # asset_name="robot",
+    # joint_names=[".*"],
+    # alpha=0.95,
+    # )
 
 
 @configclass
@@ -373,7 +378,7 @@ class RewardsCfg:
         weight=1.0,
     )
 
-    # TODO: this might not correct
+    # # TODO: this might not correct
     # fingertip_contact = RewTerm(
     #     func=mdp.fingertip_object_contacts,
     #     weight=1,
@@ -426,6 +431,51 @@ class InHandObjectSceneCfg(InteractiveSceneCfg):
 
     # robots
     robot: ArticulationCfg = MISSING
+    # object: RigidObjectCfg = RigidObjectCfg(
+    #     prim_path="{ENV_REGEX_NS}/Object",
+    #     spawn=sim_utils.MultiAssetSpawnerCfg(
+    #         assets_cfg=[
+    #             # CapsuleCfg(
+    #             #     radius=0.04,
+    #             #     height=0.01,
+    #             #     physics_material=RigidBodyMaterialCfg(static_friction=0.5),
+    #             # ),
+    #             CuboidCfg(
+    #                 size=(0.04, 0.08, 0.08),
+    #                 physics_material=RigidBodyMaterialCfg(static_friction=0.5),
+    #             ),
+    #         ],
+    #         rigid_props=sim_utils.RigidBodyPropertiesCfg(
+    #             solver_position_iteration_count=16,
+    #             solver_velocity_iteration_count=0,
+    #             disable_gravity=False,
+    #         ),
+    #         collision_props=sim_utils.CollisionPropertiesCfg(),
+    #         mass_props=sim_utils.MassPropertiesCfg(mass=0.2),
+    #     ),
+    #     init_state=RigidObjectCfg.InitialStateCfg(pos=(-0.55, 0.1, 0.35)),
+    # )
+    # testing speed
+    # object: RigidObjectCfg = RigidObjectCfg(
+    #     prim_path="{ENV_REGEX_NS}/object",
+    #     spawn=sim_utils.UsdFileCfg(
+    #         usd_path=f"{ISAAC_NUCLEUS_DIR}/Props/Blocks/DexCube/dex_cube_instanceable.usd",
+    #         rigid_props=sim_utils.RigidBodyPropertiesCfg(
+    #             kinematic_enabled=False,
+    #             disable_gravity=False,
+    #             enable_gyroscopic_forces=True,
+    #             solver_position_iteration_count=8,
+    #             solver_velocity_iteration_count=0,
+    #             sleep_threshold=0.005,
+    #             stabilization_threshold=0.0025,
+    #             max_depenetration_velocity=1000.0,
+    #         ),
+    #         mass_props=sim_utils.MassPropertiesCfg(density=400.0),
+    #     ),
+    #     init_state=RigidObjectCfg.InitialStateCfg(
+    #         pos=(0.0, -0.19, 0.56), rot=(1.0, 0.0, 0.0, 0.0)
+    #     ),
+    # )
     object = RigidObjectCfg(
         prim_path="{ENV_REGEX_NS}/Object",
         spawn=sim_utils.UrdfFileCfg(
@@ -598,9 +648,9 @@ class LeapObjectEnvCfg(InHandObjectEnvCfg):
             ),
         )
 
-        # # TODO: change the urdf obj, the current urdf file can't be filtered properly.
-        # # attach contact sensors to fingertip links for contact-based rewards/observations
-        # # Note: use net force here, all forces are considered.
+        # TODO: change the urdf obj, the current urdf file can't be filtered properly.
+        # attach contact sensors to fingertip links for contact-based rewards/observations
+        # Note: use net force here, all forces are considered.
         # fingertip_prim_paths = {
         #     "thumb_tip_object_s": "{ENV_REGEX_NS}/Robot/thumb_fingertip",
         #     "index_tip_object_s": "{ENV_REGEX_NS}/Robot/fingertip",
@@ -656,14 +706,14 @@ class LeapObjectEnvCfg(InHandObjectEnvCfg):
         self.scene.object = self.scene.object.replace(
             spawn=self.scene.object.spawn.replace(
                 asset_path=object_asset_path,
-                scale=(
-                    # 0.1,
-                    # 0.1,
-                    # 0.1,  # TODO: !!!!! change this
-                    grasp_init.object_scale,
-                    grasp_init.object_scale,
-                    grasp_init.object_scale,
-                ),
+                    scale=(
+                        # 0.1,
+                        # 0.1,
+                        # 0.1,  # TODO: !!!!! change this
+                        grasp_init.object_scale,
+                        grasp_init.object_scale,
+                        grasp_init.object_scale,
+                    ),
             ),
             init_state=RigidObjectCfg.InitialStateCfg(
                 pos=object_pos_rot, rot=object_quat_rot

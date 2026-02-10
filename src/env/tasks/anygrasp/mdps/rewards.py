@@ -147,15 +147,8 @@ def fingertip_object_contacts(
 
     for name in contact_sensor_names:
         sensor: ContactSensor = env.scene.sensors[name]
-        # import ipdb
 
-        # ipdb.set_trace()
         force_matrix_w = sensor.data.force_matrix_w
-        # print(force_matrix_w.mean())
-        # net_matrix_w = sensor.data.net_forces_w
-        # import ipdb
-
-        # ipdb.set_trace()
 
         if force_matrix_w is None:
             # No filter configured / no data available.

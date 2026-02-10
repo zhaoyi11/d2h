@@ -100,7 +100,7 @@ params:
 
   # environment wrapper clipping
   env:
-    clip_observations: 100.0
+    clip_observations: 100.0 # TODO: check obs and action clip range
     clip_actions: 1.0
     obs_groups:
       # obs: ["policy", "perception"]
@@ -149,37 +149,37 @@ params:
     ppo: True
     mixed_precision: False
     normalize_input: True
-    normalize_value: True
-    value_bootstrap: False
-    # value_bootstrap: True
+    normalize_value: True # TODO: how does this implemented in rsl?
+    # value_bootstrap: False # TODO: check this (in rsl, it is alwaysTrue)
+    value_bootstrap: True
     num_actors: -1
-    reward_shaper:
-      scale_value: 0.01
+    reward_shaper: # how does this implementaed in rsl/
+      scale_value: 0.01 # TODO: check this value: 0.1 or 0.01 (and how about rsl_rl?)
     normalize_advantage: True
-    gamma: 0.99
+    gamma: 0.99 # TODO: 0.998 or 0.99?
     tau: 0.95
     learning_rate: 1e-3
     lr_schedule: adaptive
-    schedule_type: legacy
+    schedule_type: standard # TODO: legacy or standard?
     kl_threshold: 0.01
-    score_to_win: 100000000
+    score_to_win: 100000000 
     max_epochs: 750000
-    save_best_after: 100
-    save_frequency: 50
+    save_best_after: 500
+    save_frequency: 200
     print_stats: True
     grad_norm: 1.0
-    entropy_coef: 0.001
+    entropy_coef: 0.005 # or 0? 0.001
     truncate_grads: True
-    e_clip: 0.2
+    e_clip: 0.1 # 0.2
     # horizon_length: 36
-    horizon_length: 8
+    horizon_length: 16
     # minibatch_size: 36864
-    minibatch_size: 16384
+    minibatch_size: 32768
     mini_epochs: 5
-    critic_coef: 4
-    clip_value: True
-    clip_actions: False
-    seq_len: 4
+    critic_coef: 2
+    clip_value: True # TODO: whether this is needed?
+    clip_actions: False # TODO: whether this is needed?
+    seq_len: 4 # used for rnn config, not needed for now.
     bounds_loss_coef: 0.0001
 
 pbt:

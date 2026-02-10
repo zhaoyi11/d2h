@@ -285,12 +285,12 @@ def fingers_contact_force_b(
     for name in contact_sensor_names:
         sensor = env.scene.sensors[name]
         # Filtered matrix: (num_envs, num_bodies, num_filters, 3)
-        fm = getattr(sensor.data, "net_force_w", None)
+        fm = getattr(sensor.data, "force_matrix_w", None)
         if fm is not None and fm.numel() > 0:
             f_w = torch.nan_to_num(fm, nan=0.0).sum(dim=(1, 2))
         else:
             # Net forces: (num_envs, num_bodies, 3)
-            net = sensor.data.net_forces_w
+            net = sensor.data.force_matrix_w
             f_w = torch.nan_to_num(net, nan=0.0).sum(dim=1)
         forces_w.append(f_w)
     force_w = torch.stack(forces_w, dim=1)
@@ -298,7 +298,6 @@ def fingers_contact_force_b(
     forces_b = quat_apply_inverse(
         robot.data.root_link_quat_w.unsqueeze(1).repeat(1, force_w.shape[1], 1), force_w
     )
-
     return forces_b.view(env.num_envs, -1)
 
 
