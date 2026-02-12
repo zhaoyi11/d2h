@@ -49,6 +49,7 @@ def initial_final_interpolate_fn(
     )
 
 
+
 def _recurse(iv_elem, fv_elem, data_elem, frac):
     # If it's a sequence, rebuild the same type with each element recursed
     if isinstance(data_elem, Sequence) and not isinstance(data_elem, (str, bytes)):
@@ -59,12 +60,10 @@ def _recurse(iv_elem, fv_elem, data_elem, frac):
         )
     # Otherwise it's a leaf scalar: do the interpolation
     new_val = frac * (fv_elem - iv_elem) + iv_elem
-    if isinstance(data_elem, int):
-        return int(new_val.item())
+    if isinstance(new_val, int):
+        return int(new_val)
     else:
-        # cast floats or any numeric
-        return new_val.item()
-
+        return float(new_val)
 
 class DifficultyScheduler(ManagerTermBase):
     """Adaptive difficulty scheduler for curriculum learning.

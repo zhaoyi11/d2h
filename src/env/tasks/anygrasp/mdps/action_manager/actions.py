@@ -7,7 +7,7 @@ from typing import TYPE_CHECKING
 
 import isaaclab.utils.string as string_utils
 from isaaclab.assets import Articulation
-from isaaclab.envs.mdp.actions import JointPositionAction
+from isaaclab.envs.mdp.actions import JointPositionAction, JointPositionToLimitsAction
 
 if TYPE_CHECKING:
     from isaaclab.envs import ManagerBasedRLEnv
@@ -126,6 +126,102 @@ class EMACumulativeRelativeJointPositionAction(JointPositionAction):
         self._prev_applied_actions[:] = self._processed_actions[:]
         # keep cumulative state aligned with what was actually applied after EMA/clamp
         self.del_action[:] = self._processed_actions - self.init_joint_pos
+
+
+class EMARelativeJointPositionToLimitsAction(JointPositionToLimitsAction):
+    cfg: actions_cfg.EMARelativeJointPositionToLimitsActionCfg
+    _asset: Articulation
+    """EMA-smooth relative joint position delta with joint-limit clamping."""
+
+    def __init__(
+        self,
+        cfg: actions_cfg.EMARelativeJointPositionToLimitsActionCfg,
+        env: ManagerBasedRLEnv,
+    ) -> None:
+        super().__init__(cfg, env)
+
+        if isinstance(cfg.alpha, float):
+            if not 0.0 <= cfg.alpha <= 1.0:
+                raise ValueError(
+                    f"Moving average weight must be in the range [0, 1]. Got {cfg.alpha}."
+                )
+            self._alpha = cfg.alpha
+        elif isinstance(cfg.alpha, dict):
+            self._alpha = torch.ones(
+                (env.num_envs, self.action_dim), device=self.device
+            )
+            index_list, names_list, value_list = (
+                string_utils.resolve_matching_names_values(cfg.alpha, self._joint_names)
+            )
+            for name, value in zip(names_list, value_list):
+                if not 0.0 <= value <= 1.0:
+                    raise ValueError(
+                        f"Moving average weight must be in the range [0, 1]. Got {value} for joint {name}."
+                    )
+            self._alpha[:, index_list] = torch.tensor(value_list, device=self.device)
+        else:
+            raise ValueError(
+                f"Unsupported moving average weight type: {type(cfg.alpha)}. Supported types are float and dict."
+            )
+
+        self._prev_ema_actions = torch.zeros_like(self.processed_actions)
+
+        if (cfg.joint_lower_limit is None) != (cfg.joint_upper_limit is None):
+            raise ValueError(
+                "joint_lower_limit and joint_upper_limit must either both be set or both be None."
+            )
+        if cfg.joint_lower_limit is not None and cfg.joint_upper_limit is not None:
+            if len(cfg.joint_lower_limit) != self.action_dim:
+                raise ValueError(
+                    f"joint_lower_limit must have length {self.action_dim}. Got {len(cfg.joint_lower_limit)}."
+                )
+            if len(cfg.joint_upper_limit) != self.action_dim:
+                raise ValueError(
+                    f"joint_upper_limit must have length {self.action_dim}. Got {len(cfg.joint_upper_limit)}."
+                )
+            self.joint_lower_limit = torch.as_tensor(
+                cfg.joint_lower_limit,
+                device=self.device,
+                dtype=self.processed_actions.dtype,
+            )
+            self.joint_upper_limit = torch.as_tensor(
+                cfg.joint_upper_limit,
+                device=self.device,
+                dtype=self.processed_actions.dtype,
+            )
+        else:
+            self.joint_lower_limit = None
+            self.joint_upper_limit = None
+
+    def reset(self, env_ids: Sequence[int] | None = None) -> None:
+        if env_ids is None:
+            env_ids = slice(None)
+        super().reset(env_ids)
+        self._prev_ema_actions[env_ids, :] = 0.0
+
+    def process_actions(self, actions: torch.Tensor):
+        # Base processing applies scale/offset/clip to produce delta-q actions.
+        super().process_actions(actions)
+
+        ema_actions = self._alpha * self._processed_actions
+        ema_actions += (1.0 - self._alpha) * self._prev_ema_actions
+        self._prev_ema_actions[:] = ema_actions
+
+        current_joint_pos = self._asset.data.joint_pos[:, self._joint_ids]
+        target_joint_pos = current_joint_pos + ema_actions
+
+        if self.joint_lower_limit is not None and self.joint_upper_limit is not None:
+            self._processed_actions[:] = torch.clamp(
+                target_joint_pos,
+                self.joint_lower_limit,
+                self.joint_upper_limit,
+            )
+        else:
+            self._processed_actions[:] = torch.clamp(
+                target_joint_pos,
+                self._asset.data.soft_joint_pos_limits[:, self._joint_ids, 0],
+                self._asset.data.soft_joint_pos_limits[:, self._joint_ids, 1],
+            )
 
 
 class EMACumulativeRelativeJointPositionActionEval:

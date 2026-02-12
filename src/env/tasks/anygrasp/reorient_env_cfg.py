@@ -109,6 +109,14 @@ class ActionsCfg:
         alpha=0.95,
         rescale_to_limits=True,
     )
+
+    #joint_pos = mdp.RelativeJointPositionActionCfg(
+    #   asset_name="robot",
+    #    joint_names=[".*"],
+    #    # debug_vis=True,
+    #    use_zero_offset=False,
+    #    # scale=0.3,
+    #)
     # joint_pos = mdp.EMACumulativeRelativeJointPositionActionCfg(
     # asset_name="robot",
     # joint_names=[".*"],
