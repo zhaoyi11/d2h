@@ -585,9 +585,11 @@ from src.assets.leap_hand.leap import LEAP_HAND_CFG
 
 # TODO: move this to config (initial rotation of the wrist)
 # Fixed rotation to apply to initial wrist/object poses.
-# Quaternion format is (w, x, y, z). Using world +Y axis, +90deg.
-_Q_Y_POS_90_WXYZ = (0.7071067811865476, 0.0, 0.7071067811865476, 0.0)
+# Quaternion format is (w, x, y, z).
 
+#_BASE_ROT_WXYZ = (0.0, 0.7071067811865476, 0.0, 0.7071067811865476)  # face up
+#_BASE_ROT_WXYZ = (0.7071067811865476, 0.0, 0.7071067811865476, 0.0)  # face downward
+_BASE_ROT_WXYZ = (1.0, 0.0, 0.0, 0.0)  # face +y axis
 
 def _quat_mul_wxyz(
     q1: tuple[float, float, float, float], q2: tuple[float, float, float, float]
@@ -603,10 +605,25 @@ def _quat_mul_wxyz(
     )
 
 
-def _rotate_pos_y_pos_90(pos: tuple[float, float, float]) -> tuple[float, float, float]:
-    """Rotate a position by +90deg about world +Y: (x,y,z) -> (z, y, -x)."""
-    x, y, z = pos
-    return (z, y, -x)
+def _rotate_pos_by_quat_wxyz(
+    q: tuple[float, float, float, float], pos: tuple[float, float, float]
+) -> tuple[float, float, float]:
+    """Rotate a position vector by a unit quaternion (w, x, y, z).
+
+    Uses the formula: p' = q * p * q_inv, implemented as:
+        p' = p + 2 * cross(q_xyz, cross(q_xyz, p) + w * p)
+    """
+    w, qx, qy, qz = q
+    px, py, pz = pos
+    # t = 2 * cross(q_xyz, p)
+    tx = 2.0 * (qy * pz - qz * py)
+    ty = 2.0 * (qz * px - qx * pz)
+    tz = 2.0 * (qx * py - qy * px)
+    return (
+        px + w * tx + (qy * tz - qz * ty),
+        py + w * ty + (qz * tx - qx * tz),
+        pz + w * tz + (qx * ty - qy * tx),
+    )
 
 
 @configclass
@@ -688,13 +705,13 @@ class LeapObjectEnvCfg(InHandObjectEnvCfg):
                 self.object_urdf_path,
                 self.object_scale_override,
                 base_pos=(0, 0, 0),
-                base_rot=_Q_Y_POS_90_WXYZ,
+                base_rot=_BASE_ROT_WXYZ,
             )
 
             self.scene.robot = self.scene.robot.replace(
                 init_state=ArticulationCfg.InitialStateCfg(
                     pos=(0, 0, 0),
-                    rot=_Q_Y_POS_90_WXYZ,
+                    rot=_BASE_ROT_WXYZ,
                 ),
             )
 
@@ -709,8 +726,8 @@ class LeapObjectEnvCfg(InHandObjectEnvCfg):
             else self.scene.object.spawn.asset_path
         )
 
-        object_pos_rot = _rotate_pos_y_pos_90(grasp_init.object_pos)
-        object_quat_rot = _quat_mul_wxyz(_Q_Y_POS_90_WXYZ, grasp_init.object_quat)
+        object_pos_rot = _rotate_pos_by_quat_wxyz(_BASE_ROT_WXYZ, grasp_init.object_pos)
+        object_quat_rot = _quat_mul_wxyz(_BASE_ROT_WXYZ, grasp_init.object_quat)
 
         self.scene.object = self.scene.object.replace(
             spawn=self.scene.object.spawn.replace(
@@ -754,7 +771,7 @@ class LeapObjectEnvCfg(InHandObjectEnvCfg):
             mode="reset",
             params={
                 "asset_cfg": SceneEntityCfg("robot"),
-                "pose": (0.0, 0.0, 0.0, *_Q_Y_POS_90_WXYZ),
+                "pose": (0.0, 0.0, 0.0, *_BASE_ROT_WXYZ),
                 "velocity": (0.0, 0.0, 0.0, 0.0, 0.0, 0.0),
             },
         )
