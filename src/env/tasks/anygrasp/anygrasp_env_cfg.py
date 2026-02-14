@@ -570,7 +570,7 @@ class TerminationsCfg:
     object_out_of_reach = DoneTerm(
         func=mdp.object_away_from_robot, params={"threshold": 0.3}
     )
-
+    
     # object_out_of_reach = DoneTerm(
     #     func=mdp.object_away_from_goal, params={"threshold": 0.24, "command_name": "object_pose"}
     # )

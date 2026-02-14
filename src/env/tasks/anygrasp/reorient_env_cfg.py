@@ -55,13 +55,14 @@ class CurriculumCfg:
         },
     )
 
+    # TODO::::: The gravity curriculum is not working.
     gravity_adr = CurrTerm(
         func=mdp.modify_term_cfg,
         params={
             "address": "events.variable_gravity.params.gravity_distribution_params",
             "modify_fn": mdp.initial_final_interpolate_fn,
             "modify_params": {
-                "initial_value": ((0.0, 0.0, 1.0), (0.0, 0.0, 1.0)),
+                "initial_value": ((0.0, 0.0, 0.0), (0.0, 0.0, 0.0)),
                 "final_value": ((0.0, 0.0, -9.81), (0.0, 0.0, -9.81)),
                 "difficulty_term_str": "adr",
             },
@@ -345,7 +346,7 @@ class EventCfg:
         func=mdp.randomize_physics_scene_gravity,
         mode="reset",
         params={
-            "gravity_distribution_params": ([0.0, 0.0, 0.0], [0.0, 0.0, 0.0]),
+            "gravity_distribution_params": ([0.0, 0.0, -1.0], [0.0, 0.0, -1.0]),
             "operation": "abs",
         },
     )
@@ -416,7 +417,7 @@ class TerminationsCfg:
 
     max_consecutive_success = DoneTerm(
         func=mdp.max_consecutive_success,
-        params={"num_success": 50, "command_name": "object_pose"},
+        params={"num_success": 10, "command_name": "object_pose"},
     )
 
     object_out_of_reach = DoneTerm(

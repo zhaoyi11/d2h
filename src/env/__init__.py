@@ -13,6 +13,17 @@ _RL_GAMES_CFG_PATH = str(
 #     Path(__file__).resolve().parent.parent / "config" / "rsl_rl_ppo_cfg.py"
 # )
 
+# Twist Environment
+gym.register(
+    id="Twist-v0",
+    entry_point="isaaclab.envs:ManagerBasedRLEnv",
+    disable_env_checker=True,
+    kwargs={
+        "env_cfg_entry_point": f"{__name__}.tasks.twist.twist_env_cfg:TwistEnvCfg", 
+        "rsl_rl_cfg_entry_point": "src.config.rsl_rl_ppo_cfg:AllegroCubePPORunnerCfg",
+    },
+)
+
 gym.register(
     id="AnyGrasp-v0",
     entry_point="isaaclab.envs:ManagerBasedRLEnv",
