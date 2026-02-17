@@ -6,7 +6,7 @@
 from isaaclab.managers import CurriculumTermCfg as CurrTerm
 from isaaclab.utils import configclass
 
-import src.env.tasks.twist.mdps as mdp
+import src.env.tasks.dexsuite.mdps as mdp
 
 
 @configclass

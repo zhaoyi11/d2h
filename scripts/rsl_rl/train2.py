@@ -146,7 +146,7 @@ def _apply_grasp_overrides(env_cfg, args_cli):
             env_cfg.object_scale_override = args_cli.obj_scale
 
         # Re-run post init after CLI overrides so grasp/object init state is applied.
-        if env_cfg.grasp_path is not None and env_cfg.object_urdf_path is not None:
+        if args_cli.grasp_path is not None and args_cli.obj_urdf_path is not None:
             env_cfg.__post_init__()
         return
 

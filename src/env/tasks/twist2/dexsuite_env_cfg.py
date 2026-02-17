@@ -20,8 +20,8 @@ from isaaclab.utils import configclass
 from isaaclab.utils.assets import ISAAC_NUCLEUS_DIR
 from isaaclab.utils.noise import AdditiveUniformNoiseCfg as Unoise
 
-import src.env.tasks.dexsuite.mdps as mdp
-from src.env.tasks.dexsuite.adr_curriculum import CurriculumCfg
+import src.env.tasks.twist2.mdps as mdp
+from src.env.tasks.twist2.adr_curriculum import CurriculumCfg
 
 
 @configclass
@@ -31,94 +31,154 @@ class SceneCfg(InteractiveSceneCfg):
     # robot
     robot: ArticulationCfg = MISSING
 
-    # object
-    object: RigidObjectCfg = RigidObjectCfg(
-        prim_path="{ENV_REGEX_NS}/Object",
-        spawn=sim_utils.MultiAssetSpawnerCfg(
-            assets_cfg=[
-                CuboidCfg(
-                    size=(0.05, 0.1, 0.1),
-                    physics_material=RigidBodyMaterialCfg(static_friction=0.5),
-                ),
-                CuboidCfg(
-                    size=(0.05, 0.05, 0.1),
-                    physics_material=RigidBodyMaterialCfg(static_friction=0.5),
-                ),
-                CuboidCfg(
-                    size=(0.025, 0.1, 0.1),
-                    physics_material=RigidBodyMaterialCfg(static_friction=0.5),
-                ),
-                CuboidCfg(
-                    size=(0.025, 0.05, 0.1),
-                    physics_material=RigidBodyMaterialCfg(static_friction=0.5),
-                ),
-                CuboidCfg(
-                    size=(0.025, 0.025, 0.1),
-                    physics_material=RigidBodyMaterialCfg(static_friction=0.5),
-                ),
-                CuboidCfg(
-                    size=(0.01, 0.1, 0.1),
-                    physics_material=RigidBodyMaterialCfg(static_friction=0.5),
-                ),
-                SphereCfg(
-                    radius=0.05,
-                    physics_material=RigidBodyMaterialCfg(static_friction=0.5),
-                ),
-                SphereCfg(
-                    radius=0.025,
-                    physics_material=RigidBodyMaterialCfg(static_friction=0.5),
-                ),
-                CapsuleCfg(
-                    radius=0.04,
-                    height=0.025,
-                    physics_material=RigidBodyMaterialCfg(static_friction=0.5),
-                ),
-                CapsuleCfg(
-                    radius=0.04,
-                    height=0.01,
-                    physics_material=RigidBodyMaterialCfg(static_friction=0.5),
-                ),
-                CapsuleCfg(
-                    radius=0.04,
-                    height=0.1,
-                    physics_material=RigidBodyMaterialCfg(static_friction=0.5),
-                ),
-                CapsuleCfg(
-                    radius=0.025,
-                    height=0.1,
-                    physics_material=RigidBodyMaterialCfg(static_friction=0.5),
-                ),
-                CapsuleCfg(
-                    radius=0.025,
-                    height=0.2,
-                    physics_material=RigidBodyMaterialCfg(static_friction=0.5),
-                ),
-                CapsuleCfg(
-                    radius=0.01,
-                    height=0.2,
-                    physics_material=RigidBodyMaterialCfg(static_friction=0.5),
-                ),
-                ConeCfg(
-                    radius=0.05,
-                    height=0.1,
-                    physics_material=RigidBodyMaterialCfg(static_friction=0.5),
-                ),
-                ConeCfg(
-                    radius=0.025,
-                    height=0.1,
-                    physics_material=RigidBodyMaterialCfg(static_friction=0.5),
-                ),
-            ],
+    # table base
+    object_table = RigidObjectCfg(
+        prim_path="{ENV_REGEX_NS}/ObjectTable",
+        spawn=sim_utils.UrdfFileCfg(
+            asset_path="/home/yizhao/yi/D2H/src/assets/furniture_bench/urdf/square_table/square_table_top.urdf",
             rigid_props=sim_utils.RigidBodyPropertiesCfg(
-                solver_position_iteration_count=16,
-                solver_velocity_iteration_count=0,
+                kinematic_enabled=True,
+                disable_gravity=True,
+                enable_gyroscopic_forces=True,
+            ),
+            fix_base=False,
+            joint_drive=sim_utils.UrdfConverterCfg.JointDriveCfg(
+                gains=sim_utils.UrdfConverterCfg.JointDriveCfg.PDGainsCfg(
+                    stiffness=None, damping=None
+                ),
+            ),
+            articulation_props=sim_utils.ArticulationRootPropertiesCfg(
+                articulation_enabled=False,
+            ),
+            # Keep this asset visual-only to avoid overlapping support collisions with the task table cuboid.
+            collision_props=sim_utils.CollisionPropertiesCfg(collision_enabled=False),
+            mass_props=sim_utils.MassPropertiesCfg(mass=0.2),
+            scale=(1.5, 1.5, 1.5),
+        ),
+        init_state=RigidObjectCfg.InitialStateCfg(
+            pos=[-0.55, 0.0, 0.271],
+            rot=[0.7071068, 0.7071068, 0.0, 0.0],
+        ),
+    )
+
+    # table leg
+    object = RigidObjectCfg(
+        prim_path="{ENV_REGEX_NS}/Object",
+        spawn=sim_utils.UrdfFileCfg(
+            asset_path="/home/yizhao/yi/D2H/src/assets/furniture_bench/urdf/square_table/square_table_leg2.urdf",
+            rigid_props=sim_utils.RigidBodyPropertiesCfg(
+                kinematic_enabled=False,
                 disable_gravity=False,
+                enable_gyroscopic_forces=True,
+            ),
+            fix_base=False,
+            joint_drive=sim_utils.UrdfConverterCfg.JointDriveCfg(
+                gains=sim_utils.UrdfConverterCfg.JointDriveCfg.PDGainsCfg(
+                    stiffness=None, damping=None
+                ),
+            ),
+            articulation_props=sim_utils.ArticulationRootPropertiesCfg(
+                articulation_enabled=False,
             ),
             collision_props=sim_utils.CollisionPropertiesCfg(),
             mass_props=sim_utils.MassPropertiesCfg(mass=0.2),
+            scale=(1.5, 1.5, 1.5),
+            # physics_material=RigidBodyMaterialCfg(static_friction=0.5), # TODO: check how the friction defined in the urdf file
         ),
-        init_state=RigidObjectCfg.InitialStateCfg(pos=(-0.55, 0.1, 0.35)),
+        init_state=RigidObjectCfg.InitialStateCfg(
+            pos=[-0.55, 0.1, 0.34],
+            rot=[1.0, 0.0, 0.0, 0.0],
+        ),
     )
+
+    # # object
+    # object: RigidObjectCfg = RigidObjectCfg(
+    #     prim_path="{ENV_REGEX_NS}/Object",
+    #     spawn=sim_utils.MultiAssetSpawnerCfg(
+    #         assets_cfg=[
+    #             CuboidCfg(
+    #                 size=(0.05, 0.1, 0.1),
+    #                 physics_material=RigidBodyMaterialCfg(static_friction=0.5),
+    #             ),
+    #             CuboidCfg(
+    #                 size=(0.05, 0.05, 0.1),
+    #                 physics_material=RigidBodyMaterialCfg(static_friction=0.5),
+    #             ),
+    #             CuboidCfg(
+    #                 size=(0.025, 0.1, 0.1),
+    #                 physics_material=RigidBodyMaterialCfg(static_friction=0.5),
+    #             ),
+    #             CuboidCfg(
+    #                 size=(0.025, 0.05, 0.1),
+    #                 physics_material=RigidBodyMaterialCfg(static_friction=0.5),
+    #             ),
+    #             CuboidCfg(
+    #                 size=(0.025, 0.025, 0.1),
+    #                 physics_material=RigidBodyMaterialCfg(static_friction=0.5),
+    #             ),
+    #             CuboidCfg(
+    #                 size=(0.01, 0.1, 0.1),
+    #                 physics_material=RigidBodyMaterialCfg(static_friction=0.5),
+    #             ),
+    #             SphereCfg(
+    #                 radius=0.05,
+    #                 physics_material=RigidBodyMaterialCfg(static_friction=0.5),
+    #             ),
+    #             SphereCfg(
+    #                 radius=0.025,
+    #                 physics_material=RigidBodyMaterialCfg(static_friction=0.5),
+    #             ),
+    #             CapsuleCfg(
+    #                 radius=0.04,
+    #                 height=0.025,
+    #                 physics_material=RigidBodyMaterialCfg(static_friction=0.5),
+    #             ),
+    #             CapsuleCfg(
+    #                 radius=0.04,
+    #                 height=0.01,
+    #                 physics_material=RigidBodyMaterialCfg(static_friction=0.5),
+    #             ),
+    #             CapsuleCfg(
+    #                 radius=0.04,
+    #                 height=0.1,
+    #                 physics_material=RigidBodyMaterialCfg(static_friction=0.5),
+    #             ),
+    #             CapsuleCfg(
+    #                 radius=0.025,
+    #                 height=0.1,
+    #                 physics_material=RigidBodyMaterialCfg(static_friction=0.5),
+    #             ),
+    #             CapsuleCfg(
+    #                 radius=0.025,
+    #                 height=0.2,
+    #                 physics_material=RigidBodyMaterialCfg(static_friction=0.5),
+    #             ),
+    #             CapsuleCfg(
+    #                 radius=0.01,
+    #                 height=0.2,
+    #                 physics_material=RigidBodyMaterialCfg(static_friction=0.5),
+    #             ),
+    #             ConeCfg(
+    #                 radius=0.05,
+    #                 height=0.1,
+    #                 physics_material=RigidBodyMaterialCfg(static_friction=0.5),
+    #             ),
+    #             ConeCfg(
+    #                 radius=0.025,
+    #                 height=0.1,
+    #                 physics_material=RigidBodyMaterialCfg(static_friction=0.5),
+    #             ),
+    #         ],
+    #         rigid_props=sim_utils.RigidBodyPropertiesCfg(
+    #             solver_position_iteration_count=16,
+    #             solver_velocity_iteration_count=0,
+    #             disable_gravity=False,
+    #         ),
+    #         collision_props=sim_utils.CollisionPropertiesCfg(),
+    #         mass_props=sim_utils.MassPropertiesCfg(mass=0.2),
+    #     ),
+    #     init_state=RigidObjectCfg.InitialStateCfg(pos=(-0.55, 0.1, 0.35)),
+    # )
 
     # table
     table: RigidObjectCfg = RigidObjectCfg(
@@ -610,7 +670,8 @@ class KukaAllegroMixinCfg:
                 f"{link_name}_object_s",
                 ContactSensorCfg(
                     prim_path="{ENV_REGEX_NS}/Robot/ee_link/" + link_name,
-                    filter_prim_paths_expr=["{ENV_REGEX_NS}/Object"],
+                    # filter_prim_paths_expr=["{ENV_REGEX_NS}/Object"],
+                    filter_prim_paths_expr=["{ENV_REGEX_NS}/Object/square_table_leg2"],
                 ),
             )
         self.observations.proprio.contact = ObsTerm(

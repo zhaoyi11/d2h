@@ -179,7 +179,7 @@ def main(
         env_cfg.object_scale_override = args_cli.obj_scale
     # Re-run post init after CLI overrides so grasp/object init state is applied.
     # The configclass decorator runs __post_init__ once at instantiation (before CLI overrides),        # so we need to call it again when we toggle use_grasp_init or update grasp parameters here.
-    if env_cfg.grasp_path is not None and env_cfg.object_urdf_path is not None:
+    if args_cli.grasp_path is not None and args_cli.obj_urdf_path is not None:
         env_cfg.__post_init__()
 
     # check for invalid combination of CPU device with distributed training

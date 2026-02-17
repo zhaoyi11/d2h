@@ -60,6 +60,7 @@ def contacts(env: ManagerBasedRLEnv, threshold: float) -> torch.Tensor:
     middle_contact = middle_contact_sensor.data.force_matrix_w.view(env.num_envs, 3)
     ring_contact = ring_contact_sensor.data.force_matrix_w.view(env.num_envs, 3)
 
+    # print(thumb_contact.mean(), index_contact.mean(), middle_contact.mean(), ring_contact.mean())
     thumb_contact_mag = torch.norm(thumb_contact, dim=-1)
     index_contact_mag = torch.norm(index_contact, dim=-1)
     middle_contact_mag = torch.norm(middle_contact, dim=-1)
@@ -99,7 +100,7 @@ def success_reward(
 def position_command_error_tanh(
     env: ManagerBasedRLEnv, std: float, command_name: str, asset_cfg: SceneEntityCfg, align_asset_cfg: SceneEntityCfg
 ) -> torch.Tensor:
-    """Reward tracking of commanded position using a tanh kernel."""
+    """Reward tracking of commanded position using tanh kernel, gated by contact presence."""
 
     asset: RigidObject = env.scene[asset_cfg.name]
     object: RigidObject = env.scene[align_asset_cfg.name]
@@ -108,13 +109,13 @@ def position_command_error_tanh(
     des_pos_b = command[:, :3]
     des_pos_w, _ = combine_frame_transforms(asset.data.root_pos_w, asset.data.root_quat_w, des_pos_b)
     distance = torch.norm(object.data.root_pos_w - des_pos_w, dim=1)
-    return 1 - torch.tanh(distance / std)
+    return (1 - torch.tanh(distance / std)) * contacts(env, 1.0).float()
 
 
 def orientation_command_error_tanh(
     env: ManagerBasedRLEnv, std: float, command_name: str, asset_cfg: SceneEntityCfg, align_asset_cfg: SceneEntityCfg
 ) -> torch.Tensor:
-    """Reward tracking of commanded orientation using a tanh kernel."""
+    """Reward tracking of commanded orientation using tanh kernel, gated by contact presence."""
 
     asset: RigidObject = env.scene[asset_cfg.name]
     object: RigidObject = env.scene[align_asset_cfg.name]
@@ -124,4 +125,4 @@ def orientation_command_error_tanh(
     des_quat_w = math_utils.quat_mul(asset.data.root_state_w[:, 3:7], des_quat_b)
     quat_distance = math_utils.quat_error_magnitude(object.data.root_quat_w, des_quat_w)
 
-    return 1 - torch.tanh(quat_distance / std)
+    return (1 - torch.tanh(quat_distance / std)) * contacts(env, 1.0).float()
