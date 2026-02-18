@@ -203,14 +203,20 @@ class SceneCfg(InteractiveSceneCfg):
         collision_group=-1,
     )
 
-    # lights
-    sky_light = AssetBaseCfg(
-        prim_path="/World/skyLight",
-        spawn=sim_utils.DomeLightCfg(
-            intensity=750.0,
-            texture_file=f"{ISAAC_NUCLEUS_DIR}/Materials/Textures/Skies/PolyHaven/kloofendal_43d_clear_puresky_4k.hdr",
-        ),
+    light = AssetBaseCfg(
+        prim_path="/World/light",
+        spawn=sim_utils.DomeLightCfg(color=(0.75, 0.75, 0.75), intensity=3000.0),
     )
+
+
+    # # lights
+    # sky_light = AssetBaseCfg(
+    #     prim_path="/World/skyLight",
+    #     spawn=sim_utils.DomeLightCfg(
+    #         intensity=750.0,
+    #         texture_file=f"{ISAAC_NUCLEUS_DIR}/Materials/Textures/Skies/PolyHaven/kloofendal_43d_clear_puresky_4k.hdr",
+    #     ),
+    # )
 
 
 @configclass
@@ -221,11 +227,12 @@ class CommandsCfg:
         asset_name="robot",
         object_name="object",
         resampling_time_range=(3.0, 5.0),
-        debug_vis=False,
+        debug_vis=True,
         ranges=mdp.ObjectUniformPoseCommandCfg.Ranges(
-            pos_x=(-0.7, -0.3),
-            pos_y=(-0.25, 0.25),
-            pos_z=(0.55, 0.95),
+            # Fixed target at 3 cm above rear-left hole of object_table.
+            pos_x=(-0.634375, -0.634375),
+            pos_y=(0.084375, 0.084375),
+            pos_z=(0.3243475, 0.3243475),
             roll=(-3.14, 3.14),
             pitch=(-3.14, 3.14),
             yaw=(0.0, 0.0),
