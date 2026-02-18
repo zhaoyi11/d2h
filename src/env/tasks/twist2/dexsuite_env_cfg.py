@@ -232,7 +232,8 @@ class CommandsCfg:
             # Fixed target at 3 cm above rear-left hole of object_table.
             pos_x=(-0.634375, -0.634375),
             pos_y=(0.084375, 0.084375),
-            pos_z=(0.3243475, 0.3243475),
+            # pos_z=(0.3243475, 0.3243475),
+            pos_z=(0.4, 0.4), # when 3 cm above, the agent learn to hack the task by pushing the object, change it higher to avoid this
             roll=(-3.14, 3.14),
             pitch=(-3.14, 3.14),
             yaw=(0.0, 0.0),
