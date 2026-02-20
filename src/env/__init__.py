@@ -19,7 +19,7 @@ gym.register(
     entry_point="isaaclab.envs:ManagerBasedRLEnv",
     disable_env_checker=True,
     kwargs={
-        "env_cfg_entry_point": f"{__name__}.tasks.twist2.dexsuite_env_cfg:DexsuiteKukaAllegroLiftEnvCfg",
+        "env_cfg_entry_point": f"{__name__}.tasks.twist.dexsuite_env_cfg:DexsuiteKukaAllegroLiftEnvCfg",
         # "rl_games_cfg_entry_point": _RL_GAMES_CFG_PATH,
         # "rsl_rl_cfg_entry_point": "src.config.rsl_rl_ppo_cfg:AllegroCubePPORunnerCfg",
         "rsl_rl_cfg_entry_point": "src.config.dexsuite_rsl_rl_ppo_cfg:DexsuiteKukaAllegroPPORunnerCfg",
