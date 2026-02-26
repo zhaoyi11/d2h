@@ -8,6 +8,7 @@ from dataclasses import MISSING
 import isaaclab.sim as sim_utils
 from isaaclab.assets import ArticulationCfg, AssetBaseCfg, RigidObjectCfg
 from isaaclab.envs import ManagerBasedRLEnvCfg, ViewerCfg
+from isaaclab.actuators.actuator_cfg import ImplicitActuatorCfg
 from isaaclab.managers import EventTermCfg as EventTerm
 from isaaclab.managers import ObservationGroupCfg as ObsGroup
 from isaaclab.managers import ObservationTermCfg as ObsTerm
@@ -23,13 +24,142 @@ from isaaclab.utils.noise import AdditiveUniformNoiseCfg as Unoise
 import src.env.tasks.twist.mdps as mdp
 from src.env.tasks.twist.adr_curriculum import CurriculumCfg
 
+JOINT_LOWER_LIMIT = [-6.283, -2.304, -4.224, -6.283, -2.164, -6.283,
+                    # jif1, jmf1, jpf1, jth1
+                    -0.05, -0.05, -0.570, 0.364,
+                    # jif2, jmf2, jpf2, jth2
+                    -0.296, -0.296, -0.296, -0.205,
+                    # jif3, jmf3, jpf3, jth3
+                    -0.274, -0.274, -0.274, -0.290,
+                    # jif4, jmf4, jpf4, jth4
+                    -0.327, -0.327, -0.327, -0.262]
+JOINT_UPPER_LIMIT = [6.283, 2.304, 0.061, 6.283, 2.164, 6.283,
+                    # jif1, jmf1, jpf1, jth1
+                    0.570, 0.05, 0.05, 1.497,
+                    # jif2, jmf2, jpf2, jth2
+                    1.710, 1.710, 1.710, 1.130, 
+                    # jif3, jmf3, jpf3, jth3
+                    1.809, 1.809, 1.809, 1.633, 
+                    # jif4, jmf4, jpf4, jth4
+                    1.718, 1.718, 1.718, 1.820]
+JOINT_LOWER_LIMIT_LEFT = [-6.283, -2.304, -4.224, -6.283, -2.164, -6.283,
+                    # jif1, jmf1, jpf1, jth1
+                    -0.570, -0.05, -0.05, 0.364,
+                    # jif2, jmf2, jpf2, jth2
+                    -0.296, -0.296, -0.296, -0.205,
+                    # jif3, jmf3, jpf3, jth3
+                    -0.274, -0.274, -0.274, -0.290,
+                    # jif4, jmf4, jpf4, jth4
+                    -0.327, -0.327, -0.327, -0.262]
+JOINT_UPPER_LIMIT_LEFT = [6.283, 2.304, 0.061, 6.283, 2.164, 6.283,
+                    # jif1, jmf1, jpf1, jth1
+                    0.05, 0.05, 0.570, 1.497,
+                    # jif2, jmf2, jpf2, jth2
+                    1.710, 1.710, 1.710, 1.130, 
+                    # jif3, jmf3, jpf3, jth3
+                    1.809, 1.809, 1.809, 1.633, 
+                    # jif4, jmf4, jpf4, jth4
+                    1.718, 1.718, 1.718, 1.820]
 
 @configclass
 class SceneCfg(InteractiveSceneCfg):
     """Dexsuite Scene for multi-objects Lifting"""
 
     # robot
-    robot: ArticulationCfg = MISSING
+        # robots
+    robot = ArticulationCfg(
+        prim_path="/World/envs/env_.*/Robot",
+        spawn=sim_utils.UsdFileCfg(
+            usd_path=f"/home/yizhao/yi/D2H/src/assets/ufactory850/uf850_allegro_right_colored.usd",
+            activate_contact_sensors=True,
+            rigid_props=sim_utils.RigidBodyPropertiesCfg(
+                disable_gravity=True,
+                max_depenetration_velocity=1000.0,
+                max_linear_velocity=1000,
+                max_angular_velocity=1000,
+            ),
+            articulation_props=sim_utils.ArticulationRootPropertiesCfg(
+                enabled_self_collisions=False, solver_position_iteration_count=16, solver_velocity_iteration_count=1,
+            ),
+        ),
+        init_state=ArticulationCfg.InitialStateCfg(
+            joint_pos={
+                "joint1": -0.05,
+                "joint2": 0.0,
+                "joint3": -0.5,
+                "joint4": 1.4,
+                "joint5": -1.0,
+                "joint6": -3.14,
+                # hand 
+                "jif1": 0.0,
+                "jif2": 0.4,
+                "jif3": 0.4,
+                "jif4": 0.0,
+                "jmf1": 0.0,
+                "jmf2": 0.4,
+                "jmf3": 0.4,
+                "jmf4": 0.0,
+                "jpf1": 0.0,
+                "jpf2": 0.4,
+                "jpf3": 0.4,
+                "jpf4": 0.0,
+                "jth1": 0.364,
+                "jth2": 0.0,
+                "jth3": 0.2,
+                "jth4": 0.0,
+            },
+            # pos=(-0.274, -0.475, 0.01),
+            pos=(0.0, 0.0, 0.0),
+        ),
+        actuators={
+            "xArm_1-6": ImplicitActuatorCfg(
+                joint_names_expr=["joint[1-6]"],
+                stiffness=2000.0,
+                damping=16.0,
+            ),
+            "allegro_hand_1": ImplicitActuatorCfg(
+                joint_names_expr=["j.*f1"],
+                stiffness=325.0,
+                damping=20.0,
+            ),
+            "allegro_hand_2": ImplicitActuatorCfg(
+                joint_names_expr=["j.*f2"],
+                stiffness=425.0,
+                damping=25.0,
+            ),
+            "allegro_hand_3": ImplicitActuatorCfg(
+                joint_names_expr=["j.*f3"],
+                stiffness=245.0,
+                damping=15.0,
+            ),
+            "allegro_hand_4": ImplicitActuatorCfg(
+                joint_names_expr=["j.*f4"],
+                stiffness=1050.0,
+                damping=65.0,
+            ),
+            "allegro_hand_thumb_1": ImplicitActuatorCfg(
+                joint_names_expr=["jth1"],
+                stiffness=100.0,
+                damping=5.0,
+            ),
+            "allegro_hand_thumb_2": ImplicitActuatorCfg(
+                joint_names_expr=["jth2"],
+                stiffness=300.0,
+                damping=15.0,
+            ),
+            "allegro_hand_thumb_3": ImplicitActuatorCfg(
+                joint_names_expr=["jth3"],
+                stiffness=1270.0,
+                damping=100.0,
+            ),
+            "allegro_hand_thumb_4": ImplicitActuatorCfg(
+                joint_names_expr=["jth4"],
+                stiffness=1000.0,
+                damping=50.0,
+            ),
+        },
+    )
+
 
     # table base
     object_table = RigidObjectCfg(
@@ -280,7 +410,7 @@ class ObservationsCfg:
                 "base_asset_cfg": SceneEntityCfg("robot"),
             },
         )
-        contact: ObsTerm = MISSING
+        # contact: ObsTerm = MISSING
 
         def __post_init__(self):
             self.enable_corruption = True
@@ -426,7 +556,7 @@ class EventCfg:
         func=mdp.reset_joints_by_offset,
         mode="reset",
         params={
-            "asset_cfg": SceneEntityCfg("robot", joint_names="iiwa7_joint_7"),
+            "asset_cfg": SceneEntityCfg("robot", joint_names="joint6"),
             "position_range": [-3, 3],
             "velocity_range": [0.0, 0.0],
         },
@@ -460,31 +590,31 @@ class RewardsCfg:
 
     action_rate_l2 = RewTerm(func=mdp.action_rate_l2_clamped, weight=-0.005)
 
-    fingers_to_object = RewTerm(
-        func=mdp.object_ee_distance, params={"std": 0.4}, weight=1.0
-    )
+    # fingers_to_object = RewTerm(
+    #     func=mdp.object_ee_distance, params={"std": 0.4}, weight=1.0
+    # )
 
-    position_tracking = RewTerm(
-        func=mdp.position_command_error_tanh,
-        weight=2.0,
-        params={
-            "asset_cfg": SceneEntityCfg("robot"),
-            "std": 0.2,
-            "command_name": "object_pose",
-            "align_asset_cfg": SceneEntityCfg("object"),
-        },
-    )
+    # position_tracking = RewTerm(
+    #     func=mdp.position_command_error_tanh,
+    #     weight=2.0,
+    #     params={
+    #         "asset_cfg": SceneEntityCfg("robot"),
+    #         "std": 0.2,
+    #         "command_name": "object_pose",
+    #         "align_asset_cfg": SceneEntityCfg("object"),
+    #     },
+    # )
 
-    orientation_tracking = RewTerm(
-        func=mdp.orientation_command_error_tanh,
-        weight=4.0,
-        params={
-            "asset_cfg": SceneEntityCfg("robot"),
-            "std": 1.5,
-            "command_name": "object_pose",
-            "align_asset_cfg": SceneEntityCfg("object"),
-        },
-    )
+    # orientation_tracking = RewTerm(
+    #     func=mdp.orientation_command_error_tanh,
+    #     weight=4.0,
+    #     params={
+    #         "asset_cfg": SceneEntityCfg("robot"),
+    #         "std": 1.5,
+    #         "command_name": "object_pose",
+    #         "align_asset_cfg": SceneEntityCfg("object"),
+    #     },
+    # )
 
     success = RewTerm(
         func=mdp.success_reward,
@@ -568,6 +698,7 @@ class DexsuiteReorientEnvCfg(ManagerBasedRLEnvCfg):
         self.is_finite_horizon = True
 
         # simulation settings
+        self.sim.gravity = (0.0, 0.0, 0.0)
         self.sim.dt = 1 / 120
         self.sim.render_interval = self.decimation
         self.sim.physx.bounce_threshold_velocity = 0.2
@@ -665,7 +796,7 @@ class KukaAllegroMixinCfg:
     def __post_init__(self: DexsuiteReorientEnvCfg):
         super().__post_init__()
         self.commands.object_pose.body_name = "palm_link"
-        self.scene.robot = KUKA_ALLEGRO_CFG.replace(prim_path="{ENV_REGEX_NS}/Robot")
+        # self.scene.robot = KUKA_ALLEGRO_CFG.replace(prim_path="{ENV_REGEX_NS}/Robot")
         finger_tip_body_list = [
             "index_link_3",
             "middle_link_3",

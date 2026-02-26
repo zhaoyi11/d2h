@@ -52,7 +52,7 @@ def main():
         env_cfg.object_urdf_path = args_cli.obj_urdf_path
     if args_cli.obj_scale is not None:
         env_cfg.object_scale_override = args_cli.obj_scale
-    if env_cfg.grasp_path is not None and env_cfg.object_urdf_path is not None:
+    if args_cli.grasp_path is not None and args_cli.obj_urdf_path is not None:
         env_cfg.__post_init__()
     # create environment
     env = gym.make(args_cli.task, cfg=env_cfg)
