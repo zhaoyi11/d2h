@@ -211,8 +211,10 @@ class CommandsCfg:
             pos_y=(0.084375, 0.084375),
             # pos_z=(0.3243475, 0.3243475),
             pos_z=(0.4, 0.4), # when 3 cm above, the agent learn to hack the task by pushing the object, change it higher to avoid this
-            roll=(-3.14, 3.14),
-            pitch=(-3.14, 3.14),
+            # roll=(-3.14, 3.14),
+            # pitch=(-3.14, 3.14),
+            roll=(1.5708, 1.5708),
+            pitch=(0.0, 0.0),
             yaw=(0.0, 0.0),
         ),
         success_vis_asset_name="table",
@@ -455,10 +457,22 @@ class RewardsCfg:
 
     orientation_tracking = RewTerm(
         func=mdp.orientation_command_error_tanh,
-        weight=4.0,
+        weight=2.0,
         params={
             "asset_cfg": SceneEntityCfg("robot"),
             "std": 1.5,
+            "command_name": "object_pose",
+            "align_asset_cfg": SceneEntityCfg("object"),
+        },
+    )
+
+    success_position = RewTerm(
+        func=mdp.success_reward,
+        weight=5,
+        params={
+            "asset_cfg": SceneEntityCfg("robot"),
+            "pos_std": 0.1,
+            "rot_std": None,
             "command_name": "object_pose",
             "align_asset_cfg": SceneEntityCfg("object"),
         },
