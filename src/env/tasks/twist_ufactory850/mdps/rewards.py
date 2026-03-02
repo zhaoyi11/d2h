@@ -50,21 +50,29 @@ def contacts(env: ManagerBasedRLEnv, threshold: float) -> torch.Tensor:
     # @Yi: check whether this is used.
     """Penalize undesired contacts as the number of violations that are above a threshold."""
 
-    thumb_contact_sensor: ContactSensor = env.scene.sensors["thumb_link_3_object_s"]
-    index_contact_sensor: ContactSensor = env.scene.sensors["index_link_3_object_s"]
-    middle_contact_sensor: ContactSensor = env.scene.sensors["middle_link_3_object_s"]
-    ring_contact_sensor: ContactSensor = env.scene.sensors["ring_link_3_object_s"]
+    thumb_contact_sensor: ContactSensor = env.scene.sensors["thumb_fingertip_object_s"]
+    index_contact_sensor: ContactSensor = env.scene.sensors["fingertip_object_s"]
+    middle_contact_sensor: ContactSensor = env.scene.sensors["fingertip_2_object_s"]
+    ring_contact_sensor: ContactSensor = env.scene.sensors["fingertip_3_object_s"]
     # check if contact force is above threshold
     thumb_contact = thumb_contact_sensor.data.force_matrix_w.view(env.num_envs, 3)
     index_contact = index_contact_sensor.data.force_matrix_w.view(env.num_envs, 3)
     middle_contact = middle_contact_sensor.data.force_matrix_w.view(env.num_envs, 3)
     ring_contact = ring_contact_sensor.data.force_matrix_w.view(env.num_envs, 3)
-
-    # print(thumb_contact.mean(), index_contact.mean(), middle_contact.mean(), ring_contact.mean())
     thumb_contact_mag = torch.norm(thumb_contact, dim=-1)
     index_contact_mag = torch.norm(index_contact, dim=-1)
     middle_contact_mag = torch.norm(middle_contact, dim=-1)
     ring_contact_mag = torch.norm(ring_contact, dim=-1)
+    
+    # #print 
+    # thumb_contact_scale = thumb_contact_mag.mean().item()
+    # index_contact_scale = index_contact_mag.mean().item()
+    # middle_contact_scale = middle_contact_mag.mean().item()
+    # ring_contact_scale = ring_contact_mag.mean().item()
+    # if thumb_contact_scale > 0 or index_contact_scale > 0 or middle_contact_scale > 0 or ring_contact_scale > 0:
+    #     print(thumb_contact_scale, index_contact_scale, middle_contact_scale, ring_contact_scale)
+
+
     good_contact_cond1 = (thumb_contact_mag > threshold) & (
         (index_contact_mag > threshold) | (middle_contact_mag > threshold) | (ring_contact_mag > threshold)
     )

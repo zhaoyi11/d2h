@@ -17,8 +17,10 @@ class AllegroCubePPORunnerCfg(RslRlOnPolicyRunnerCfg):
     experiment_name = "allegro_cube"
     obs_groups = {
         # Include proprioception to improve grasp approach/control observability.
-        "policy": ["policy", "perception"],
-        "critic": ["policy", "perception"],
+        # "policy": ["policy", "perception"],
+        # "critic": ["policy", "perception"],
+        "policy": ["policy"],
+        "critic": ["policy"],
     }
     policy = RslRlPpoActorCriticCfg(
         init_noise_std=1.0,

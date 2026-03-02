@@ -626,6 +626,7 @@ def _rotate_pos_by_quat_wxyz(
         pz + w * tz + (qx * ty - qy * tx),
     )
 
+# from isaaclab_assets.robots import ALLEGRO_HAND_CFG
 
 @configclass
 class LeapObjectEnvCfg(InHandObjectEnvCfg):
@@ -639,6 +640,7 @@ class LeapObjectEnvCfg(InHandObjectEnvCfg):
 
         # switch robot to leap hand
         self.scene.robot = LEAP_HAND_CFG.replace(prim_path="{ENV_REGEX_NS}/Robot")
+        # self.scene.robot = ALLEGRO_HAND_CFG.replace(prim_path="{ENV_REGEX_NS}/Robot")
 
         # attach transform sensors to fingertip links for contact-based rewards/observations
         self.scene.fingertip_transforms = FrameTransformerCfg(

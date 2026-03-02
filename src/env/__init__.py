@@ -32,7 +32,7 @@ gym.register(
     entry_point="isaaclab.envs:ManagerBasedRLEnv",
     disable_env_checker=True,
     kwargs={
-        "env_cfg_entry_point": f"{__name__}.tasks.twist_ufactory850.dexsuite_env_cfg:DexsuiteReorientEnvCfg",
+        "env_cfg_entry_point": f"{__name__}.tasks.twist_ufactory850.dexsuite_env_cfg:DexsuiteFrankaLeapLiftEnvCfg",
         # "rl_games_cfg_entry_point": _RL_GAMES_CFG_PATH,
         # "rsl_rl_cfg_entry_point": "src.config.rsl_rl_ppo_cfg:AllegroCubePPORunnerCfg",
         "rsl_rl_cfg_entry_point": "src.config.dexsuite_rsl_rl_ppo_cfg:DexsuiteKukaAllegroPPORunnerCfg",
@@ -49,6 +49,17 @@ gym.register(
         # "rl_games_cfg_entry_point": _RL_GAMES_CFG_PATH,
         # Use explicit module path for RSL-RL config to avoid incorrect
         # nesting under `src.env` (the config module lives in `src.config`).
+        "rsl_rl_cfg_entry_point": "src.config.rsl_rl_ppo_cfg:AllegroCubePPORunnerCfg",
+    },
+)
+
+gym.register(
+    id="AllegroCube-v0",
+    entry_point="isaaclab.envs:ManagerBasedRLEnv",
+    disable_env_checker=True,
+    kwargs={
+        "env_cfg_entry_point": f"{__name__}.tasks.reorient_allegro.reorient_env_cfg:AllegroCubeEnvCfg",
+        # "rl_games_cfg_entry_point": _RL_GAMES_CFG_PATH,
         "rsl_rl_cfg_entry_point": "src.config.rsl_rl_ppo_cfg:AllegroCubePPORunnerCfg",
     },
 )

@@ -21,145 +21,91 @@ from isaaclab.utils import configclass
 from isaaclab.utils.assets import ISAAC_NUCLEUS_DIR
 from isaaclab.utils.noise import AdditiveUniformNoiseCfg as Unoise
 
-import src.env.tasks.twist.mdps as mdp
+import src.env.tasks.twist_ufactory850.mdps as mdp
 from src.env.tasks.twist.adr_curriculum import CurriculumCfg
 
-JOINT_LOWER_LIMIT = [-6.283, -2.304, -4.224, -6.283, -2.164, -6.283,
-                    # jif1, jmf1, jpf1, jth1
-                    -0.05, -0.05, -0.570, 0.364,
-                    # jif2, jmf2, jpf2, jth2
-                    -0.296, -0.296, -0.296, -0.205,
-                    # jif3, jmf3, jpf3, jth3
-                    -0.274, -0.274, -0.274, -0.290,
-                    # jif4, jmf4, jpf4, jth4
-                    -0.327, -0.327, -0.327, -0.262]
-JOINT_UPPER_LIMIT = [6.283, 2.304, 0.061, 6.283, 2.164, 6.283,
-                    # jif1, jmf1, jpf1, jth1
-                    0.570, 0.05, 0.05, 1.497,
-                    # jif2, jmf2, jpf2, jth2
-                    1.710, 1.710, 1.710, 1.130, 
-                    # jif3, jmf3, jpf3, jth3
-                    1.809, 1.809, 1.809, 1.633, 
-                    # jif4, jmf4, jpf4, jth4
-                    1.718, 1.718, 1.718, 1.820]
-JOINT_LOWER_LIMIT_LEFT = [-6.283, -2.304, -4.224, -6.283, -2.164, -6.283,
-                    # jif1, jmf1, jpf1, jth1
-                    -0.570, -0.05, -0.05, 0.364,
-                    # jif2, jmf2, jpf2, jth2
-                    -0.296, -0.296, -0.296, -0.205,
-                    # jif3, jmf3, jpf3, jth3
-                    -0.274, -0.274, -0.274, -0.290,
-                    # jif4, jmf4, jpf4, jth4
-                    -0.327, -0.327, -0.327, -0.262]
-JOINT_UPPER_LIMIT_LEFT = [6.283, 2.304, 0.061, 6.283, 2.164, 6.283,
-                    # jif1, jmf1, jpf1, jth1
-                    0.05, 0.05, 0.570, 1.497,
-                    # jif2, jmf2, jpf2, jth2
-                    1.710, 1.710, 1.710, 1.130, 
-                    # jif3, jmf3, jpf3, jth3
-                    1.809, 1.809, 1.809, 1.633, 
-                    # jif4, jmf4, jpf4, jth4
-                    1.718, 1.718, 1.718, 1.820]
+# JOINT_LOWER_LIMIT = [-6.283, -2.304, -4.224, -6.283, -2.164, -6.283,
+#                     # jif1, jmf1, jpf1, jth1
+#                     -0.05, -0.05, -0.570, 0.364,
+#                     # jif2, jmf2, jpf2, jth2
+#                     -0.296, -0.296, -0.296, -0.205,
+#                     # jif3, jmf3, jpf3, jth3
+#                     -0.274, -0.274, -0.274, -0.290,
+#                     # jif4, jmf4, jpf4, jth4
+#                     -0.327, -0.327, -0.327, -0.262]
+# JOINT_UPPER_LIMIT = [6.283, 2.304, 0.061, 6.283, 2.164, 6.283,
+#                     # jif1, jmf1, jpf1, jth1
+#                     0.570, 0.05, 0.05, 1.497,
+#                     # jif2, jmf2, jpf2, jth2
+#                     1.710, 1.710, 1.710, 1.130, 
+#                     # jif3, jmf3, jpf3, jth3
+#                     1.809, 1.809, 1.809, 1.633, 
+#                     # jif4, jmf4, jpf4, jth4
+#                     1.718, 1.718, 1.718, 1.820]
+# JOINT_LOWER_LIMIT_LEFT = [-6.283, -2.304, -4.224, -6.283, -2.164, -6.283,
+#                     # jif1, jmf1, jpf1, jth1
+#                     -0.570, -0.05, -0.05, 0.364,
+#                     # jif2, jmf2, jpf2, jth2
+#                     -0.296, -0.296, -0.296, -0.205,
+#                     # jif3, jmf3, jpf3, jth3
+#                     -0.274, -0.274, -0.274, -0.290,
+#                     # jif4, jmf4, jpf4, jth4
+#                     -0.327, -0.327, -0.327, -0.262]
+# JOINT_UPPER_LIMIT_LEFT = [6.283, 2.304, 0.061, 6.283, 2.164, 6.283,
+#                     # jif1, jmf1, jpf1, jth1
+#                     0.05, 0.05, 0.570, 1.497,
+#                     # jif2, jmf2, jpf2, jth2
+#                     1.710, 1.710, 1.710, 1.130, 
+#                     # jif3, jmf3, jpf3, jth3
+#                     1.809, 1.809, 1.809, 1.633, 
+#                     # jif4, jmf4, jpf4, jth4
+#                     1.718, 1.718, 1.718, 1.820]
+
+from isaaclab_assets.robots import KUKA_ALLEGRO_CFG
 
 @configclass
 class SceneCfg(InteractiveSceneCfg):
     """Dexsuite Scene for multi-objects Lifting"""
 
     # robot
-        # robots
+    # robot = KUKA_ALLEGRO_CFG.replace(prim_path="{ENV_REGEX_NS}/Robot")
     robot = ArticulationCfg(
-        prim_path="/World/envs/env_.*/Robot",
+        prim_path="{ENV_REGEX_NS}/Robot",
         spawn=sim_utils.UsdFileCfg(
-            usd_path=f"/home/yizhao/yi/D2H/src/assets/ufactory850/uf850_allegro_right_colored.usd",
+            usd_path=f"/home/yizhao/yi/D2H/src/assets/leap_hand/leap_hand_v1_right/frana.usd",
             activate_contact_sensors=True,
             rigid_props=sim_utils.RigidBodyPropertiesCfg(
                 disable_gravity=True,
                 max_depenetration_velocity=1000.0,
-                max_linear_velocity=1000,
-                max_angular_velocity=1000,
+                max_linear_velocity=1000.0,
+                max_angular_velocity=1000.0,
             ),
             articulation_props=sim_utils.ArticulationRootPropertiesCfg(
                 enabled_self_collisions=False, solver_position_iteration_count=16, solver_velocity_iteration_count=1,
             ),
         ),
         init_state=ArticulationCfg.InitialStateCfg(
-            joint_pos={
-                "joint1": -0.05,
-                "joint2": 0.0,
-                "joint3": -0.5,
-                "joint4": 1.4,
-                "joint5": -1.0,
-                "joint6": -3.14,
-                # hand 
-                "jif1": 0.0,
-                "jif2": 0.4,
-                "jif3": 0.4,
-                "jif4": 0.0,
-                "jmf1": 0.0,
-                "jmf2": 0.4,
-                "jmf3": 0.4,
-                "jmf4": 0.0,
-                "jpf1": 0.0,
-                "jpf2": 0.4,
-                "jpf3": 0.4,
-                "jpf4": 0.0,
-                "jth1": 0.364,
-                "jth2": 0.0,
-                "jth3": 0.2,
-                "jth4": 0.0,
-            },
-            # pos=(-0.274, -0.475, 0.01),
             pos=(0.0, 0.0, 0.0),
+            rot=(1.0, 0.0, 0.0, 0.0),
+            joint_pos={"panda_joint1": 0.0, "panda_joint2": -0.569, "panda_joint3": 0.0, "panda_joint4": -2.810, 
+            "panda_joint5": 0.0, "panda_joint6": 3.037, "panda_joint7": 0.741, "a_.*": 0.0},
         ),
         actuators={
-            "xArm_1-6": ImplicitActuatorCfg(
-                joint_names_expr=["joint[1-6]"],
-                stiffness=2000.0,
-                damping=16.0,
+            "joints": ImplicitActuatorCfg(
+                joint_names_expr=["panda_joint[1-7]"],
+                stiffness=400.0,
+                damping=80.0,
+                friction=0.01,
             ),
-            "allegro_hand_1": ImplicitActuatorCfg(
-                joint_names_expr=["j.*f1"],
-                stiffness=325.0,
-                damping=20.0,
-            ),
-            "allegro_hand_2": ImplicitActuatorCfg(
-                joint_names_expr=["j.*f2"],
-                stiffness=425.0,
-                damping=25.0,
-            ),
-            "allegro_hand_3": ImplicitActuatorCfg(
-                joint_names_expr=["j.*f3"],
-                stiffness=245.0,
-                damping=15.0,
-            ),
-            "allegro_hand_4": ImplicitActuatorCfg(
-                joint_names_expr=["j.*f4"],
-                stiffness=1050.0,
-                damping=65.0,
-            ),
-            "allegro_hand_thumb_1": ImplicitActuatorCfg(
-                joint_names_expr=["jth1"],
-                stiffness=100.0,
-                damping=5.0,
-            ),
-            "allegro_hand_thumb_2": ImplicitActuatorCfg(
-                joint_names_expr=["jth2"],
-                stiffness=300.0,
-                damping=15.0,
-            ),
-            "allegro_hand_thumb_3": ImplicitActuatorCfg(
-                joint_names_expr=["jth3"],
-                stiffness=1270.0,
-                damping=100.0,
-            ),
-            "allegro_hand_thumb_4": ImplicitActuatorCfg(
-                joint_names_expr=["jth4"],
-                stiffness=1000.0,
-                damping=50.0,
+            "fingers": ImplicitActuatorCfg(
+                joint_names_expr=["a_.*"],
+                stiffness=3.0,
+                damping=0.1,
+                friction=0.01,
             ),
         },
-    )
-
+        soft_joint_pos_limit_factor=1.0,
+    ) 
 
     # table base
     object_table = RigidObjectCfg(
@@ -186,7 +132,7 @@ class SceneCfg(InteractiveSceneCfg):
             scale=(1.5, 1.5, 1.5),
         ),
         init_state=RigidObjectCfg.InitialStateCfg(
-            pos=[-0.55, 0.0, 0.271],
+            pos=[0.55, 0.0, 0.271],
             rot=[0.7071068, 0.7071068, 0.0, 0.0],
         ),
     )
@@ -216,112 +162,23 @@ class SceneCfg(InteractiveSceneCfg):
             # physics_material=RigidBodyMaterialCfg(static_friction=0.5), # TODO: check how the friction defined in the urdf file
         ),
         init_state=RigidObjectCfg.InitialStateCfg(
-            pos=[-0.55, 0.1, 0.34],
+            pos=[0.55, 0.1, 0.34],
             rot=[1.0, 0.0, 0.0, 0.0],
         ),
     )
 
-    # # object
-    # object: RigidObjectCfg = RigidObjectCfg(
-    #     prim_path="{ENV_REGEX_NS}/Object",
-    #     spawn=sim_utils.MultiAssetSpawnerCfg(
-    #         assets_cfg=[
-    #             CuboidCfg(
-    #                 size=(0.05, 0.1, 0.1),
-    #                 physics_material=RigidBodyMaterialCfg(static_friction=0.5),
-    #             ),
-    #             CuboidCfg(
-    #                 size=(0.05, 0.05, 0.1),
-    #                 physics_material=RigidBodyMaterialCfg(static_friction=0.5),
-    #             ),
-    #             CuboidCfg(
-    #                 size=(0.025, 0.1, 0.1),
-    #                 physics_material=RigidBodyMaterialCfg(static_friction=0.5),
-    #             ),
-    #             CuboidCfg(
-    #                 size=(0.025, 0.05, 0.1),
-    #                 physics_material=RigidBodyMaterialCfg(static_friction=0.5),
-    #             ),
-    #             CuboidCfg(
-    #                 size=(0.025, 0.025, 0.1),
-    #                 physics_material=RigidBodyMaterialCfg(static_friction=0.5),
-    #             ),
-    #             CuboidCfg(
-    #                 size=(0.01, 0.1, 0.1),
-    #                 physics_material=RigidBodyMaterialCfg(static_friction=0.5),
-    #             ),
-    #             SphereCfg(
-    #                 radius=0.05,
-    #                 physics_material=RigidBodyMaterialCfg(static_friction=0.5),
-    #             ),
-    #             SphereCfg(
-    #                 radius=0.025,
-    #                 physics_material=RigidBodyMaterialCfg(static_friction=0.5),
-    #             ),
-    #             CapsuleCfg(
-    #                 radius=0.04,
-    #                 height=0.025,
-    #                 physics_material=RigidBodyMaterialCfg(static_friction=0.5),
-    #             ),
-    #             CapsuleCfg(
-    #                 radius=0.04,
-    #                 height=0.01,
-    #                 physics_material=RigidBodyMaterialCfg(static_friction=0.5),
-    #             ),
-    #             CapsuleCfg(
-    #                 radius=0.04,
-    #                 height=0.1,
-    #                 physics_material=RigidBodyMaterialCfg(static_friction=0.5),
-    #             ),
-    #             CapsuleCfg(
-    #                 radius=0.025,
-    #                 height=0.1,
-    #                 physics_material=RigidBodyMaterialCfg(static_friction=0.5),
-    #             ),
-    #             CapsuleCfg(
-    #                 radius=0.025,
-    #                 height=0.2,
-    #                 physics_material=RigidBodyMaterialCfg(static_friction=0.5),
-    #             ),
-    #             CapsuleCfg(
-    #                 radius=0.01,
-    #                 height=0.2,
-    #                 physics_material=RigidBodyMaterialCfg(static_friction=0.5),
-    #             ),
-    #             ConeCfg(
-    #                 radius=0.05,
-    #                 height=0.1,
-    #                 physics_material=RigidBodyMaterialCfg(static_friction=0.5),
-    #             ),
-    #             ConeCfg(
-    #                 radius=0.025,
-    #                 height=0.1,
-    #                 physics_material=RigidBodyMaterialCfg(static_friction=0.5),
-    #             ),
-    #         ],
-    #         rigid_props=sim_utils.RigidBodyPropertiesCfg(
-    #             solver_position_iteration_count=16,
-    #             solver_velocity_iteration_count=0,
-    #             disable_gravity=False,
-    #         ),
-    #         collision_props=sim_utils.CollisionPropertiesCfg(),
-    #         mass_props=sim_utils.MassPropertiesCfg(mass=0.2),
-    #     ),
-    #     init_state=RigidObjectCfg.InitialStateCfg(pos=(-0.55, 0.1, 0.35)),
-    # )
-
     # table
     table: RigidObjectCfg = RigidObjectCfg(
-        prim_path="/World/envs/env_.*/table",
+        prim_path="{ENV_REGEX_NS}/Table",
         spawn=sim_utils.CuboidCfg(
             size=(0.8, 1.5, 0.04),
             rigid_props=sim_utils.RigidBodyPropertiesCfg(kinematic_enabled=True),
             collision_props=sim_utils.CollisionPropertiesCfg(),
             # trick: we let visualizer's color to show the table with success coloring
-            visible=False,
+            visible=True,
         ),
         init_state=RigidObjectCfg.InitialStateCfg(
-            pos=(-0.55, 0.0, 0.235), rot=(1.0, 0.0, 0.0, 0.0)
+            pos=(0.55, 0.0, 0.235), rot=(1.0, 0.0, 0.0, 0.0)
         ),
     )
 
@@ -339,16 +196,6 @@ class SceneCfg(InteractiveSceneCfg):
     )
 
 
-    # # lights
-    # sky_light = AssetBaseCfg(
-    #     prim_path="/World/skyLight",
-    #     spawn=sim_utils.DomeLightCfg(
-    #         intensity=750.0,
-    #         texture_file=f"{ISAAC_NUCLEUS_DIR}/Materials/Textures/Skies/PolyHaven/kloofendal_43d_clear_puresky_4k.hdr",
-    #     ),
-    # )
-
-
 @configclass
 class CommandsCfg:
     """Command terms for the MDP."""
@@ -360,7 +207,7 @@ class CommandsCfg:
         debug_vis=True,
         ranges=mdp.ObjectUniformPoseCommandCfg.Ranges(
             # Fixed target at 3 cm above rear-left hole of object_table.
-            pos_x=(-0.634375, -0.634375),
+            pos_x=(0.634375, 0.634375), # TODO: !!! check why need to change the sign of x, what the base pose? 
             pos_y=(0.084375, 0.084375),
             # pos_z=(0.3243475, 0.3243475),
             pos_z=(0.4, 0.4), # when 3 cm above, the agent learn to hack the task by pushing the object, change it higher to avoid this
@@ -375,7 +222,6 @@ class CommandsCfg:
 @configclass
 class ObservationsCfg:
     """Observation specifications for the MDP."""
-
     @configclass
     class PolicyCfg(ObsGroup):
         """Observations for policy group."""
@@ -410,7 +256,7 @@ class ObservationsCfg:
                 "base_asset_cfg": SceneEntityCfg("robot"),
             },
         )
-        # contact: ObsTerm = MISSING
+        contact: ObsTerm = MISSING
 
         def __post_init__(self):
             self.enable_corruption = True
@@ -434,7 +280,7 @@ class ObservationsCfg:
             self.flatten_history_dim = True
             self.history_length = 5
 
-    # observation groups
+    # # observation groups
     policy: PolicyCfg = PolicyCfg()
     proprio: ProprioObsCfg = ProprioObsCfg()
     perception: PerceptionObsCfg = PerceptionObsCfg()
@@ -450,7 +296,7 @@ class EventCfg:
     #     mode="prestartup",
     #     params={"scale_range": (0.75, 1.5), "asset_cfg": SceneEntityCfg("object")},
     # )
-
+     
     robot_physics_material = EventTerm(
         func=mdp.randomize_rigid_body_material,
         mode="startup",
@@ -552,15 +398,15 @@ class EventCfg:
         },
     )
 
-    reset_robot_wrist_joint = EventTerm(
-        func=mdp.reset_joints_by_offset,
-        mode="reset",
-        params={
-            "asset_cfg": SceneEntityCfg("robot", joint_names="joint6"),
-            "position_range": [-3, 3],
-            "velocity_range": [0.0, 0.0],
-        },
-    )
+    # reset_robot_wrist_joint = EventTerm(
+    #     func=mdp.reset_joints_by_offset,
+    #     mode="reset",
+    #     params={
+    #         "asset_cfg": SceneEntityCfg("robot", joint_names="panda_joint7"),
+    #         "position_range": [-3, 3],
+    #         "velocity_range": [0.0, 0.0],
+    #     },
+    # )
 
     # Note (Octi): This is a deliberate trick in Remake to accelerate learning.
     # By scheduling gravity as a curriculum — starting with no gravity (easy)
@@ -579,8 +425,10 @@ class EventCfg:
 
 @configclass
 class ActionsCfg:
-    pass
 
+    action = mdp.RelativeJointPositionActionCfg(
+        asset_name="robot", joint_names=[".*"], scale=0.1
+    )
 
 @configclass
 class RewardsCfg:
@@ -590,31 +438,31 @@ class RewardsCfg:
 
     action_rate_l2 = RewTerm(func=mdp.action_rate_l2_clamped, weight=-0.005)
 
-    # fingers_to_object = RewTerm(
-    #     func=mdp.object_ee_distance, params={"std": 0.4}, weight=1.0
-    # )
+    fingers_to_object = RewTerm(
+        func=mdp.object_ee_distance, params={"std": 0.4}, weight=1.0
+    )
 
-    # position_tracking = RewTerm(
-    #     func=mdp.position_command_error_tanh,
-    #     weight=2.0,
-    #     params={
-    #         "asset_cfg": SceneEntityCfg("robot"),
-    #         "std": 0.2,
-    #         "command_name": "object_pose",
-    #         "align_asset_cfg": SceneEntityCfg("object"),
-    #     },
-    # )
+    position_tracking = RewTerm(
+        func=mdp.position_command_error_tanh,
+        weight=2.0,
+        params={
+            "asset_cfg": SceneEntityCfg("robot"),
+            "std": 0.2,
+            "command_name": "object_pose",
+            "align_asset_cfg": SceneEntityCfg("object"),
+        },
+    )
 
-    # orientation_tracking = RewTerm(
-    #     func=mdp.orientation_command_error_tanh,
-    #     weight=4.0,
-    #     params={
-    #         "asset_cfg": SceneEntityCfg("robot"),
-    #         "std": 1.5,
-    #         "command_name": "object_pose",
-    #         "align_asset_cfg": SceneEntityCfg("object"),
-    #     },
-    # )
+    orientation_tracking = RewTerm(
+        func=mdp.orientation_command_error_tanh,
+        weight=4.0,
+        params={
+            "asset_cfg": SceneEntityCfg("robot"),
+            "std": 1.5,
+            "command_name": "object_pose",
+            "align_asset_cfg": SceneEntityCfg("object"),
+        },
+    )
 
     success = RewTerm(
         func=mdp.success_reward,
@@ -642,7 +490,7 @@ class TerminationsCfg:
     object_out_of_bound = DoneTerm(
         func=mdp.out_of_bound,
         params={
-            "in_bound_range": {"x": (-1.5, 0.5), "y": (-2.0, 2.0), "z": (0.0, 2.0)},
+            "in_bound_range": {"x": (-0.5, 1.5), "y": (-2.0, 2.0), "z": (0.0, 2.0)},
             "asset_cfg": SceneEntityCfg("object"),
         },
     )
@@ -656,7 +504,7 @@ class DexsuiteReorientEnvCfg(ManagerBasedRLEnvCfg):
 
     # Scene settings
     viewer: ViewerCfg = ViewerCfg(
-        eye=(-2.25, 0.0, 0.75), lookat=(0.0, 0.0, 0.45), origin_type="env"
+        eye=(2.25, 0.0, 0.75), lookat=(0.0, 0.0, 0.45), origin_type="env"
     )
     scene: SceneCfg = SceneCfg(num_envs=4096, env_spacing=3, replicate_physics=False)
     # Basic settings
@@ -698,7 +546,6 @@ class DexsuiteReorientEnvCfg(ManagerBasedRLEnvCfg):
         self.is_finite_horizon = True
 
         # simulation settings
-        self.sim.gravity = (0.0, 0.0, 0.0)
         self.sim.dt = 1 / 120
         self.sim.render_interval = self.decimation
         self.sim.physx.bounce_threshold_velocity = 0.2
@@ -758,27 +605,11 @@ class DexsuiteLiftEnvCfg_PLAY(DexsuiteLiftEnvCfg):
 
 # Tasks
 
-from isaaclab_assets.robots import KUKA_ALLEGRO_CFG
-
-# from isaaclab.managers import ObservationTermCfg as ObsTerm
-# from isaaclab.managers import RewardTermCfg as RewTerm
-# from isaaclab.managers import SceneEntityCfg
 from isaaclab.sensors import ContactSensorCfg
 
-# from isaaclab.utils import configclass
-
-# from ... import dexsuite_env_cfg as dexsuite
-
 
 @configclass
-class KukaAllegroRelJointPosActionCfg:
-    action = mdp.RelativeJointPositionActionCfg(
-        asset_name="robot", joint_names=[".*"], scale=0.1
-    )
-
-
-@configclass
-class KukaAllegroReorientRewardCfg(RewardsCfg):
+class FrankaLeapReorientRewardCfg(RewardsCfg):
 
     # bool awarding term if 2 finger tips are in contact with object, one of the contacting fingers has to be thumb.
     good_finger_contact = RewTerm(
@@ -789,26 +620,24 @@ class KukaAllegroReorientRewardCfg(RewardsCfg):
 
 
 @configclass
-class KukaAllegroMixinCfg:
-    rewards: KukaAllegroReorientRewardCfg = KukaAllegroReorientRewardCfg()
-    actions: KukaAllegroRelJointPosActionCfg = KukaAllegroRelJointPosActionCfg()
+class FrankaLeapMixinCfg:
+    rewards: FrankaLeapReorientRewardCfg = FrankaLeapReorientRewardCfg()
 
     def __post_init__(self: DexsuiteReorientEnvCfg):
         super().__post_init__()
-        self.commands.object_pose.body_name = "palm_link"
-        # self.scene.robot = KUKA_ALLEGRO_CFG.replace(prim_path="{ENV_REGEX_NS}/Robot")
+        self.commands.object_pose.body_name = "base"  # TODO: check this !!
         finger_tip_body_list = [
-            "index_link_3",
-            "middle_link_3",
-            "ring_link_3",
-            "thumb_link_3",
+            "thumb_fingertip",
+            "fingertip",
+            "fingertip_2",
+            "fingertip_3",
         ]
         for link_name in finger_tip_body_list:
             setattr(
                 self.scene,
                 f"{link_name}_object_s",
                 ContactSensorCfg(
-                    prim_path="{ENV_REGEX_NS}/Robot/ee_link/" + link_name,
+                    prim_path="{ENV_REGEX_NS}/Robot/franka_leap_hand_right/leap_hand_right/" + link_name,
                     # filter_prim_paths_expr=["{ENV_REGEX_NS}/Object"],
                     filter_prim_paths_expr=["{ENV_REGEX_NS}/Object/square_table_leg2"],
                 ),
@@ -822,31 +651,32 @@ class KukaAllegroMixinCfg:
             },
             clip=(-20.0, 20.0),  # contact force in finger tips is under 20N normally
         )
+
         self.observations.proprio.hand_tips_state_b.params[
             "body_asset_cfg"
-        ].body_names = ["palm_link", ".*_tip"]
+        ].body_names = [".*fingertip.*"]
         self.rewards.fingers_to_object.params["asset_cfg"] = SceneEntityCfg(
-            "robot", body_names=["palm_link", ".*_tip"]
+            "robot", body_names=[".*fingertip.*"]
         )
 
 
 @configclass
-class DexsuiteKukaAllegroReorientEnvCfg(KukaAllegroMixinCfg, DexsuiteReorientEnvCfg):
+class DexsuiteFrankaLeapReorientEnvCfg(FrankaLeapMixinCfg, DexsuiteReorientEnvCfg):
     pass
 
 
 @configclass
-class DexsuiteKukaAllegroReorientEnvCfg_PLAY(
-    KukaAllegroMixinCfg, DexsuiteReorientEnvCfg_PLAY
+class DexsuiteFrankaLeapReorientEnvCfg_PLAY(
+    FrankaLeapMixinCfg, DexsuiteReorientEnvCfg_PLAY
 ):
     pass
 
 
 @configclass
-class DexsuiteKukaAllegroLiftEnvCfg(KukaAllegroMixinCfg, DexsuiteLiftEnvCfg):
+class DexsuiteFrankaLeapLiftEnvCfg(FrankaLeapMixinCfg, DexsuiteLiftEnvCfg):
     pass
 
 
 @configclass
-class DexsuiteKukaAllegroLiftEnvCfg_PLAY(KukaAllegroMixinCfg, DexsuiteLiftEnvCfg_PLAY):
+class DexsuiteFrankaLeapLiftEnvCfg_PLAY(FrankaLeapMixinCfg, DexsuiteLiftEnvCfg_PLAY):
     pass
