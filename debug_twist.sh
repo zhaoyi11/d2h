@@ -1,0 +1,3 @@
+python3 scripts/rsl_rl/train.py --task Twist_Ufactory850-v0 --num_envs 8192 --wandb-entity aria-ic --headless --logger wandb
+# --video --video_length 300 --video_interval 2000
+# python3 scripts/rsl_rl/train.py --task AnyGrasp-v0 --num_envs 8192 --grasp_path /home/yizhao/yi/DexGraspBench/output/debug_leap/succgrasp/core_camera_fb3b5fae94f7b02a3b269928487f8a4c/floating/scale008/2_grasp.npy --obj_urdf_path /home/yizhao/yi/DexGraspBench/assets/object/DGN_2k/processed_data/core_camera_fb3b5fae94f7b02a3b269928487f8a4c/urdf/coacd.urdf --headless --track --logger wandb --wandb-entity aria-ic --video --video_length 300 --video_interval 2000
