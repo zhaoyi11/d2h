@@ -245,7 +245,7 @@ def main(env_cfg: ManagerBasedRLEnvCfg | DirectRLEnvCfg | DirectMARLEnvCfg, agen
             # agent stepping
             actions = policy(obs)
             # env stepping
-            obs, _, dones, _ = env.step(actions)
+            obs, _, dones, infos = env.step(actions)
             # reset recurrent states for episodes that have terminated
             if hasattr(policy_nn, "reset"):
                 policy_nn.reset(dones)

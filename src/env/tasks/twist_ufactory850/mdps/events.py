@@ -15,6 +15,7 @@ import torch
 
 from isaaclab.assets import Articulation, RigidObject
 from isaaclab.managers import EventTermCfg, ManagerTermBase, SceneEntityCfg
+from isaaclab.utils.string import resolve_matching_names_values
 
 if TYPE_CHECKING:
     from isaaclab.envs import ManagerBasedEnv
@@ -224,5 +225,63 @@ class reset_joints_from_npy(ManagerTermBase):
 
         joint_vel_limits = self._asset.data.soft_joint_vel_limits[0]
         joint_vel = joint_vel.clamp(-joint_vel_limits, joint_vel_limits)
+
+        self._asset.write_joint_state_to_sim(joint_pos, joint_vel, env_ids=env_ids_t)
+
+
+class reset_joints_to_init_state(ManagerTermBase):
+    """Reset an articulation's joints to the init_state joint_pos from config.
+
+    Use this when init_state.joint_pos in ArticulationCfg is not applied correctly
+    at spawn (e.g. due to multi-env cloning or joint name mismatches). This event
+    explicitly applies the desired joint positions on every env.reset().
+
+    Requires params:
+        asset_cfg: SceneEntityCfg for the robot
+        joint_pos: dict[str, float] - joint name (or regex) -> position, from init_state
+    """
+
+    def __init__(self, cfg: EventTermCfg, env: ManagerBasedEnv):
+        super().__init__(cfg, env)
+
+        asset_cfg: SceneEntityCfg = cfg.params.get("asset_cfg", SceneEntityCfg("robot"))
+        self._asset: Articulation = env.scene[asset_cfg.name]
+        self._num_envs = env.num_envs
+
+        joint_pos_dict = cfg.params.get("joint_pos", None)
+        if joint_pos_dict is None:
+            raise ValueError(
+                "reset_joints_to_init_state requires 'joint_pos' dict (from init_state)."
+            )
+
+        index_list, _, values_list = resolve_matching_names_values(
+            joint_pos_dict,
+            self._asset.joint_names,
+            preserve_order=True,
+            strict=False,
+        )
+        joint_pos_array = [0.0] * len(self._asset.joint_names)
+        for idx, val in zip(index_list, values_list):
+            joint_pos_array[idx] = val
+
+        self._joint_pos = torch.as_tensor(
+            joint_pos_array, dtype=torch.float32, device=env.device
+        ).unsqueeze(0)
+
+    def __call__(
+        self,
+        env: ManagerBasedEnv,
+        env_ids: torch.Tensor | slice | None,
+        asset_cfg: SceneEntityCfg = SceneEntityCfg("robot"),
+        joint_pos: dict | None = None,
+    ):
+        del asset_cfg, joint_pos
+
+        env_ids_t = _env_ids_to_tensor(env_ids, self._num_envs, env.device)
+        joint_pos = self._joint_pos.expand(len(env_ids_t), -1).clone()
+        joint_vel = torch.zeros_like(joint_pos)
+
+        joint_pos_limits = self._asset.data.soft_joint_pos_limits[0]
+        joint_pos = joint_pos.clamp(joint_pos_limits[:, 0], joint_pos_limits[:, 1])
 
         self._asset.write_joint_state_to_sim(joint_pos, joint_vel, env_ids=env_ids_t)

@@ -28,12 +28,26 @@ gym.register(
 
 # Twist Environment
 gym.register(
-    id="Twist_Ufactory850-v0",
+    id="Pick_FrankaLeap-v0",
     entry_point="isaaclab.envs:ManagerBasedRLEnv",
     disable_env_checker=True,
     kwargs={
         # "env_cfg_entry_point": f"{__name__}.tasks.twist_ufactory850.dexsuite_env_cfg:DexsuiteFrankaLeapLiftEnvCfg",
         "env_cfg_entry_point": f"{__name__}.tasks.twist_ufactory850.dexsuite_env_cfg:DexsuiteFrankaLeapReorientEnvCfg",
+        # "rl_games_cfg_entry_point": _RL_GAMES_CFG_PATH,
+        # "rsl_rl_cfg_entry_point": "src.config.rsl_rl_ppo_cfg:AllegroCubePPORunnerCfg",
+        "rsl_rl_cfg_entry_point": "src.config.dexsuite_rsl_rl_ppo_cfg:DexsuiteKukaAllegroPPORunnerCfg",
+    },
+)
+
+gym.register(
+    id="Twist_Ufactory850-v0",
+    entry_point="isaaclab.envs:ManagerBasedRLEnv",
+    disable_env_checker=True,
+    kwargs={
+        # "env_cfg_entry_point": f"{__name__}.tasks.twist_ufactory850.dexsuite_env_cfg:DexsuiteFrankaLeapLiftEnvCfg",
+        # "env_cfg_entry_point": f"{__name__}.tasks.twist_ufactory850.dexsuite_env_cfg:DexsuiteFrankaLeapReorientEnvCfg",
+        "env_cfg_entry_point": f"{__name__}.tasks.twist_ufactory850.twist_env_cfg:DexsuiteFrankaLeapReorientEnvCfg",
         # "rl_games_cfg_entry_point": _RL_GAMES_CFG_PATH,
         # "rsl_rl_cfg_entry_point": "src.config.rsl_rl_ppo_cfg:AllegroCubePPORunnerCfg",
         "rsl_rl_cfg_entry_point": "src.config.dexsuite_rsl_rl_ppo_cfg:DexsuiteKukaAllegroPPORunnerCfg",

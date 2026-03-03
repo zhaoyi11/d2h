@@ -84,6 +84,7 @@ class SceneCfg(InteractiveSceneCfg):
                 enabled_self_collisions=False, solver_position_iteration_count=16, solver_velocity_iteration_count=1,
             ),
         ),
+
         init_state=ArticulationCfg.InitialStateCfg(
             pos=(0.0, 0.0, 0.0),
             rot=(1.0, 0.0, 0.0, 0.0),
@@ -373,12 +374,26 @@ class EventCfg:
         mode="reset",
         params={
             "pose_range": {
-                "x": [-0.2, 0.2],
-                "y": [-0.2, 0.2],
-                "z": [0.0, 0.4],
-                "roll": [-3.14, 3.14],
-                "pitch": [-3.14, 3.14],
-                "yaw": [-3.14, 3.14],
+                # pose_range is ADDED to object init_state.pos [0.55, 0.1, 0.34].
+                # Target world pos from obj_pos_b: [0.6274, 0.0729, 0.4032]
+                #   x: 0.6274 - 0.55 = 0.0774
+                #   y: 0.0729 - 0.1  = -0.0271
+                #   z: 0.4032 - 0.34 = 0.0632
+                # Target quat (wxyz) from obj_quat_b: [0.6845, 0.7288, -0.0168, 0.0034]
+                #   -> euler: roll=1.6337, pitch=-0.0280, yaw=-0.0198
+                "x": (0.0774, 0.0774),
+                "y": (-0.0271, -0.0271),
+                "z": (0.0632, 0.0632),
+                "roll": (1.6337, 1.6337),
+                "pitch": (-0.0280, -0.0280),
+                "yaw": (-0.0198, -0.0198),
+                # "x": [-0.2, 0.2],
+                # "y": [-0.2, 0.2],
+                # "z": [0.0, 0.4],
+                # "roll": [-3.14, 3.14],
+                # "pitch": [-3.14, 3.14],
+                # "yaw": [-3.14, 3.14],
+
             },
             "velocity_range": {"x": [-0.0, 0.0], "y": [-0.0, 0.0], "z": [-0.0, 0.0]},
             "asset_cfg": SceneEntityCfg("object"),
@@ -395,14 +410,36 @@ class EventCfg:
         },
     )
 
+    # Explicitly reset robot joints to init_state on every reset.
+    # init_state.joint_pos is only applied at spawn; with multi-env cloning or joint
+    # name mismatches it may not take effect. This event ensures the desired pose.
     reset_robot_joints = EventTerm(
-        func=mdp.reset_joints_by_offset,
+        func=mdp.reset_joints_to_init_state,
         mode="reset",
         params={
-            "position_range": [-0.50, 0.50],
-            "velocity_range": [0.0, 0.0],
+            "asset_cfg": SceneEntityCfg("robot"),
+            "joint_pos": {"panda_joint1": -0.5608, "panda_joint2": -0.0964, "panda_joint3": 0.6291, "panda_joint4": -2.1581,
+            "panda_joint5": -0.2790, "panda_joint6": 2.6787, "panda_joint7": 0.1477,
+            'a_1': 1.5201,
+            'a_12': 2.094,
+            'a_5': 1.0769,
+            'a_9': 1.1913,
+            'a_0': -1.0468,
+            'a_13': -0.469,
+            'a_4': -1.0470,
+            'a_8': -0.8209,
+            'a_2': 0.8322,
+            'a_14': 0.5233,
+            'a_6': 0.6377,
+            'a_10': 0.1822,
+            'a_3': -0.3660,
+            'a_15': -0.0645,
+            'a_7': -0.0318,
+            'a_11': 0.4922,
+            },
         },
     )
+
 
     # reset_robot_wrist_joint = EventTerm(
     #     func=mdp.reset_joints_by_offset,
@@ -537,6 +574,7 @@ class DexsuiteReorientEnvCfg(ManagerBasedRLEnvCfg):
 
     def __post_init__(self):
         """Post initialization."""
+
         # general settings
         self.decimation = 2  # 50 Hz
 
