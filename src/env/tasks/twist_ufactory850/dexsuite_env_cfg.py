@@ -210,7 +210,7 @@ class CommandsCfg:
             pos_x=(0.634375, 0.634375), # TODO: !!! check why need to change the sign of x, what the base pose? 
             pos_y=(0.084375, 0.084375),
             # pos_z=(0.3243475, 0.3243475),
-            pos_z=(0.4, 0.4), # when 3 cm above, the agent learn to hack the task by pushing the object, change it higher to avoid this
+            pos_z=(0.3, 0.3), # when 3 cm above, the agent learn to hack the task by pushing the object, change it higher to avoid this
             # roll=(-3.14, 3.14),
             # pitch=(-3.14, 3.14),
             roll=(1.5708, 1.5708),

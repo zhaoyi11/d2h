@@ -8,11 +8,13 @@
 from __future__ import annotations
 
 from pathlib import Path
+import re
 from typing import TYPE_CHECKING
 
 import numpy as np
 import torch
 
+import isaaclab.sim as sim_utils
 from isaaclab.assets import Articulation, RigidObject
 from isaaclab.managers import EventTermCfg, ManagerTermBase, SceneEntityCfg
 from isaaclab.utils.string import resolve_matching_names_values
@@ -110,6 +112,73 @@ def _select_state_rows(state: torch.Tensor, env_ids: torch.Tensor, num_envs: int
     raise ValueError(
         f"State key '{key_name}' must have row count 1 or num_envs ({num_envs}), got {state.shape[0]}."
     )
+
+
+def _map_prim_paths_by_env_index(prim_paths: list[str]) -> dict[int, str]:
+    """Map prim paths to environment ids parsed from ``/env_<id>/`` in path."""
+    env_map: dict[int, str] = {}
+    for prim_path in prim_paths:
+        match = re.search(r"/env_(\d+)(?:/|$)", prim_path)
+        if match is None:
+            continue
+        env_map[int(match.group(1))] = prim_path
+    if env_map:
+        return env_map
+    return {idx: prim_path for idx, prim_path in enumerate(prim_paths)}
+
+
+class filter_collisions_between_assets(ManagerTermBase):
+    """Disable collisions between two assets using USD filtered-pairs relationship."""
+
+    def __init__(self, cfg: EventTermCfg, env: ManagerBasedEnv):
+        super().__init__(cfg, env)
+        asset_cfg_a: SceneEntityCfg = cfg.params.get("asset_cfg_a", SceneEntityCfg("object_table"))
+        asset_cfg_b: SceneEntityCfg = cfg.params.get("asset_cfg_b", SceneEntityCfg("object"))
+        self._asset_a: RigidObject = env.scene[asset_cfg_a.name]
+        self._asset_b: RigidObject = env.scene[asset_cfg_b.name]
+        self._bidirectional: bool = bool(cfg.params.get("bidirectional", True))
+
+    def __call__(
+        self,
+        env: ManagerBasedEnv,
+        env_ids: torch.Tensor | slice | None,
+        asset_cfg_a: SceneEntityCfg = SceneEntityCfg("object_table"),
+        asset_cfg_b: SceneEntityCfg = SceneEntityCfg("object"),
+        bidirectional: bool = True,
+    ):
+        del env, env_ids, asset_cfg_a, asset_cfg_b, bidirectional
+        from pxr import Sdf, UsdPhysics
+
+        prim_paths_a = sim_utils.find_matching_prim_paths(self._asset_a.cfg.prim_path)
+        prim_paths_b = sim_utils.find_matching_prim_paths(self._asset_b.cfg.prim_path)
+        env_map_a = _map_prim_paths_by_env_index(prim_paths_a)
+        env_map_b = _map_prim_paths_by_env_index(prim_paths_b)
+        common_env_ids = sorted(set(env_map_a.keys()) & set(env_map_b.keys()))
+        if not common_env_ids:
+            raise RuntimeError(
+                f"No overlapping env instances found for '{self._asset_a.cfg.prim_path}' and "
+                f"'{self._asset_b.cfg.prim_path}'."
+            )
+
+        stage = self._asset_a.stage
+        for env_id in common_env_ids:
+            prim_path_a = env_map_a[env_id]
+            prim_path_b = env_map_b[env_id]
+            prim_a = stage.GetPrimAtPath(prim_path_a)
+            prim_b = stage.GetPrimAtPath(prim_path_b)
+            if not prim_a.IsValid() or not prim_b.IsValid():
+                continue
+
+            target_b = Sdf.Path(prim_path_b)
+            rel_a = UsdPhysics.FilteredPairsAPI.Apply(prim_a).CreateFilteredPairsRel()
+            if target_b not in rel_a.GetTargets():
+                rel_a.AddTarget(target_b)
+
+            if self._bidirectional:
+                target_a = Sdf.Path(prim_path_a)
+                rel_b = UsdPhysics.FilteredPairsAPI.Apply(prim_b).CreateFilteredPairsRel()
+                if target_a not in rel_b.GetTargets():
+                    rel_b.AddTarget(target_a)
 
 
 class reset_root_state_from_npy(ManagerTermBase):
@@ -227,6 +296,34 @@ class reset_joints_from_npy(ManagerTermBase):
         joint_vel = joint_vel.clamp(-joint_vel_limits, joint_vel_limits)
 
         self._asset.write_joint_state_to_sim(joint_pos, joint_vel, env_ids=env_ids_t)
+
+
+class record_object_init_quat(ManagerTermBase):
+    """Record object's post-reset quaternion for per-episode z-rotation tracking."""
+
+    def __init__(self, cfg: EventTermCfg, env: ManagerBasedEnv):
+        super().__init__(cfg, env)
+        asset_cfg: SceneEntityCfg = cfg.params.get("asset_cfg", SceneEntityCfg("object"))
+        self._asset = env.scene[asset_cfg.name]
+
+    def __call__(
+        self,
+        env: ManagerBasedEnv,
+        env_ids: torch.Tensor | slice | None,
+        asset_cfg: SceneEntityCfg = SceneEntityCfg("object"),
+    ):
+        root_quat_w = self._asset.data.root_quat_w
+        if (
+            "object_init_quat" not in env.extras
+            or env.extras["object_init_quat"] is None
+            or env.extras["object_init_quat"].shape != root_quat_w.shape
+        ):
+            env.extras["object_init_quat"] = root_quat_w.clone()
+
+        if env_ids is None or env_ids == slice(None):
+            env.extras["object_init_quat"][:] = root_quat_w
+        else:
+            env.extras["object_init_quat"][env_ids] = root_quat_w[env_ids]
 
 
 class reset_joints_to_init_state(ManagerTermBase):

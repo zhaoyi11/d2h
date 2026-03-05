@@ -111,24 +111,20 @@ class SceneCfg(InteractiveSceneCfg):
     # table base
     object_table = RigidObjectCfg(
         prim_path="{ENV_REGEX_NS}/ObjectTable",
-        spawn=sim_utils.UrdfFileCfg(
-            asset_path="/home/yizhao/yi/D2H/src/assets/furniture_bench/urdf/square_table/square_table_top.urdf",
+        spawn=sim_utils.UsdFileCfg(
+            usd_path=f"/home/yizhao/yi/D2H/src/assets/square_table_leg1/square_table_top.usd",
+            activate_contact_sensors=True,
             rigid_props=sim_utils.RigidBodyPropertiesCfg(
                 kinematic_enabled=True,
                 disable_gravity=True,
-                enable_gyroscopic_forces=True,
-            ),
-            fix_base=False,
-            joint_drive=sim_utils.UrdfConverterCfg.JointDriveCfg(
-                gains=sim_utils.UrdfConverterCfg.JointDriveCfg.PDGainsCfg(
-                    stiffness=None, damping=None
-                ),
+                max_depenetration_velocity=1000.0,
+                max_linear_velocity=1000.0,
+                max_angular_velocity=1000.0,
             ),
             articulation_props=sim_utils.ArticulationRootPropertiesCfg(
                 articulation_enabled=False,
             ),
-            # Keep this asset visual-only to avoid overlapping support collisions with the task table cuboid.
-            collision_props=sim_utils.CollisionPropertiesCfg(collision_enabled=False),
+            collision_props=sim_utils.CollisionPropertiesCfg(),
             mass_props=sim_utils.MassPropertiesCfg(mass=0.2),
             scale=(1.5, 1.5, 1.5),
         ),
@@ -137,23 +133,51 @@ class SceneCfg(InteractiveSceneCfg):
             rot=[0.7071068, 0.7071068, 0.0, 0.0],
         ),
     )
+        # spawn=sim_utils.UrdfFileCfg(
+        #     asset_path="/home/yizhao/yi/D2H/src/assets/furniture_bench/urdf/square_table/square_table_top.urdf",
+        #     rigid_props=sim_utils.RigidBodyPropertiesCfg(
+        #         kinematic_enabled=True,
+        #         disable_gravity=True,
+        #         enable_gyroscopic_forces=True,
+        #     ),
+        #     fix_base=False,
+        #     joint_drive=sim_utils.UrdfConverterCfg.JointDriveCfg(
+        #         gains=sim_utils.UrdfConverterCfg.JointDriveCfg.PDGainsCfg(
+        #             stiffness=None, damping=None
+        #         ),
+        #     ),
+        #     articulation_props=sim_utils.ArticulationRootPropertiesCfg(
+        #         articulation_enabled=False,
+        #     ),
+        #     # Keep this asset visual-only to avoid overlapping support collisions with the task table cuboid.
+        #     collision_props=sim_utils.CollisionPropertiesCfg(collision_enabled=False),
+        #     mass_props=sim_utils.MassPropertiesCfg(mass=0.2),
+        #     scale=(1.5, 1.5, 1.5),
+        # ),
+    #     init_state=RigidObjectCfg.InitialStateCfg(
+    #         pos=[0.55, 0.0, 0.271],
+    #         rot=[0.7071068, 0.7071068, 0.0, 0.0],
+    #     ),
+    # )
 
     # table leg
     object = RigidObjectCfg(
         prim_path="{ENV_REGEX_NS}/Object",
-        spawn=sim_utils.UrdfFileCfg(
-            asset_path="/home/yizhao/yi/D2H/src/assets/furniture_bench/urdf/square_table/square_table_leg2.urdf",
+        spawn=sim_utils.UsdFileCfg(
+            usd_path=f"/home/yizhao/yi/D2H/src/assets/square_table_leg1/square_table_leg1.usd",
+            activate_contact_sensors=True,
             rigid_props=sim_utils.RigidBodyPropertiesCfg(
-                kinematic_enabled=False,
                 disable_gravity=False,
-                enable_gyroscopic_forces=True,
+                max_depenetration_velocity=1000.0,
+                max_linear_velocity=1000.0,
+                max_angular_velocity=1000.0,
             ),
-            fix_base=False,
-            joint_drive=sim_utils.UrdfConverterCfg.JointDriveCfg(
-                gains=sim_utils.UrdfConverterCfg.JointDriveCfg.PDGainsCfg(
-                    stiffness=None, damping=None
-                ),
-            ),
+            # fix_base=False,
+            # joint_drive=sim_utils.UrdfConverterCfg.JointDriveCfg(
+            #     gains=sim_utils.UrdfConverterCfg.JointDriveCfg.PDGainsCfg(
+            #         stiffness=None, damping=None
+            #     ),
+            # ),
             articulation_props=sim_utils.ArticulationRootPropertiesCfg(
                 articulation_enabled=False,
             ),
@@ -167,6 +191,32 @@ class SceneCfg(InteractiveSceneCfg):
             rot=[1.0, 0.0, 0.0, 0.0],
         ),
     )
+    #     spawn=sim_utils.UrdfFileCfg(
+    #         asset_path="/home/yizhao/yi/D2H/src/assets/furniture_bench/urdf/square_table/square_table_leg2.urdf",
+    #         rigid_props=sim_utils.RigidBodyPropertiesCfg(
+    #             kinematic_enabled=False,
+    #             disable_gravity=False,
+    #             enable_gyroscopic_forces=True,
+    #         ),
+    #         fix_base=False,
+    #         joint_drive=sim_utils.UrdfConverterCfg.JointDriveCfg(
+    #             gains=sim_utils.UrdfConverterCfg.JointDriveCfg.PDGainsCfg(
+    #                 stiffness=None, damping=None
+    #             ),
+    #         ),
+    #         articulation_props=sim_utils.ArticulationRootPropertiesCfg(
+    #             articulation_enabled=False,
+    #         ),
+    #         collision_props=sim_utils.CollisionPropertiesCfg(),
+    #         mass_props=sim_utils.MassPropertiesCfg(mass=0.2),
+    #         scale=(1.5, 1.5, 1.5),
+    #         # physics_material=RigidBodyMaterialCfg(static_friction=0.5), # TODO: check how the friction defined in the urdf file
+    #     ),
+    #     init_state=RigidObjectCfg.InitialStateCfg(
+    #         pos=[0.55, 0.1, 0.34],
+    #         rot=[1.0, 0.0, 0.0, 0.0],
+    #     ),
+    # )
 
     # table
     table: RigidObjectCfg = RigidObjectCfg(
@@ -210,13 +260,12 @@ class CommandsCfg:
             # Fixed target at 3 cm above rear-left hole of object_table.
             pos_x=(0.634375, 0.634375), # TODO: !!! check why need to change the sign of x, what the base pose? 
             pos_y=(0.084375, 0.084375),
-            # pos_z=(0.3243475, 0.3243475),
-            pos_z=(0.4, 0.4), # when 3 cm above, the agent learn to hack the task by pushing the object, change it higher to avoid this
+            pos_z=(0.35, 0.35),  # 3 cm above hole
             # roll=(-3.14, 3.14),
             # pitch=(-3.14, 3.14),
             roll=(1.5708, 1.5708),
             pitch=(0.0, 0.0),
-            yaw=(0.0, 0.0),
+            yaw=(-1.5708, 1.5708), # -pi/2 to pi/2
         ),
         success_vis_asset_name="table",
     )
@@ -359,6 +408,16 @@ class EventCfg:
         },
     )
 
+    object_table_pair_collision_filter = EventTerm(
+        func=mdp.filter_collisions_between_assets,
+        mode="startup",
+        params={
+            "asset_cfg_a": SceneEntityCfg("object_table"),
+            "asset_cfg_b": SceneEntityCfg("object"),
+            "bidirectional": True,
+        },
+    )
+
     reset_table = EventTerm(
         func=mdp.reset_root_state_uniform,
         mode="reset",
@@ -396,6 +455,14 @@ class EventCfg:
 
             },
             "velocity_range": {"x": [-0.0, 0.0], "y": [-0.0, 0.0], "z": [-0.0, 0.0]},
+            "asset_cfg": SceneEntityCfg("object"),
+        },
+    )
+
+    record_object_init_quat = EventTerm(
+        func=mdp.record_object_init_quat,
+        mode="reset",
+        params={
             "asset_cfg": SceneEntityCfg("object"),
         },
     )
@@ -440,7 +507,6 @@ class EventCfg:
         },
     )
 
-
     # reset_robot_wrist_joint = EventTerm(
     #     func=mdp.reset_joints_by_offset,
     #     mode="reset",
@@ -460,7 +526,7 @@ class EventCfg:
         func=mdp.randomize_physics_scene_gravity,
         mode="reset",
         params={
-            "gravity_distribution_params": ([0.0, 0.0, 0.0], [0.0, 0.0, 0.0]),
+            "gravity_distribution_params": ([0.0, 0.0, -9.8], [0.0, 0.0, -9.8]),
             "operation": "abs",
         },
     )
@@ -485,47 +551,58 @@ class RewardsCfg:
         func=mdp.object_ee_distance, params={"std": 0.4}, weight=1.0
     )
 
-    position_tracking = RewTerm(
-        func=mdp.position_command_error_tanh,
+    # position_tracking = RewTerm(
+    #     func=mdp.position_command_error_tanh,
+    #     weight=2.0,
+    #     params={
+    #         "asset_cfg": SceneEntityCfg("robot"),
+    #         "std": 0.2,
+    #         "command_name": "object_pose",
+    #         "align_asset_cfg": SceneEntityCfg("object"),
+    #     },
+    # )
+
+    # rotation_tracking = RewTerm()
+
+    rotation_reward = RewTerm(
+        func=mdp.object_z_rotation_reward,
         weight=2.0,
         params={
-            "asset_cfg": SceneEntityCfg("robot"),
-            "std": 0.2,
-            "command_name": "object_pose",
-            "align_asset_cfg": SceneEntityCfg("object"),
+            "scale": 1.0,
+            "object_cfg": SceneEntityCfg("object"),
         },
     )
 
-    orientation_tracking = RewTerm(
-        func=mdp.orientation_command_error_tanh,
-        weight=2.0,
-        params={
-            "asset_cfg": SceneEntityCfg("robot"),
-            "std": 1.5,
-            "command_name": "object_pose",
-            "align_asset_cfg": SceneEntityCfg("object"),
-        },
-    )
+    # orientation_tracking = RewTerm(
+    #     func=mdp.orientation_command_error_tanh,
+    #     weight=2.0,
+    #     params={
+    #         "asset_cfg": SceneEntityCfg("robot"),
+    #         "std": 1.5,
+    #         "command_name": "object_pose",
+    #         "align_asset_cfg": SceneEntityCfg("object"),
+    #     },
+    # )
 
-    success_position = RewTerm(
-        func=mdp.success_reward,
-        weight=5,
-        params={
-            "asset_cfg": SceneEntityCfg("robot"),
-            "pos_std": 0.1,
-            "rot_std": None,
-            "command_name": "object_pose",
-            "align_asset_cfg": SceneEntityCfg("object"),
-        },
-    )
+    # success_position = RewTerm(
+    #     func=mdp.success_reward,
+    #     weight=5,
+    #     params={
+    #         "asset_cfg": SceneEntityCfg("robot"),
+    #         "pos_std": 0.1,
+    #         "rot_std": None,
+    #         "command_name": "object_pose",
+    #         "align_asset_cfg": SceneEntityCfg("object"),
+    #     },
+    # )
 
     success = RewTerm(
         func=mdp.success_reward,
-        weight=10,
+        weight=1, #10
         params={
             "asset_cfg": SceneEntityCfg("robot"),
-            "pos_std": 0.1,
-            "rot_std": 0.5,
+            "pos_std": 0.01,
+            "rot_std": None,
             "command_name": "object_pose",
             "align_asset_cfg": SceneEntityCfg("object"),
         },
@@ -613,8 +690,9 @@ class DexsuiteReorientEnvCfg(ManagerBasedRLEnvCfg):
                 self.rewards.success.params["pos_std"] / 2
             )
 
+            rot_std = self.rewards.success.params["rot_std"]
             self.curriculum.adr.params["rot_tol"] = (
-                self.rewards.success.params["rot_std"] / 2
+                rot_std / 2 if rot_std is not None else None
             )
 
 
@@ -694,8 +772,7 @@ class FrankaLeapMixinCfg:
                 f"{link_name}_object_s",
                 ContactSensorCfg(
                     prim_path="{ENV_REGEX_NS}/Robot/franka_leap_hand_right/leap_hand_right/" + link_name,
-                    # filter_prim_paths_expr=["{ENV_REGEX_NS}/Object"],
-                    filter_prim_paths_expr=["{ENV_REGEX_NS}/Object/square_table_leg2"],
+                    filter_prim_paths_expr=["{ENV_REGEX_NS}/Object"],
                 ),
             )
         self.observations.proprio.contact = ObsTerm(
