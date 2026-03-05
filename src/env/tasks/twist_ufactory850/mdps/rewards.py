@@ -94,15 +94,6 @@ def contacts(env: ManagerBasedRLEnv, threshold: float) -> torch.Tensor:
     middle_contact_mag = torch.norm(middle_contact, dim=-1)
     ring_contact_mag = torch.norm(ring_contact, dim=-1)
     
-    # #print 
-    # thumb_contact_scale = thumb_contact_mag.mean().item()
-    # index_contact_scale = index_contact_mag.mean().item()
-    # middle_contact_scale = middle_contact_mag.mean().item()
-    # ring_contact_scale = ring_contact_mag.mean().item()
-    # if thumb_contact_scale > 0 or index_contact_scale > 0 or middle_contact_scale > 0 or ring_contact_scale > 0:
-    #     print(thumb_contact_scale, index_contact_scale, middle_contact_scale, ring_contact_scale)
-
-
     good_contact_cond1 = (thumb_contact_mag > threshold) & (
         (index_contact_mag > threshold) | (middle_contact_mag > threshold) | (ring_contact_mag > threshold)
     )
@@ -148,38 +139,6 @@ def position_command_error_tanh(
     des_pos_w, _ = combine_frame_transforms(asset.data.root_pos_w, asset.data.root_quat_w, des_pos_b)
     distance = torch.norm(object.data.root_pos_w - des_pos_w, dim=1)
     return (1 - torch.tanh(distance / std)) * contacts(env, 1.0).float()
-
-
-def object_z_rotation_reward(
-    env: ManagerBasedRLEnv,
-    scale: float = 1.0,
-    object_cfg: SceneEntityCfg = SceneEntityCfg("object"),
-) -> torch.Tensor:
-    """Reward accumulated rotation of the object around the world z-axis since episode reset.
-
-    Computes the relative quaternion q_rel = q_current * conj(q_init), extracts the
-    yaw (z-rotation) component, and applies a tanh kernel so the reward is in [0, 1].
-
-    Requires the ``record_object_init_quat`` event to be configured so that
-    ``env.extras["object_init_quat"]`` is populated on every reset.
-
-    Args:
-        env: The environment object.
-        scale: Controls saturation speed of the tanh kernel (radians).
-        object_cfg: Scene entity for the manipulated object.
-    """
-    asset: RigidObject = env.scene[object_cfg.name]
-    q_current = asset.data.root_quat_w  # (N, 4) wxyz
-    q_init = env.extras["object_init_quat"]  # (N, 4) wxyz
-
-    q_init_conj = math_utils.quat_conjugate(q_init)
-    q_rel = math_utils.quat_mul(q_current, q_init_conj)
-
-    # extract yaw from relative quaternion (wxyz convention)
-    w, x, y, z = q_rel[:, 0], q_rel[:, 1], q_rel[:, 2], q_rel[:, 3]
-    yaw = torch.atan2(2.0 * (w * z + x * y), 1.0 - 2.0 * (y * y + z * z))
-
-    return torch.tanh(yaw.abs() / scale)
 
 
 def orientation_command_error_tanh(

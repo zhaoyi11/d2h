@@ -149,15 +149,18 @@ class filter_collisions_between_assets(ManagerTermBase):
         del env, env_ids, asset_cfg_a, asset_cfg_b, bidirectional
         from pxr import Sdf, UsdPhysics
 
-        prim_paths_a = sim_utils.find_matching_prim_paths(self._asset_a.cfg.prim_path)
-        prim_paths_b = sim_utils.find_matching_prim_paths(self._asset_b.cfg.prim_path)
+        # Use the resolved rigid-body prim paths from PhysX views instead of cfg.prim_path.
+        # For USD assets, cfg.prim_path can be a container Xform while collisions are authored
+        # on a child rigid body prim. FilteredPairs must target the rigid body prims.
+        prim_paths_a = list(self._asset_a.root_physx_view.prim_paths)
+        prim_paths_b = list(self._asset_b.root_physx_view.prim_paths)
         env_map_a = _map_prim_paths_by_env_index(prim_paths_a)
         env_map_b = _map_prim_paths_by_env_index(prim_paths_b)
         common_env_ids = sorted(set(env_map_a.keys()) & set(env_map_b.keys()))
         if not common_env_ids:
             raise RuntimeError(
-                f"No overlapping env instances found for '{self._asset_a.cfg.prim_path}' and "
-                f"'{self._asset_b.cfg.prim_path}'."
+                "No overlapping env instances found for rigid-body prims under "
+                f"'{self._asset_a.cfg.prim_path}' and '{self._asset_b.cfg.prim_path}'."
             )
 
         stage = self._asset_a.stage

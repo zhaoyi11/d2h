@@ -112,7 +112,7 @@ class SceneCfg(InteractiveSceneCfg):
     object_table = RigidObjectCfg(
         prim_path="{ENV_REGEX_NS}/ObjectTable",
         spawn=sim_utils.UsdFileCfg(
-            usd_path=f"/home/yizhao/yi/D2H/src/assets/square_table_leg1/square_table_top.usd",
+            usd_path=f"/home/yizhao/yi/D2H/src/assets/square_table_leg1/square_table_top_convex.usd",
             activate_contact_sensors=True,
             rigid_props=sim_utils.RigidBodyPropertiesCfg(
                 kinematic_enabled=True,
@@ -164,7 +164,7 @@ class SceneCfg(InteractiveSceneCfg):
     object = RigidObjectCfg(
         prim_path="{ENV_REGEX_NS}/Object",
         spawn=sim_utils.UsdFileCfg(
-            usd_path=f"/home/yizhao/yi/D2H/src/assets/square_table_leg1/square_table_leg1.usd",
+            usd_path=f"/home/yizhao/yi/D2H/src/assets/square_table_leg1/square_table_leg1_convex.usd",
             activate_contact_sensors=True,
             rigid_props=sim_utils.RigidBodyPropertiesCfg(
                 disable_gravity=False,
@@ -551,38 +551,27 @@ class RewardsCfg:
         func=mdp.object_ee_distance, params={"std": 0.4}, weight=1.0
     )
 
-    # position_tracking = RewTerm(
-    #     func=mdp.position_command_error_tanh,
-    #     weight=2.0,
-    #     params={
-    #         "asset_cfg": SceneEntityCfg("robot"),
-    #         "std": 0.2,
-    #         "command_name": "object_pose",
-    #         "align_asset_cfg": SceneEntityCfg("object"),
-    #     },
-    # )
-
-    # rotation_tracking = RewTerm()
-
-    rotation_reward = RewTerm(
-        func=mdp.object_z_rotation_reward,
-        weight=2.0,
+    position_tracking = RewTerm(
+        func=mdp.position_command_error_tanh,
+        weight=1.0,
         params={
-            "scale": 1.0,
-            "object_cfg": SceneEntityCfg("object"),
+            "asset_cfg": SceneEntityCfg("robot"),
+            "std": 0.1,
+            "command_name": "object_pose",
+            "align_asset_cfg": SceneEntityCfg("object"),
         },
     )
 
-    # orientation_tracking = RewTerm(
-    #     func=mdp.orientation_command_error_tanh,
-    #     weight=2.0,
-    #     params={
-    #         "asset_cfg": SceneEntityCfg("robot"),
-    #         "std": 1.5,
-    #         "command_name": "object_pose",
-    #         "align_asset_cfg": SceneEntityCfg("object"),
-    #     },
-    # )
+    orientation_tracking = RewTerm(
+        func=mdp.orientation_command_error_tanh,
+        weight=2.0,
+        params={
+            "asset_cfg": SceneEntityCfg("robot"),
+            "std": 0.5,
+            "command_name": "object_pose",
+            "align_asset_cfg": SceneEntityCfg("object"),
+        },
+    )
 
     # success_position = RewTerm(
     #     func=mdp.success_reward,
@@ -598,11 +587,11 @@ class RewardsCfg:
 
     success = RewTerm(
         func=mdp.success_reward,
-        weight=1, #10
+        weight=10,
         params={
             "asset_cfg": SceneEntityCfg("robot"),
             "pos_std": 0.01,
-            "rot_std": None,
+            "rot_std": 0.1,
             "command_name": "object_pose",
             "align_asset_cfg": SceneEntityCfg("object"),
         },
@@ -772,7 +761,7 @@ class FrankaLeapMixinCfg:
                 f"{link_name}_object_s",
                 ContactSensorCfg(
                     prim_path="{ENV_REGEX_NS}/Robot/franka_leap_hand_right/leap_hand_right/" + link_name,
-                    filter_prim_paths_expr=["{ENV_REGEX_NS}/Object"],
+                    filter_prim_paths_expr=["{ENV_REGEX_NS}/Object/square_table_leg1"],
                 ),
             )
         self.observations.proprio.contact = ObsTerm(
