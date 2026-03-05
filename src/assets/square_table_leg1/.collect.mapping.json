@@ -1,0 +1,29 @@
+{
+    "version": "1.0",
+    "file_records": [
+        {
+            "source_url": "/home/yizhao/yi/D2H/src/assets/materials/textures/tag36_11_00008.png",
+            "source_hash": "0aab0cbd34793945a6a85a5bd08ffff271549fc8",
+            "target_url": "./materials/textures/tag36_11_00008.png",
+            "target_hash": "9f82ac8df037fa82dcb01936c5059e56fe4fea47"
+        },
+        {
+            "source_url": "/home/yizhao/yi/D2H/src/assets/materials/textures/tag36_11_00009.png",
+            "source_hash": "849095d555e512984682aa960f114f58b7629376",
+            "target_url": "./materials/textures/tag36_11_00009.png",
+            "target_hash": "33d232435aecfbffdfa63cb4eb81a2436dc8d220"
+        },
+        {
+            "source_url": "/home/yizhao/yi/D2H/src/assets/materials/textures/tag36_11_00010.png",
+            "source_hash": "f3d3e9e21e900df87bf2152c2f18234b3a779124",
+            "target_url": "./materials/textures/tag36_11_00010.png",
+            "target_hash": "4dc92f4bd38a10254f8db56490cb85195da3b59f"
+        },
+        {
+            "source_url": "/home/yizhao/yi/D2H/src/assets/materials/textures/tag36_11_00011.png",
+            "source_hash": "849095d555e512984682aa960f114f58b7629376",
+            "target_url": "./materials/textures/tag36_11_00011.png",
+            "target_hash": "33d232435aecfbffdfa63cb4eb81a2436dc8d220"
+        }
+    ]
+}
