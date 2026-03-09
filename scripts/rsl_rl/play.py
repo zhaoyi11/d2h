@@ -80,7 +80,7 @@ from isaaclab_tasks.utils.hydra import hydra_task_config
 
 # Import our custom env registry so that Gym knows about the task
 # before Hydra / gym.spec() tries to look them up.
-import src.env
+import src.tasks  
 
 def _apply_grasp_overrides(env_cfg, args_cli):
     """Apply grasp/object overrides for both legacy and current env config schemas."""

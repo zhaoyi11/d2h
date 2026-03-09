@@ -121,8 +121,8 @@ from isaaclab_tasks.utils.hydra import hydra_task_config
 
 # Import our custom env registry so that Gym knows about the task
 # before Hydra / gym.spec() tries to look them up.
-import src.env
-from src.utils.helper import _patch_rsl_wandb_writer
+import src.tasks
+from src.utils import _patch_rsl_wandb_writer
 
 # import logger
 logger = logging.getLogger(__name__)
