@@ -31,25 +31,37 @@ class SceneCfg(InteractiveSceneCfg):
     """Dexsuite Scene for multi-objects Lifting"""
 
     # robot
-    robot = FRANKA_LEAP_HAND_CFG.replace(prim_path="{ENV_REGEX_NS}/Robot")
+    robot = FRANKA_LEAP_HAND_CFG.replace(
+        prim_path="{ENV_REGEX_NS}/Robot",
+        # disable self collisions
+        spawn=FRANKA_LEAP_HAND_CFG.spawn.replace(
+            articulation_props=FRANKA_LEAP_HAND_CFG.spawn.articulation_props.replace(
+                enabled_self_collisions=False,
+            ),
+        ),
+    )   
 
     # table base
     object_table = RigidObjectCfg(
         prim_path="{ENV_REGEX_NS}/ObjectTable",
-        spawn=sim_utils.UsdFileCfg(
-            usd_path=f"/home/yizhao/yi/D2H/src/assets/square_table_leg/square_table_top_convex.usd",
-            activate_contact_sensors=True,
+        spawn=sim_utils.UrdfFileCfg(
+            asset_path="/home/yizhao/yi/D2H/_src/assets/furniture_bench/urdf/square_table/square_table_top.urdf",
             rigid_props=sim_utils.RigidBodyPropertiesCfg(
                 kinematic_enabled=True,
                 disable_gravity=True,
-                max_depenetration_velocity=1000.0,
-                max_linear_velocity=1000.0,
-                max_angular_velocity=1000.0,
+                enable_gyroscopic_forces=True,
+            ),
+            fix_base=False,
+            joint_drive=sim_utils.UrdfConverterCfg.JointDriveCfg(
+                gains=sim_utils.UrdfConverterCfg.JointDriveCfg.PDGainsCfg(
+                    stiffness=None, damping=None
+                ),
             ),
             articulation_props=sim_utils.ArticulationRootPropertiesCfg(
                 articulation_enabled=False,
             ),
-            collision_props=sim_utils.CollisionPropertiesCfg(),
+            # Keep this asset visual-only to avoid overlapping support collisions with the task table cuboid.
+            collision_props=sim_utils.CollisionPropertiesCfg(collision_enabled=False),
             mass_props=sim_utils.MassPropertiesCfg(mass=0.2),
             scale=(1.5, 1.5, 1.5),
         ),
@@ -62,14 +74,18 @@ class SceneCfg(InteractiveSceneCfg):
     # table leg
     object = RigidObjectCfg(
         prim_path="{ENV_REGEX_NS}/Object",
-        spawn=sim_utils.UsdFileCfg(
-            usd_path=f"/home/yizhao/yi/D2H/src/assets/square_table_leg/square_table_leg1_convex.usd",
-            activate_contact_sensors=True,
+        spawn=sim_utils.UrdfFileCfg(
+            asset_path="/home/yizhao/yi/D2H/_src/assets/furniture_bench/urdf/square_table/square_table_leg1.urdf",
             rigid_props=sim_utils.RigidBodyPropertiesCfg(
+                kinematic_enabled=False,
                 disable_gravity=False,
-                max_depenetration_velocity=1000.0,
-                max_linear_velocity=1000.0,
-                max_angular_velocity=1000.0,
+                enable_gyroscopic_forces=True,
+            ),
+            fix_base=False,
+            joint_drive=sim_utils.UrdfConverterCfg.JointDriveCfg(
+                gains=sim_utils.UrdfConverterCfg.JointDriveCfg.PDGainsCfg(
+                    stiffness=None, damping=None
+                ),
             ),
             articulation_props=sim_utils.ArticulationRootPropertiesCfg(
                 articulation_enabled=False,
@@ -77,12 +93,65 @@ class SceneCfg(InteractiveSceneCfg):
             collision_props=sim_utils.CollisionPropertiesCfg(),
             mass_props=sim_utils.MassPropertiesCfg(mass=0.2),
             scale=(1.5, 1.5, 1.5),
+            # physics_material=RigidBodyMaterialCfg(static_friction=0.5), # TODO: check how the friction defined in the urdf file
         ),
         init_state=RigidObjectCfg.InitialStateCfg(
             pos=[0.55, 0.1, 0.34],
             rot=[1.0, 0.0, 0.0, 0.0],
         ),
-    )    
+    )
+
+
+    # # table base
+    # object_table = RigidObjectCfg(
+    #     prim_path="{ENV_REGEX_NS}/ObjectTable",
+    #     spawn=sim_utils.UsdFileCfg(
+    #         usd_path=f"/home/yizhao/yi/D2H/src/assets/square_table_leg/square_table_top_convex.usd",
+    #         activate_contact_sensors=True,
+    #         rigid_props=sim_utils.RigidBodyPropertiesCfg(
+    #             kinematic_enabled=True,
+    #             disable_gravity=True,
+    #             max_depenetration_velocity=1000.0,
+    #             max_linear_velocity=1000.0,
+    #             max_angular_velocity=1000.0,
+    #         ),
+    #         articulation_props=sim_utils.ArticulationRootPropertiesCfg(
+    #             articulation_enabled=False,
+    #         ),
+    #         collision_props=sim_utils.CollisionPropertiesCfg(),
+    #         mass_props=sim_utils.MassPropertiesCfg(mass=0.2),
+    #         scale=(1.5, 1.5, 1.5),
+    #     ),
+    #     init_state=RigidObjectCfg.InitialStateCfg(
+    #         pos=[0.55, 0.0, 0.271],
+    #         rot=[0.7071068, 0.7071068, 0.0, 0.0],
+    #     ),
+    # )
+
+    # # table leg
+    # object = RigidObjectCfg(
+    #     prim_path="{ENV_REGEX_NS}/Object",
+    #     spawn=sim_utils.UsdFileCfg(
+    #         usd_path=f"/home/yizhao/yi/D2H/src/assets/square_table_leg/square_table_leg1_convex.usd",
+    #         activate_contact_sensors=True,
+    #         rigid_props=sim_utils.RigidBodyPropertiesCfg(
+    #             disable_gravity=False,
+    #             max_depenetration_velocity=1000.0,
+    #             max_linear_velocity=1000.0,
+    #             max_angular_velocity=1000.0,
+    #         ),
+    #         articulation_props=sim_utils.ArticulationRootPropertiesCfg(
+    #             articulation_enabled=False,
+    #         ),
+    #         collision_props=sim_utils.CollisionPropertiesCfg(),
+    #         mass_props=sim_utils.MassPropertiesCfg(mass=0.2),
+    #         scale=(1.5, 1.5, 1.5),
+    #     ),
+    #     init_state=RigidObjectCfg.InitialStateCfg(
+    #         pos=[0.55, 0.1, 0.34],
+    #         rot=[1.0, 0.0, 0.0, 0.0],
+    #     ),
+    # )    
     
     # table
     table: RigidObjectCfg = RigidObjectCfg(
@@ -382,7 +451,7 @@ class RewardsCfg:
 
     success = RewTerm(
         func=mdp.success_reward,
-        weight=10,
+        weight=15,
         params={
             "asset_cfg": SceneEntityCfg("robot"),
             "pos_std": 0.1,

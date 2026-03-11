@@ -294,8 +294,8 @@ def fingers_contact_force_b(
             f_w = torch.nan_to_num(net, nan=0.0).sum(dim=1)
         forces_w.append(f_w)
     force_w = torch.stack(forces_w, dim=1)
-    if force_w.mean() > 0:
-        print(force_w.mean())
+    # if force_w.mean() > 0:
+    #     print(force_w.mean())
 
     robot: Articulation = env.scene[asset_cfg.name]
     forces_b = quat_apply_inverse(

@@ -31,7 +31,7 @@ simulation_app = app_launcher.app
 
 import gymnasium as gym
 import isaaclab_tasks  # noqa: F401
-import src.env  # Register custom environment 
+import src.tasks  # Register custom environment 
 import torch
 from isaaclab_tasks.utils import parse_env_cfg
 

@@ -77,7 +77,6 @@ def track_orientation_inv_l2(
 
     
 def contacts(env: ManagerBasedRLEnv, threshold: float) -> torch.Tensor:
-    # @Yi: check whether this is used.
     """Penalize undesired contacts as the number of violations that are above a threshold."""
 
     thumb_contact_sensor: ContactSensor = env.scene.sensors["thumb_fingertip_object_s"]
@@ -154,3 +153,20 @@ def orientation_command_error_tanh(
     quat_distance = math_utils.quat_error_magnitude(object.data.root_quat_w, des_quat_w)
 
     return (1 - torch.tanh(quat_distance / std)) * contacts(env, 1.0).float()
+
+def body_object_distance(
+    env: ManagerBasedRLEnv,
+    object_cfg: SceneEntityCfg = SceneEntityCfg("object"),
+    robot_cfg: SceneEntityCfg = SceneEntityCfg("robot"),
+) -> torch.Tensor:
+    """Reward the distance between the body links and the object."""
+    import ipdb; ipdb.set_trace()
+    object: RigidObject = env.scene[object_cfg.name]
+    robot: RigidObject = env.scene[robot_cfg.name]
+    object_pos = object.data.root_pos_w - env.scene.env_origins
+    robot_pos = robot.data.body_pos_w[:, robot_cfg.body_ids]
+    # calculate the average distance between body links and obj
+    object_pos_expanded = object_pos.unsqueeze(1)
+    dists = torch.norm(robot_pos - object_pos_expanded, p=2, dim=-1)
+
+    return -torch.mean(dists, dim=-1)

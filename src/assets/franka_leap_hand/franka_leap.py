@@ -21,7 +21,7 @@ FRANKA_LEAP_HAND_CFG = ArticulationCfg(
             disable_gravity=True,
             retain_accelerations=False,
             enable_gyroscopic_forces=False,
-            angular_damping=0.01,
+            # angular_damping=0.01,
             max_linear_velocity=1000.0,
             max_angular_velocity=64 / math.pi * 180.0, 
             max_depenetration_velocity=1000.0,
@@ -34,7 +34,6 @@ FRANKA_LEAP_HAND_CFG = ArticulationCfg(
             sleep_threshold=0.005,
             stabilization_threshold=0.0005,
             fix_root_link=True
-
         ),
     ),
     init_state=ArticulationCfg.InitialStateCfg(
