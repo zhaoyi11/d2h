@@ -40,6 +40,7 @@ LEAP_HAND_CFG = ArticulationCfg(
     init_state=ArticulationCfg.InitialStateCfg(
         pos=(0.0, 0.0, 0.5),
         rot=(0.5, 0.5, -0.5, 0.5),
+        # rot=(1.0, 0.0, 0.0, 0.0),
         joint_pos={"a_.*": 0.0},
     ),
     actuators={
@@ -54,5 +55,3 @@ LEAP_HAND_CFG = ArticulationCfg(
     },
     soft_joint_pos_limit_factor=1.0,
 )
-
-

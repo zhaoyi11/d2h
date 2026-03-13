@@ -310,7 +310,7 @@ from isaaclab.managers import ManagerTermBase, SceneEntityCfg
 
 from isaaclab.sensors import ContactSensor
 
-from isaaclab.utils.math import quat_apply
+from isaaclab.utils.math import quat_apply, quat_from_euler_xyz
 
 from src.tasks.common.obj_point_cloud import sample_object_point_cloud
 
@@ -737,3 +737,74 @@ class reset_joints_within_limits_range(ManagerTermBase):
 
         # set into the physics simulation
         self._asset.write_joint_state_to_sim(joint_pos, joint_vel, env_ids=env_ids)
+
+
+class randomize_hand_object_default_pose(ManagerTermBase):
+    """Randomize the robot root orientation and rotate the object's default pose with it."""
+
+    def __init__(self, cfg: EventTermCfg, env: ManagerBasedEnv):
+        super().__init__(cfg, env)
+        base_asset_cfg: SceneEntityCfg = cfg.params.get(
+            "base_asset_cfg", SceneEntityCfg("robot")
+        )
+        object_asset_cfg: SceneEntityCfg = cfg.params.get(
+            "object_asset_cfg", SceneEntityCfg("object")
+        )
+        self._robot: Articulation = env.scene[base_asset_cfg.name]
+        self._object: RigidObject = env.scene[object_asset_cfg.name]
+
+        if base_asset_cfg.body_names is not None:
+            body_ids, _ = self._robot.find_bodies(base_asset_cfg.body_names)
+            self._base_body_id: int = body_ids[0]
+        else:
+            self._base_body_id = 0 # default to the root body
+
+        self._roll_range = cfg.params.get("roll_range", (-torch.pi, torch.pi))
+        self._pitch_range = cfg.params.get("pitch_range", (-torch.pi, torch.pi))
+        self._yaw_range = cfg.params.get("yaw_range", (-torch.pi, torch.pi))
+
+    def __call__(
+        self,
+        env: ManagerBasedEnv,
+        env_ids: torch.Tensor | None,
+        base_asset_cfg: SceneEntityCfg = SceneEntityCfg("robot", body_names="base*"),
+        object_asset_cfg: SceneEntityCfg = SceneEntityCfg("object"),
+        roll_range: tuple[float, float] | None = None,
+        pitch_range: tuple[float, float] | None = None,
+        yaw_range: tuple[float, float] | None = None,
+    ):
+        if env_ids is None or env_ids == slice(None):
+            env_ids = torch.arange(env.num_envs, device=env.device)
+
+        roll_range = self._roll_range if roll_range is None else roll_range
+        pitch_range = self._pitch_range if pitch_range is None else pitch_range
+        yaw_range = self._yaw_range if yaw_range is None else yaw_range
+
+        roll = torch.empty(len(env_ids), device=env.device).uniform_(*roll_range)
+        pitch = torch.empty(len(env_ids), device=env.device).uniform_(*pitch_range)
+        yaw = torch.empty(len(env_ids), device=env.device).uniform_(*yaw_range)
+        quat_delta = quat_from_euler_xyz(roll, pitch, yaw)
+
+        env_origins = env.scene.env_origins[env_ids]
+
+        robot_states = self._robot.data.default_root_state[env_ids].clone()
+        object_states = self._object.data.default_root_state[env_ids].clone()
+
+        # Rigid rotation around the robot root (env frame).
+        # body_pos_w is unreliable at startup (not yet initialized), so we use
+        # default_root_state which is always valid from config.
+        pivot = robot_states[:, :3].clone()
+        robot_states[:, 3:7] = math_utils.quat_mul(quat_delta, robot_states[:, 3:7])
+        object_states[:, :3] = pivot + quat_apply(quat_delta, object_states[:, :3] - pivot)
+        object_states[:, 3:7] = math_utils.quat_mul(quat_delta, object_states[:, 3:7])
+
+        self._robot.data.default_root_state[env_ids] = robot_states
+        self._object.data.default_root_state[env_ids] = object_states
+
+        robot_root_states_w = robot_states.clone()
+        object_root_states_w = object_states.clone()
+        robot_root_states_w[:, :3] += env_origins
+        object_root_states_w[:, :3] += env_origins
+
+        self._robot.write_root_state_to_sim(robot_root_states_w, env_ids=env_ids)
+        self._object.write_root_state_to_sim(object_root_states_w, env_ids=env_ids)

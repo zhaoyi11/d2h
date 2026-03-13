@@ -9,6 +9,7 @@ from dataclasses import MISSING, dataclass
 from re import I
 
 import numpy as np
+import torch
 
 import isaaclab.sim as sim_utils
 from isaaclab.assets import ArticulationCfg, AssetBaseCfg, RigidObjectCfg
@@ -132,10 +133,11 @@ class InHandObjectSceneCfg(InteractiveSceneCfg):
                 solver_velocity_iteration_count=0,
                 disable_gravity=True,
             ),
-            collision_props=sim_utils.CollisionPropertiesCfg(),
+            collision_props=sim_utils.CollisionPropertiesCfg(collision_enabled=False),
             mass_props=sim_utils.MassPropertiesCfg(mass=0.2),
         ),
-        init_state=RigidObjectCfg.InitialStateCfg(pos=(0.0, 0.0, 0.65), rot=(1.0, 0.0, 0.0, 0.0)),
+        # 15 cm above the hand
+        init_state=RigidObjectCfg.InitialStateCfg(pos=(0.0, -0.05, 0.65), rot=(1.0, 0.0, 0.0, 0.0)),
     )
     # plane
     plane = AssetBaseCfg(
@@ -379,6 +381,18 @@ class EventCfg:
         },
     )
 
+    randomize_hand_object_default_pose = EventTerm(
+        func=task_mdp.randomize_hand_object_default_pose,
+        mode="startup",
+        params={
+            "base_asset_cfg": SceneEntityCfg("robot", body_names="base"),
+            "object_asset_cfg": SceneEntityCfg("object"),
+            "roll_range": (-torch.pi, torch.pi),
+            "pitch_range": (-torch.pi, torch.pi),
+            "yaw_range": (-torch.pi, torch.pi),
+        },
+    )
+
     # reset
     reset_object = EventTerm(
         func=mdp.reset_root_state_uniform,
@@ -604,7 +618,6 @@ class LeapObjectEnvCfg(InHandObjectEnvCfg):
 
         # switch robot to leap hand
         self.scene.robot = LEAP_HAND_CFG.replace(prim_path="{ENV_REGEX_NS}/Robot")
-        # self.scene.robot = ALLEGRO_HAND_CFG.replace(prim_path="{ENV_REGEX_NS}/Robot")
 
         # attach transform sensors to fingertip links for contact-based rewards/observations
         self.scene.fingertip_transforms = FrameTransformerCfg(
