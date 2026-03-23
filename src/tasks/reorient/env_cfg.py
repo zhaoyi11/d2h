@@ -35,6 +35,7 @@ from isaaclab.markers.config import FRAME_MARKER_CFG
 import src.tasks.common.mdps as mdp
 import src.tasks.reorient.mdps as task_mdp
 from src.assets.franka_leap_hand.leap import LEAP_HAND_CFG
+
 # from src.tasks.reorient.utils.grasp_init import GraspInitData, load_grasp_init
 
 
@@ -55,78 +56,78 @@ class InHandObjectSceneCfg(InteractiveSceneCfg):
         prim_path="{ENV_REGEX_NS}/Object",
         spawn=sim_utils.MultiAssetSpawnerCfg(
             assets_cfg=[
-                CuboidCfg(
-                    size=(0.05, 0.1, 0.1),
-                    physics_material=RigidBodyMaterialCfg(static_friction=0.5),
-                ),
-                CuboidCfg(
-                    size=(0.05, 0.05, 0.1),
-                    physics_material=RigidBodyMaterialCfg(static_friction=0.5),
-                ),
-                CuboidCfg(
-                    size=(0.025, 0.1, 0.1),
-                    physics_material=RigidBodyMaterialCfg(static_friction=0.5),
-                ),
-                CuboidCfg(
-                    size=(0.025, 0.05, 0.1),
-                    physics_material=RigidBodyMaterialCfg(static_friction=0.5),
-                ),
-                CuboidCfg(
-                    size=(0.025, 0.025, 0.1),
-                    physics_material=RigidBodyMaterialCfg(static_friction=0.5),
-                ),
-                CuboidCfg(
-                    size=(0.01, 0.1, 0.1),
-                    physics_material=RigidBodyMaterialCfg(static_friction=0.5),
-                ),
+                # CuboidCfg(
+                #     size=(0.05, 0.1, 0.1),
+                #     physics_material=RigidBodyMaterialCfg(static_friction=0.5),
+                # ),
+                # CuboidCfg(
+                #     size=(0.05, 0.05, 0.1),
+                #     physics_material=RigidBodyMaterialCfg(static_friction=0.5),
+                # ),
+                # CuboidCfg(
+                #     size=(0.025, 0.1, 0.1),
+                #     physics_material=RigidBodyMaterialCfg(static_friction=0.5),
+                # ),
+                # CuboidCfg(
+                #     size=(0.025, 0.05, 0.1),
+                #     physics_material=RigidBodyMaterialCfg(static_friction=0.5),
+                # ),
+                # CuboidCfg(
+                #     size=(0.025, 0.025, 0.1),
+                #     physics_material=RigidBodyMaterialCfg(static_friction=0.5),
+                # ),
+                # CuboidCfg(
+                #     size=(0.01, 0.1, 0.1),
+                #     physics_material=RigidBodyMaterialCfg(static_friction=0.5),
+                # ),
                 SphereCfg(
                     radius=0.05,
                     physics_material=RigidBodyMaterialCfg(static_friction=0.5),
                 ),
-                SphereCfg(
-                    radius=0.025,
-                    physics_material=RigidBodyMaterialCfg(static_friction=0.5),
-                ),
+                # SphereCfg(
+                #     radius=0.025,
+                #     physics_material=RigidBodyMaterialCfg(static_friction=0.5),
+                # ),
                 CapsuleCfg(
                     radius=0.04,
                     height=0.025,
                     physics_material=RigidBodyMaterialCfg(static_friction=0.5),
                 ),
-                CapsuleCfg(
-                    radius=0.04,
-                    height=0.01,
-                    physics_material=RigidBodyMaterialCfg(static_friction=0.5),
-                ),
-                CapsuleCfg(
-                    radius=0.04,
-                    height=0.1,
-                    physics_material=RigidBodyMaterialCfg(static_friction=0.5),
-                ),
-                CapsuleCfg(
-                    radius=0.025,
-                    height=0.1,
-                    physics_material=RigidBodyMaterialCfg(static_friction=0.5),
-                ),
-                CapsuleCfg(
-                    radius=0.025,
-                    height=0.2,
-                    physics_material=RigidBodyMaterialCfg(static_friction=0.5),
-                ),
-                CapsuleCfg(
-                    radius=0.01,
-                    height=0.2,
-                    physics_material=RigidBodyMaterialCfg(static_friction=0.5),
-                ),
-                ConeCfg(
-                    radius=0.05,
-                    height=0.1,
-                    physics_material=RigidBodyMaterialCfg(static_friction=0.5),
-                ),
-                ConeCfg(
-                    radius=0.025,
-                    height=0.1,
-                    physics_material=RigidBodyMaterialCfg(static_friction=0.5),
-                ),
+                # CapsuleCfg(
+                #     radius=0.04,
+                #     height=0.01,
+                #     physics_material=RigidBodyMaterialCfg(static_friction=0.5),
+                # ),
+                # CapsuleCfg(
+                #     radius=0.04,
+                #     height=0.1,
+                #     physics_material=RigidBodyMaterialCfg(static_friction=0.5),
+                # ),
+                # CapsuleCfg(
+                #     radius=0.025,
+                #     height=0.1,
+                #     physics_material=RigidBodyMaterialCfg(static_friction=0.5),
+                # ),
+                # CapsuleCfg(
+                #     radius=0.025,
+                #     height=0.2,
+                #     physics_material=RigidBodyMaterialCfg(static_friction=0.5),
+                # ),
+                # CapsuleCfg(
+                #     radius=0.01,
+                #     height=0.2,
+                #     physics_material=RigidBodyMaterialCfg(static_friction=0.5),
+                # ),
+                # ConeCfg(
+                #     radius=0.05,
+                #     height=0.1,
+                #     physics_material=RigidBodyMaterialCfg(static_friction=0.5),
+                # ),
+                # ConeCfg(
+                #     radius=0.025,
+                #     height=0.1,
+                #     physics_material=RigidBodyMaterialCfg(static_friction=0.5),
+                # ),
             ],
             rigid_props=sim_utils.RigidBodyPropertiesCfg(
                 solver_position_iteration_count=16,
@@ -137,7 +138,9 @@ class InHandObjectSceneCfg(InteractiveSceneCfg):
             mass_props=sim_utils.MassPropertiesCfg(mass=0.2),
         ),
         # 12 cm above the hand
-        init_state=RigidObjectCfg.InitialStateCfg(pos=(0.0, -0.03, 0.62), rot=(1.0, 0.0, 0.0, 0.0)),
+        init_state=RigidObjectCfg.InitialStateCfg(
+            pos=(0.0, -0.03, 0.62), rot=(1.0, 0.0, 0.0, 0.0)
+        ),
     )
     # plane
     plane = AssetBaseCfg(
@@ -156,6 +159,7 @@ class InHandObjectSceneCfg(InteractiveSceneCfg):
 ##
 # MDP settings
 ##
+
 
 @configclass
 class CommandsCfg:
@@ -176,6 +180,7 @@ class CommandsCfg:
 @configclass
 class ActionsCfg:
     """Action specifications for the MDP."""
+
     # TODO: check which action manager to use.
     joint_pos = mdp.EMAJointPositionToLimitsActionCfg(
         asset_name="robot",
@@ -190,7 +195,7 @@ class ActionsCfg:
     #    # debug_vis=True,
     #    use_zero_offset=False,
     #    # scale=0.3,
-    #)
+    # )
 
     # joint_pos = mdp.EMACumulativeRelativeJointPositionActionCfg(
     # asset_name="robot",
@@ -225,7 +230,7 @@ class ObservationsCfg:
                 "base_asset_cfg": SceneEntityCfg("robot"),
             },
         )
-       
+
         # # fingertip contact (net force)
         # fingertip_contact_force_b = ObsTerm(
         #     func=mdp.fingers_contact_force_b,
@@ -424,9 +429,10 @@ class EventCfg:
 
     variable_gravity = EventTerm(
         func=mdp.randomize_physics_scene_gravity,
-        mode="reset",
+        mode="interval",
+        interval_range=(0.8, 1.2),
         params={
-            "gravity_distribution_params": ([0.0, 0.0, -1.0], [0.0, 0.0, -1.0]),
+            "gravity_distribution_params": ([0.0, 0.0, -9.81], [0.0, 0.0, -9.81]),
             "operation": "abs",
         },
     )
@@ -446,7 +452,7 @@ class RewardsCfg:
             "command_name": "object_pose",
         },
     )
-    
+
     # fingertip_object_distance = RewTerm(
     #     func=mdp.fingertip_object_distance,
     #     weight=1.0,
@@ -456,7 +462,7 @@ class RewardsCfg:
     #     func=mdp.neg_fingertip_object_distance,
     #     weight=1.0,
     # )
-    
+
     # # TODO: add contact ralated info later.
     # fingertip_contact = RewTerm(
     #     func=mdp.fingertip_object_contacts,
@@ -481,7 +487,7 @@ class RewardsCfg:
     joint_vel_l2 = RewTerm(func=mdp.joint_vel_l2, weight=-2.5e-5)
     action_l2 = RewTerm(func=mdp.action_l2, weight=-0.0001)
     action_rate_l2 = RewTerm(func=mdp.action_rate_l2, weight=-0.01)
-    
+
     object_away_penalty = RewTerm(
         func=mdp.is_terminated_term,
         weight=-10.0,
@@ -503,6 +509,7 @@ class TerminationsCfg:
     object_out_of_reach = DoneTerm(
         func=task_mdp.object_away_from_robot, params={"threshold": 0.3}
     )
+
 
 ##
 # Environment configuration
@@ -543,8 +550,8 @@ class InHandObjectEnvCfg(ManagerBasedRLEnvCfg):
     def __post_init__(self):
         """Post initialization."""
         # general settings
-        self.decimation = 4 # 25 Hz
-        self.episode_length_s = 10 # 10 seconds
+        self.decimation = 4  # 25 Hz
+        self.episode_length_s = 10  # 10 seconds
         # simulation settings
         self.sim.dt = 1.0 / 120.0
         self.sim.render_interval = self.decimation
@@ -566,9 +573,10 @@ class InHandObjectEnvCfg(ManagerBasedRLEnvCfg):
 # Fixed rotation to apply to initial wrist/object poses.
 # Quaternion format is (w, x, y, z).
 
-#_BASE_ROT_WXYZ = (0.0, 0.7071067811865476, 0.0, 0.7071067811865476)  # face up
-#_BASE_ROT_WXYZ = (0.7071067811865476, 0.0, 0.7071067811865476, 0.0)  # face downward
+# _BASE_ROT_WXYZ = (0.0, 0.7071067811865476, 0.0, 0.7071067811865476)  # face up
+# _BASE_ROT_WXYZ = (0.7071067811865476, 0.0, 0.7071067811865476, 0.0)  # face downward
 _BASE_ROT_WXYZ = (1.0, 0.0, 0.0, 0.0)  # face +y axis
+
 
 def _quat_mul_wxyz(
     q1: tuple[float, float, float, float], q2: tuple[float, float, float, float]
@@ -604,7 +612,9 @@ def _rotate_pos_by_quat_wxyz(
         pz + w * tz + (qx * ty - qy * tx),
     )
 
+
 # from isaaclab_assets.robots import ALLEGRO_HAND_CFG
+
 
 @configclass
 class LeapObjectEnvCfg(InHandObjectEnvCfg):
