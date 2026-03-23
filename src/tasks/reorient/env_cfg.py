@@ -132,7 +132,7 @@ class InHandObjectSceneCfg(InteractiveSceneCfg):
             rigid_props=sim_utils.RigidBodyPropertiesCfg(
                 solver_position_iteration_count=16,
                 solver_velocity_iteration_count=0,
-                disable_gravity=True,
+                disable_gravity=False,
             ),
             collision_props=sim_utils.CollisionPropertiesCfg(collision_enabled=True),
             mass_props=sim_utils.MassPropertiesCfg(mass=0.2),
@@ -427,10 +427,20 @@ class EventCfg:
         },
     )
 
+    # reset gravity to zero and then set it to -9.81 m/s^2 in 
+    reset_gravity = EventTerm(
+        func=mdp.randomize_physics_scene_gravity,
+        mode="reset",
+        params={
+            "gravity_distribution_params": ([0.0, 0.0, 0.0], [0.0, 0.0, 0.0]),
+            "operation": "abs",
+        },
+    )
+
     variable_gravity = EventTerm(
         func=mdp.randomize_physics_scene_gravity,
         mode="interval",
-        interval_range=(0.8, 1.2),
+        interval_range_s=(0.8, 1.2),
         params={
             "gravity_distribution_params": ([0.0, 0.0, -9.81], [0.0, 0.0, -9.81]),
             "operation": "abs",
@@ -453,15 +463,10 @@ class RewardsCfg:
         },
     )
 
-    # fingertip_object_distance = RewTerm(
-    #     func=mdp.fingertip_object_distance,
-    #     weight=1.0,
-    # )
-
-    # fingertip_obj_dist = RewTerm(
-    #     func=mdp.neg_fingertip_object_distance,
-    #     weight=1.0,
-    # )
+    fingertip_obj_dist = RewTerm(
+        func=task_mdp.neg_fingertip_object_distance,
+        weight=1.0,
+    )
 
     # # TODO: add contact ralated info later.
     # fingertip_contact = RewTerm(
