@@ -167,9 +167,9 @@ class CommandsCfg:
 
     object_pose = task_mdp.InHandReOrientationCommandCfg(
         asset_name="object",
-        random_range=0.5,
+        random_range=0,
         init_pos_offset=(0.0, 0.0, 0.0),
-        update_goal_on_success=True,
+        update_goal_on_success=False,
         orientation_success_threshold=0.1,
         make_quat_unique=False,
         marker_pos_offset=(-0.2, -0.06, 0.08),
@@ -427,7 +427,7 @@ class EventCfg:
         },
     )
 
-    # reset gravity to zero and then set it to -9.81 m/s^2 in 
+    # reset gravity to zero and then set it to -9.81 m/s^2 in
     reset_gravity = EventTerm(
         func=mdp.randomize_physics_scene_gravity,
         mode="reset",
@@ -453,6 +453,16 @@ class RewardsCfg:
     """Reward terms for the MDP."""
 
     # -- task
+    track_pos_l2 = RewTerm(
+        func=task_mdp.track_pos_l2,
+        weight=-1.0,
+        params={
+            "object_cfg": SceneEntityCfg("object"),
+            "command_name": "object_pose",
+            "max_pos_error": 3.0,
+            "use_gravity_gate": True,
+        },
+    )
     track_orientation_inv_l2 = RewTerm(
         func=task_mdp.track_orientation_inv_l2,
         weight=1.0,
@@ -460,6 +470,7 @@ class RewardsCfg:
             "object_cfg": SceneEntityCfg("object"),
             "rot_eps": 0.1,
             "command_name": "object_pose",
+            "use_gravity_gate": True,
         },
     )
 
@@ -468,25 +479,25 @@ class RewardsCfg:
         weight=1.0,
     )
 
-    # # TODO: add contact ralated info later.
-    # fingertip_contact = RewTerm(
-    #     func=mdp.fingertip_object_contacts,
-    #     weight=1,
-    #     params={
-    #         "contact_sensor_names": [
-    #             "thumb_tip_object_s",
-    #             "index_tip_object_s",
-    #             "middle_tip_object_s",
-    #             "ring_tip_object_s",
-    #         ],
-    #     },
-    # )
-
-    success_bonus = RewTerm(
-        func=task_mdp.success_bonus,
-        weight=250.0,
-        params={"object_cfg": SceneEntityCfg("object"), "command_name": "object_pose"},
+    # TODO: add contact ralated info later.
+    fingertip_contact = RewTerm(
+        func=task_mdp.fingertip_object_contacts,
+        weight=1,
+        params={
+            "contact_sensor_names": [
+                "thumb_tip_object_s",
+                "index_tip_object_s",
+                "middle_tip_object_s",
+                "ring_tip_object_s",
+            ],
+        },
     )
+
+    # success_bonus = RewTerm(
+    #     func=task_mdp.success_bonus,
+    #     weight=250.0,
+    #     params={"object_cfg": SceneEntityCfg("object"), "command_name": "object_pose"},
+    # )
 
     # penalties
     joint_vel_l2 = RewTerm(func=mdp.joint_vel_l2, weight=-2.5e-5)
@@ -494,9 +505,9 @@ class RewardsCfg:
     action_rate_l2 = RewTerm(func=mdp.action_rate_l2, weight=-0.01)
 
     object_away_penalty = RewTerm(
-        func=mdp.is_terminated_term,
-        weight=-10.0,
-        params={"term_keys": "object_out_of_reach"},
+        func=task_mdp.object_away_from_robot,
+        weight=-5.0,
+        params={"threshold": 0.3},
     )
 
 
@@ -506,14 +517,14 @@ class TerminationsCfg:
 
     time_out = DoneTerm(func=mdp.time_out, time_out=True)
 
-    max_consecutive_success = DoneTerm(
-        func=task_mdp.max_consecutive_success,
-        params={"num_success": 6, "command_name": "object_pose"},
-    )
+    # max_consecutive_success = DoneTerm(
+    #     func=task_mdp.max_consecutive_success,
+    #     params={"num_success": 6, "command_name": "object_pose"},
+    # )
 
-    object_out_of_reach = DoneTerm(
-        func=task_mdp.object_away_from_robot, params={"threshold": 0.3}
-    )
+    # object_out_of_reach = DoneTerm(
+    #     func=task_mdp.object_away_from_robot, params={"threshold": 0.3}
+    # )
 
 
 ##
@@ -556,7 +567,7 @@ class InHandObjectEnvCfg(ManagerBasedRLEnvCfg):
         """Post initialization."""
         # general settings
         self.decimation = 4  # 25 Hz
-        self.episode_length_s = 10  # 10 seconds
+        self.episode_length_s = 3  # 10 seconds
         # simulation settings
         self.sim.dt = 1.0 / 120.0
         self.sim.render_interval = self.decimation
@@ -672,26 +683,26 @@ class LeapObjectEnvCfg(InHandObjectEnvCfg):
         # TODO: change the urdf obj, the current urdf file can't be filtered properly.
         # attach contact sensors to fingertip links for contact-based rewards/observations
         # Note: use net force here, all forces are considered.
-        # fingertip_prim_paths = {
-        #     "thumb_tip_object_s": "{ENV_REGEX_NS}/Robot/thumb_fingertip",
-        #     "index_tip_object_s": "{ENV_REGEX_NS}/Robot/fingertip",
-        #     "middle_tip_object_s": "{ENV_REGEX_NS}/Robot/fingertip_2",
-        #     "ring_tip_object_s": "{ENV_REGEX_NS}/Robot/fingertip_3",
-        # }
-        # for sensor_name, prim_path in fingertip_prim_paths.items():
-        #     setattr(
-        #         self.scene,
-        #         sensor_name,
-        #         ContactSensorCfg(
-        #             prim_path=prim_path,
-        #             filter_prim_paths_expr=[
-        #                 "{ENV_REGEX_NS}/Object"
-        #             ],  # TODO: check this, can't filter the object properly now.
-        #             update_period=0.0,
-        #             history_length=6,
-        #             debug_vis=True,
-        #         ),
-        #     )
+        fingertip_prim_paths = {
+            "thumb_tip_object_s": "{ENV_REGEX_NS}/Robot/thumb_fingertip",
+            "index_tip_object_s": "{ENV_REGEX_NS}/Robot/fingertip",
+            "middle_tip_object_s": "{ENV_REGEX_NS}/Robot/fingertip_2",
+            "ring_tip_object_s": "{ENV_REGEX_NS}/Robot/fingertip_3",
+        }
+        for sensor_name, prim_path in fingertip_prim_paths.items():
+            setattr(
+                self.scene,
+                sensor_name,
+                ContactSensorCfg(
+                    prim_path=prim_path,
+                    filter_prim_paths_expr=[
+                        "{ENV_REGEX_NS}/Object"
+                    ],  # TODO: check this, can't filter the object properly now.
+                    update_period=0.0,
+                    history_length=6,
+                    debug_vis=True,
+                ),
+            )
 
         # # Initial robot and object state
         # if self.grasp_path is not None and self.object_urdf_path is not None:

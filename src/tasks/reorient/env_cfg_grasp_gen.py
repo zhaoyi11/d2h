@@ -506,7 +506,7 @@ class InHandObjectEnvCfg(ManagerBasedRLEnvCfg):
         """Post initialization."""
         # general settings
         self.decimation = 4 # 25 Hz
-        self.episode_length_s = 10 # 10 seconds
+        self.episode_length_s = 3 # 10 seconds
         # simulation settings
         self.sim.dt = 1.0 / 120.0
         self.sim.render_interval = self.decimation

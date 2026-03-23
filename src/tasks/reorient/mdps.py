@@ -348,11 +348,25 @@ def success_bonus(
 
     return dtheta <= threshold
 
+def gravity_enabled(
+    env: ManagerBasedRLEnv, 
+    gravity_eps: float = 1e-6) -> torch.Tensor:
+    """Check if gravity is enabled.
+    """
+    gravity = torch.tensor(
+        sim_utils.SimulationContext.instance().physics_sim_view.get_gravity(),
+        device=env.device,
+        dtype=torch.float32,
+    )
+    return torch.linalg.vector_norm(gravity) > gravity_eps
 
 def track_pos_l2(
     env: ManagerBasedRLEnv,
     command_name: str,
     object_cfg: SceneEntityCfg = SceneEntityCfg("object"),
+    gravity_eps: float = 1e-6,
+    max_pos_error: float|None = None, # maximum position error to enable the reward
+    use_gravity_gate: bool = True,
 ) -> torch.Tensor:
     """Reward for tracking the object position using the L2 norm.
 
@@ -368,12 +382,17 @@ def track_pos_l2(
     command_term: InHandReOrientationCommand = env.command_manager.get_term(
         command_name
     )
+    if use_gravity_gate and not gravity_enabled(env, gravity_eps):
+        return torch.zeros(env.num_envs, device=env.device, dtype=asset.data.root_quat_w.dtype)
 
     # obtain the goal position
     goal_pos_e = command_term.command[:, 0:3]
     # obtain the object position in the environment frame
     object_pos_e = asset.data.root_pos_w - env.scene.env_origins
-    return torch.norm(goal_pos_e - object_pos_e, p=2, dim=-1)
+    pos_error = torch.norm(goal_pos_e - object_pos_e, p=2, dim=-1)
+    if max_pos_error is not None:
+        pos_error = torch.clamp(pos_error, max=max_pos_error)
+    return pos_error
 
 
 def track_orientation_inv_l2(
@@ -382,6 +401,7 @@ def track_orientation_inv_l2(
     object_cfg: SceneEntityCfg = SceneEntityCfg("object"),
     rot_eps: float = 1e-3,
     gravity_eps: float = 1e-6,
+    use_gravity_gate: bool = True,
 ) -> torch.Tensor:
     """Reward for tracking the object orientation using the inverse of the orientation error.
 
@@ -399,13 +419,9 @@ def track_orientation_inv_l2(
     command_term: InHandReOrientationCommand = env.command_manager.get_term(
         command_name
     )
-    gravity = torch.tensor(
-        sim_utils.SimulationContext.instance().physics_sim_view.get_gravity(),
-        device=env.device,
-        dtype=asset.data.root_quat_w.dtype,
-    )
-    if torch.linalg.vector_norm(gravity) <= gravity_eps:
-        return torch.zeros(env.num_envs, device=env.device, dtype=gravity.dtype)
+    
+    if use_gravity_gate and not gravity_enabled(env, gravity_eps):
+        return torch.zeros(env.num_envs, device=env.device, dtype=asset.data.root_quat_w.dtype)
     # obtain the goal orientation
     goal_quat_w = command_term.command[:, 3:7]
     # calculate the orientation error
@@ -451,7 +467,6 @@ def fingertip_object_contacts(
         sensor: ContactSensor = env.scene.sensors[name]
 
         force_matrix_w = sensor.data.force_matrix_w
-
         if force_matrix_w is None:
             # No filter configured / no data available.
             max_mag = torch.zeros(env.num_envs, device=env.device, dtype=torch.float32)

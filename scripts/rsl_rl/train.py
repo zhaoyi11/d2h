@@ -74,6 +74,12 @@ parser.add_argument(
     default=None,
     help="Automatically configured by Ray integration, otherwise None.",
 )
+parser.add_argument(
+    "--init_at_random_ep_len",
+    type=bool,
+    default=False,
+    help="Initialize the episode length at a random length.",
+)
 # append RSL-RL cli arguments
 cli_args.add_rsl_rl_args(parser)
 # append AppLauncher cli args
@@ -281,7 +287,7 @@ def main(
 
     # run training
     runner.learn(
-        num_learning_iterations=agent_cfg.max_iterations, init_at_random_ep_len=True
+        num_learning_iterations=agent_cfg.max_iterations, init_at_random_ep_len=args_cli.init_at_random_ep_len
     )
 
     print(f"Training time: {round(time.time() - start_time, 2)} seconds")

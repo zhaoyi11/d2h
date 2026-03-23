@@ -9,3 +9,4 @@ class LeapObjectRslRlPpoCfg(RslRlPpoCfgBase):
     obs_groups = {"policy": ["policy", "perception"], "critic": ["policy", "perception"]}
     max_iterations = 15000
     save_interval = 250
+    
