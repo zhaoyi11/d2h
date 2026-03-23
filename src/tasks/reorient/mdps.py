@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from dataclasses import MISSING
+from pathlib import Path
 
 import isaaclab.sim as sim_utils
 from isaaclab.managers import CommandTermCfg
@@ -13,11 +14,12 @@ from isaaclab.utils.math import sample_uniform
 
 
 import torch
+import numpy as np
 from collections.abc import Sequence
 from typing import TYPE_CHECKING
 
 import isaaclab.utils.math as math_utils
-from isaaclab.assets import RigidObject
+from isaaclab.assets import Articulation, RigidObject
 from isaaclab.managers import CommandTerm
 from isaaclab.markers.visualization_markers import VisualizationMarkers
 
@@ -71,8 +73,9 @@ class InHandReOrientationCommand(CommandTerm):
         self.pos_command_w = self.pos_command_e + self._env.scene.env_origins
 
         # -- orientation: (w, x, y, z)
-        self.quat_command_w = torch.zeros(self.num_envs, 4, device=self.device)
-        self.quat_command_w[:, 0] = 1.0  # set the scalar component to 1.0
+        # self.quat_command_w = torch.zeros(self.num_envs, 4, device=self.device)
+        # self.quat_command_w[:, 0] = 1.0  # set the scalar component to 1.0
+        self.quat_command_w = self.object.data.default_root_state[:, 3:7]
 
         # -- unit vectors
         self._X_UNIT_VEC = torch.tensor([1.0, 0, 0], device=self.device).repeat(
@@ -378,6 +381,7 @@ def track_orientation_inv_l2(
     command_name: str,
     object_cfg: SceneEntityCfg = SceneEntityCfg("object"),
     rot_eps: float = 1e-3,
+    gravity_eps: float = 1e-6,
 ) -> torch.Tensor:
     """Reward for tracking the object orientation using the inverse of the orientation error.
 
@@ -388,14 +392,20 @@ def track_orientation_inv_l2(
         command_name: The command term to be used for extracting the goal.
         object_cfg: The configuration for the scene entity. Default is "object".
         rot_eps: The threshold for the orientation error. Default is 1e-3.
+        gravity_eps: Minimum gravity magnitude required to enable the reward.
     """
     # extract useful elements
-
     asset: RigidObject = env.scene[object_cfg.name]
     command_term: InHandReOrientationCommand = env.command_manager.get_term(
         command_name
     )
-
+    gravity = torch.tensor(
+        sim_utils.SimulationContext.instance().physics_sim_view.get_gravity(),
+        device=env.device,
+        dtype=asset.data.root_quat_w.dtype,
+    )
+    if torch.linalg.vector_norm(gravity) <= gravity_eps:
+        return torch.zeros(env.num_envs, device=env.device, dtype=gravity.dtype)
     # obtain the goal orientation
     goal_quat_w = command_term.command[:, 3:7]
     # calculate the orientation error
@@ -808,3 +818,463 @@ class randomize_hand_object_default_pose(ManagerTermBase):
 
         self._robot.write_root_state_to_sim(robot_root_states_w, env_ids=env_ids)
         self._object.write_root_state_to_sim(object_root_states_w, env_ids=env_ids)
+
+
+def _normalize_env_ids(
+    env: ManagerBasedRLEnv, env_ids: torch.Tensor | Sequence[int] | slice | None
+) -> torch.Tensor:
+    """Normalize environment ids to a tensor on the env device."""
+    if env_ids is None or env_ids == slice(None):
+        return torch.arange(env.num_envs, device=env.device, dtype=torch.long)
+    if isinstance(env_ids, slice):
+        start = 0 if env_ids.start is None else env_ids.start
+        stop = env.num_envs if env_ids.stop is None else env_ids.stop
+        step = 1 if env_ids.step is None else env_ids.step
+        return torch.arange(start, stop, step, device=env.device, dtype=torch.long)
+    if isinstance(env_ids, torch.Tensor):
+        return env_ids.to(device=env.device, dtype=torch.long)
+    return torch.as_tensor(env_ids, device=env.device, dtype=torch.long)
+
+
+def _contact_sensor_max_magnitude(sensor, num_envs: int, device: torch.device) -> torch.Tensor:
+    """Return the max contact force magnitude for a contact sensor."""
+    force_matrix_w = getattr(sensor.data, "force_matrix_w", None)
+    if force_matrix_w is not None:
+        magnitudes = torch.linalg.norm(force_matrix_w, dim=-1)
+    else:
+        net_forces_w = getattr(sensor.data, "net_forces_w", None)
+        if net_forces_w is None:
+            return torch.zeros(num_envs, device=device, dtype=torch.float32)
+        magnitudes = torch.linalg.norm(net_forces_w, dim=-1)
+
+    magnitudes = torch.nan_to_num(magnitudes, nan=0.0)
+    if magnitudes.ndim == 1:
+        return magnitudes
+    reduce_dims = tuple(range(1, magnitudes.ndim))
+    return magnitudes.amax(dim=reduce_dims)
+
+
+def stable_grasp_invalid(
+    env: ManagerBasedRLEnv,
+    tip_contact_sensor_names: list[str],
+    required_tip_contact_sensor_names: list[str],
+    non_tip_contact_sensor_names: list[str] | None = None,
+    tip_contact_force_threshold: float = 0.25,
+    min_tip_contacts: int = 2,
+    fingertip_frame_sensor_name: str = "fingertip_transforms",
+    fingertip_distance_sum_limit: float = 0.25,
+    object_cfg: SceneEntityCfg = SceneEntityCfg("object"),
+) -> torch.Tensor:
+    """Return a boolean mask for environments that fail the stable-grasp filter.
+
+    This mirrors the effective ``smg_gym`` stable-grasp rejection logic:
+    keep only states with enough fingertip contacts, require thumb and middle contacts,
+    reject any non-tip contact, and reject fingertip layouts that are too far from the object.
+    """
+    tip_contact_flags = []
+    for sensor_name in tip_contact_sensor_names:
+        sensor = env.scene.sensors[sensor_name]
+        max_mag = _contact_sensor_max_magnitude(sensor, env.num_envs, env.device)
+        tip_contact_flags.append(max_mag > tip_contact_force_threshold)
+    tip_contact_flags = torch.stack(tip_contact_flags, dim=1)
+
+    insufficient_tip_contacts = tip_contact_flags.sum(dim=1) < min_tip_contacts
+
+    if required_tip_contact_sensor_names:
+        required_flags = []
+        for sensor_name in required_tip_contact_sensor_names:
+            sensor = env.scene.sensors[sensor_name]
+            max_mag = _contact_sensor_max_magnitude(sensor, env.num_envs, env.device)
+            required_flags.append(max_mag > tip_contact_force_threshold)
+        missing_required_contacts = ~torch.stack(required_flags, dim=1).all(dim=1)
+    else:
+        missing_required_contacts = torch.zeros(env.num_envs, device=env.device, dtype=torch.bool)
+
+    if non_tip_contact_sensor_names:
+        non_tip_flags = []
+        for sensor_name in non_tip_contact_sensor_names:
+            sensor = env.scene.sensors[sensor_name]
+            max_mag = _contact_sensor_max_magnitude(sensor, env.num_envs, env.device)
+            non_tip_flags.append(max_mag > tip_contact_force_threshold)
+        has_non_tip_contact = torch.stack(non_tip_flags, dim=1).any(dim=1)
+    else:
+        has_non_tip_contact = torch.zeros(env.num_envs, device=env.device, dtype=torch.bool)
+
+    fingertip_sensor = env.scene.sensors[fingertip_frame_sensor_name]
+    fingertip_pos_w = fingertip_sensor.data.target_pos_w
+    object_pos_w = env.scene[object_cfg.name].data.root_pos_w
+    fingertip_distance_sum = torch.linalg.norm(
+        fingertip_pos_w - object_pos_w.unsqueeze(1), dim=-1
+    ).sum(dim=1)
+    excessive_fingertip_distance = fingertip_distance_sum > fingertip_distance_sum_limit
+
+    return (
+        insufficient_tip_contacts
+        | missing_required_contacts
+        | has_non_tip_contact
+        | excessive_fingertip_distance
+    )
+
+
+class reset_root_state_from_pose(ManagerTermBase):
+    """Reset an asset root state to a fixed pose and velocity."""
+
+    def __init__(self, cfg: EventTermCfg, env: ManagerBasedRLEnv):
+        super().__init__(cfg, env)
+
+        asset_cfg: SceneEntityCfg = cfg.params.get("asset_cfg", SceneEntityCfg("object"))
+        self._asset = env.scene[asset_cfg.name]
+
+        pose = cfg.params.get("pose")
+        if pose is None or len(pose) != 7:
+            raise ValueError(
+                "reset_root_state_from_pose requires 'pose' as (x, y, z, w, x, y, z)."
+            )
+
+        velocity = cfg.params.get("velocity", (0.0, 0.0, 0.0, 0.0, 0.0, 0.0))
+        if len(velocity) != 6:
+            raise ValueError(
+                "reset_root_state_from_pose requires 'velocity' as (vx, vy, vz, wx, wy, wz)."
+            )
+
+        self._pose = torch.tensor(pose, dtype=torch.float32, device=env.device)
+        self._velocity = torch.tensor(velocity, dtype=torch.float32, device=env.device)
+
+    def __call__(
+        self,
+        env: ManagerBasedRLEnv,
+        env_ids: torch.Tensor | Sequence[int] | slice | None,
+        pose: tuple[float, float, float, float, float, float, float] | None = None,
+        velocity: tuple[float, float, float, float, float, float] | None = None,
+        asset_cfg: SceneEntityCfg = SceneEntityCfg("object"),
+    ):
+        del asset_cfg
+        env_ids_t = _normalize_env_ids(env, env_ids)
+        pose_tensor = self._pose if pose is None else torch.tensor(pose, dtype=torch.float32, device=env.device)
+        vel_tensor = (
+            self._velocity if velocity is None else torch.tensor(velocity, dtype=torch.float32, device=env.device)
+        )
+
+        root_states = self._asset.data.default_root_state[env_ids_t].clone()
+        root_states[:, 0:3] = pose_tensor[0:3] + env.scene.env_origins[env_ids_t]
+        root_states[:, 3:7] = pose_tensor[3:7]
+        root_states[:, 7:10] = vel_tensor[0:3]
+        root_states[:, 10:13] = vel_tensor[3:6]
+        self._asset.write_root_state_to_sim(root_states, env_ids=env_ids_t)
+
+
+class reset_joints_around_default(ManagerTermBase):
+    """Sample candidate joint positions as default plus uniform per-joint deltas."""
+
+    def __init__(self, cfg: EventTermCfg, env: ManagerBasedRLEnv):
+        super().__init__(cfg, env)
+
+        asset_cfg: SceneEntityCfg = cfg.params.get("asset_cfg", SceneEntityCfg("robot"))
+        self._asset: Articulation = env.scene[asset_cfg.name]
+        self._joint_reset_delta = float(cfg.params.get("joint_reset_delta", 0.25))
+
+    def __call__(
+        self,
+        env: ManagerBasedRLEnv,
+        env_ids: torch.Tensor | Sequence[int] | slice | None,
+        joint_reset_delta: float | None = None,
+        asset_cfg: SceneEntityCfg = SceneEntityCfg("robot"),
+    ):
+        del asset_cfg
+        env_ids_t = _normalize_env_ids(env, env_ids)
+        delta = self._joint_reset_delta if joint_reset_delta is None else float(joint_reset_delta)
+
+        joint_pos = self._asset.data.default_joint_pos[env_ids_t].clone()
+        joint_vel = torch.zeros_like(joint_pos)
+        joint_pos += delta * (2.0 * torch.rand_like(joint_pos) - 1.0)
+
+        joint_limits = self._asset.data.soft_joint_pos_limits[env_ids_t]
+        joint_pos = torch.clamp(joint_pos, joint_limits[..., 0], joint_limits[..., 1])
+        self._asset.write_joint_state_to_sim(joint_pos, joint_vel, env_ids=env_ids_t)
+
+
+class reset_object_pose_in_robot_root_frame(ManagerTermBase):
+    """Sample object pose deltas around the default pose in the robot root frame."""
+
+    def __init__(self, cfg: EventTermCfg, env: ManagerBasedRLEnv):
+        super().__init__(cfg, env)
+
+        robot_asset_cfg: SceneEntityCfg = cfg.params.get("robot_asset_cfg", SceneEntityCfg("robot"))
+        object_asset_cfg: SceneEntityCfg = cfg.params.get("object_asset_cfg", SceneEntityCfg("object"))
+
+        self._robot: Articulation = env.scene[robot_asset_cfg.name]
+        self._object: RigidObject = env.scene[object_asset_cfg.name]
+
+        # self._position_range = cfg.params.get(
+        #     "position_range",
+        #     {
+        #         "x": (-0.025, 0.025),
+        #         "y": (-0.08, -0.02),
+        #         "z": (0.08, 0.16),
+        #     },
+        # )
+        # self._euler_range = cfg.params.get(
+        #     "euler_range",
+        #     {
+        #         "roll": (-torch.pi, torch.pi),
+        #         "pitch": (-torch.pi, torch.pi),
+        #         "yaw": (-torch.pi, torch.pi),
+        #     },
+        # )
+
+    def __call__(
+        self,
+        env: ManagerBasedRLEnv,
+        env_ids: torch.Tensor | Sequence[int] | slice | None,
+        position_range: dict[str, tuple[float, float]] | None = None,
+        euler_range: dict[str, tuple[float, float]] | None = None,
+        robot_asset_cfg: SceneEntityCfg = SceneEntityCfg("robot"),
+        object_asset_cfg: SceneEntityCfg = SceneEntityCfg("object"),
+    ):
+        del robot_asset_cfg, object_asset_cfg
+        env_ids_t = _normalize_env_ids(env, env_ids)
+        pos_range = self._position_range if position_range is None else position_range
+        rot_range = self._euler_range if euler_range is None else euler_range
+
+        robot_root_state = self._robot.data.default_root_state[env_ids_t]
+        robot_pos_e = robot_root_state[:, 0:3]
+        robot_quat = robot_root_state[:, 3:7]
+        robot_quat_inv = robot_quat.clone()
+        robot_quat_inv[:, 1:] *= -1.0
+
+        default_object_state = self._object.data.default_root_state[env_ids_t]
+        default_object_pos_e = default_object_state[:, 0:3]
+        default_object_quat = default_object_state[:, 3:7]
+        default_rel_pos = math_utils.quat_apply(
+            robot_quat_inv, default_object_pos_e - robot_pos_e
+        )
+        default_rel_quat = math_utils.quat_mul(robot_quat_inv, default_object_quat)
+
+        pos_delta = torch.stack(
+            (
+                torch.empty(len(env_ids_t), device=env.device).uniform_(*pos_range["x"]),
+                torch.empty(len(env_ids_t), device=env.device).uniform_(*pos_range["y"]),
+                torch.empty(len(env_ids_t), device=env.device).uniform_(*pos_range["z"]),
+            ),
+            dim=1,
+        )
+        roll = torch.empty(len(env_ids_t), device=env.device).uniform_(*rot_range["roll"])
+        pitch = torch.empty(len(env_ids_t), device=env.device).uniform_(*rot_range["pitch"])
+        yaw = torch.empty(len(env_ids_t), device=env.device).uniform_(*rot_range["yaw"])
+        quat_delta = quat_from_euler_xyz(roll, pitch, yaw)
+
+        rel_pos = default_rel_pos + pos_delta
+        rel_quat = math_utils.quat_mul(quat_delta, default_rel_quat)
+
+        root_state = self._object.data.default_root_state[env_ids_t].clone()
+        root_state[:, 0:3] = robot_pos_e + math_utils.quat_apply(robot_quat, rel_pos)
+        root_state[:, 3:7] = math_utils.quat_mul(robot_quat, rel_quat)
+        root_state[:, 7:13] = 0.0
+        root_state[:, 0:3] += env.scene.env_origins[env_ids_t]
+        self._object.write_root_state_to_sim(root_state, env_ids=env_ids_t)
+
+
+def _sanitize_cache_metadata(params: dict) -> dict[str, object]:
+    """Convert config params into a saveable metadata snapshot."""
+    snapshot = {}
+    for key, value in params.items():
+        if key in {"robot_asset_cfg", "object_asset_cfg"}:
+            continue
+        if isinstance(value, (str, int, float, bool)) or value is None:
+            snapshot[key] = value
+        elif isinstance(value, dict):
+            snapshot[key] = {
+                sub_key: list(sub_value) if isinstance(sub_value, tuple) else sub_value
+                for sub_key, sub_value in value.items()
+            }
+        elif isinstance(value, (tuple, list)):
+            snapshot[key] = list(value)
+        else:
+            snapshot[key] = repr(value)
+    return snapshot
+
+
+def _load_stable_grasp_cache(cache_path: str) -> dict[str, np.ndarray]:
+    """Load and validate the saved stable-grasp cache."""
+    payload = np.load(Path(cache_path), allow_pickle=True)
+    data = payload.item() if hasattr(payload, "item") else payload
+    if not isinstance(data, dict):
+        raise ValueError("Stable grasp cache must contain a dictionary payload.")
+
+    required = ("robot_root_state", "object_root_state", "robot_joint_pos")
+    for key in required:
+        if key not in data:
+            raise ValueError(f"Missing required stable-grasp cache key: '{key}'.")
+
+    normalized = {}
+    for key in required + ("robot_joint_vel",):
+        if key not in data or data[key] is None:
+            continue
+        array = np.asarray(data[key], dtype=np.float32)
+        if array.ndim == 1:
+            array = array[None, :]
+        if array.ndim != 2:
+            raise ValueError(f"Stable grasp cache key '{key}' must be a 1D or 2D array.")
+        normalized[key] = array
+
+    row_count = normalized["robot_root_state"].shape[0]
+    for key in ("object_root_state", "robot_joint_pos"):
+        if normalized[key].shape[0] != row_count:
+            raise ValueError(
+                "Stable grasp cache row counts must match across robot/object root states and joint positions."
+            )
+    if "robot_joint_vel" in normalized and normalized["robot_joint_vel"].shape[0] != row_count:
+        raise ValueError("Stable grasp cache row count for 'robot_joint_vel' must match the other arrays.")
+
+    if "robot_joint_vel" not in normalized:
+        normalized["robot_joint_vel"] = np.zeros_like(normalized["robot_joint_pos"], dtype=np.float32)
+
+    normalized["joint_names"] = list(data.get("joint_names", []))
+    normalized["object_asset_path"] = data.get("object_asset_path")
+    normalized["generator_version"] = data.get("generator_version")
+    normalized["config_snapshot"] = data.get("config_snapshot")
+    return normalized
+
+
+def _get_reset_time_outs(env: ManagerBasedRLEnv) -> torch.Tensor:
+    """Return the timeout buffer even during the initial pre-step reset."""
+    if hasattr(env, "reset_time_outs"):
+        return env.reset_time_outs
+
+    termination_manager = getattr(env, "termination_manager", None)
+    if termination_manager is not None and hasattr(termination_manager, "time_outs"):
+        return termination_manager.time_outs
+
+    return torch.zeros(env.num_envs, device=env.device, dtype=torch.bool)
+
+
+class collect_stable_grasp_states(ManagerTermBase):
+    """Collect stable-grasp states on reset and persist them once the cache is full."""
+
+    def __init__(self, cfg: EventTermCfg, env: ManagerBasedRLEnv):
+        super().__init__(cfg, env)
+
+        robot_asset_cfg: SceneEntityCfg = cfg.params.get("robot_asset_cfg", SceneEntityCfg("robot"))
+        object_asset_cfg: SceneEntityCfg = cfg.params.get("object_asset_cfg", SceneEntityCfg("object"))
+        self._robot: Articulation = env.scene[robot_asset_cfg.name]
+        self._object: RigidObject = env.scene[object_asset_cfg.name]
+
+        self._cache_path = Path(cfg.params.get("cache_path", "stable_grasps.npy"))
+        self._max_cached_grasp_size = int(cfg.params.get("max_cached_grasp_size", 1024))
+        self._object_asset_path = cfg.params.get("object_asset_path")
+        self._config_snapshot = _sanitize_cache_metadata(cfg.params)
+        self._cache = {
+            "robot_root_state": [],
+            "object_root_state": [],
+            "robot_joint_pos": [],
+            "robot_joint_vel": [],
+        }
+        self._num_cached_grasps = 0
+
+    def __call__(
+        self,
+        env: ManagerBasedRLEnv,
+        env_ids: torch.Tensor | Sequence[int] | slice | None,
+        robot_asset_cfg: SceneEntityCfg = SceneEntityCfg("robot"),
+        object_asset_cfg: SceneEntityCfg = SceneEntityCfg("object"),
+        cache_path: str | None = None,
+        max_cached_grasp_size: int | None = None,
+        object_asset_path: str | None = None,
+    ):
+        del robot_asset_cfg, object_asset_cfg, cache_path, max_cached_grasp_size, object_asset_path
+
+        if env.extras.get("stable_grasp_generation_complete", False):
+            return
+
+        env_ids_t = _normalize_env_ids(env, env_ids)
+        success_mask = _get_reset_time_outs(env).index_select(0, env_ids_t)
+        if not torch.any(success_mask):
+            return
+
+        success_env_ids = env_ids_t[success_mask]
+        env_origins = env.scene.env_origins.index_select(0, success_env_ids)
+
+        robot_root_state = self._robot.data.root_state_w.index_select(0, success_env_ids).clone()
+        object_root_state = self._object.data.root_state_w.index_select(0, success_env_ids).clone()
+        robot_root_state[:, 0:3] -= env_origins
+        object_root_state[:, 0:3] -= env_origins
+
+        self._cache["robot_root_state"].append(robot_root_state.detach().cpu().numpy().astype(np.float32))
+        self._cache["object_root_state"].append(object_root_state.detach().cpu().numpy().astype(np.float32))
+        self._cache["robot_joint_pos"].append(
+            self._robot.data.joint_pos.index_select(0, success_env_ids).detach().cpu().numpy().astype(np.float32)
+        )
+        self._cache["robot_joint_vel"].append(
+            self._robot.data.joint_vel.index_select(0, success_env_ids).detach().cpu().numpy().astype(np.float32)
+        )
+        self._num_cached_grasps += int(success_env_ids.numel())
+        env.extras["stable_grasp_num_cached"] = self._num_cached_grasps
+
+        if self._num_cached_grasps < self._max_cached_grasp_size:
+            return
+
+        payload = {}
+        for key, chunks in self._cache.items():
+            payload[key] = np.concatenate(chunks, axis=0)[: self._max_cached_grasp_size]
+        payload["joint_names"] = list(self._robot.joint_names)
+        payload["object_asset_path"] = self._object_asset_path
+        payload["generator_version"] = "isaaclab_manager_based_v1"
+        payload["config_snapshot"] = self._config_snapshot
+
+        self._cache_path.parent.mkdir(parents=True, exist_ok=True)
+        np.save(self._cache_path, payload, allow_pickle=True)
+        env.extras["stable_grasp_generation_complete"] = True
+        env.extras["stable_grasp_cache_path"] = str(self._cache_path)
+
+
+class sample_saved_stable_grasps(ManagerTermBase):
+    """Sample arbitrary rows from a saved stable-grasp cache and apply them on reset."""
+
+    def __init__(self, cfg: EventTermCfg, env: ManagerBasedRLEnv):
+        super().__init__(cfg, env)
+
+        robot_asset_cfg: SceneEntityCfg = cfg.params.get("robot_asset_cfg", SceneEntityCfg("robot"))
+        object_asset_cfg: SceneEntityCfg = cfg.params.get("object_asset_cfg", SceneEntityCfg("object"))
+        self._robot: Articulation = env.scene[robot_asset_cfg.name]
+        self._object: RigidObject = env.scene[object_asset_cfg.name]
+
+        cache_path = cfg.params.get("cache_path")
+        if cache_path is None:
+            raise ValueError("sample_saved_stable_grasps requires 'cache_path'.")
+
+        state = _load_stable_grasp_cache(cache_path)
+        self._num_rows = state["robot_root_state"].shape[0]
+        self._robot_root_state = torch.as_tensor(state["robot_root_state"], dtype=torch.float32, device=env.device)
+        self._object_root_state = torch.as_tensor(state["object_root_state"], dtype=torch.float32, device=env.device)
+        self._robot_joint_pos = torch.as_tensor(state["robot_joint_pos"], dtype=torch.float32, device=env.device)
+        self._robot_joint_vel = torch.as_tensor(state["robot_joint_vel"], dtype=torch.float32, device=env.device)
+
+        joint_names = state.get("joint_names", [])
+        if joint_names and len(joint_names) != len(self._robot.joint_names):
+            raise ValueError("Stable grasp cache joint count does not match the current robot articulation.")
+
+    def __call__(
+        self,
+        env: ManagerBasedRLEnv,
+        env_ids: torch.Tensor | Sequence[int] | slice | None,
+        robot_asset_cfg: SceneEntityCfg = SceneEntityCfg("robot"),
+        object_asset_cfg: SceneEntityCfg = SceneEntityCfg("object"),
+        cache_path: str | None = None,
+    ):
+        del robot_asset_cfg, object_asset_cfg, cache_path
+        env_ids_t = _normalize_env_ids(env, env_ids)
+        sample_ids = torch.randint(0, self._num_rows, (len(env_ids_t),), device=env.device)
+        env_origins = env.scene.env_origins.index_select(0, env_ids_t)
+
+        robot_root_state = self._robot_root_state.index_select(0, sample_ids).clone()
+        object_root_state = self._object_root_state.index_select(0, sample_ids).clone()
+        robot_root_state[:, 0:3] += env_origins
+        object_root_state[:, 0:3] += env_origins
+
+        robot_joint_pos = self._robot_joint_pos.index_select(0, sample_ids).clone()
+        robot_joint_vel = self._robot_joint_vel.index_select(0, sample_ids).clone()
+
+        self._robot.write_root_state_to_sim(robot_root_state, env_ids=env_ids_t)
+        self._object.write_root_state_to_sim(object_root_state, env_ids=env_ids_t)
+        self._robot.write_joint_state_to_sim(robot_joint_pos, robot_joint_vel, env_ids=env_ids_t)
+        env.extras["stable_grasp_sample_ids"] = sample_ids.detach().cpu()
