@@ -133,11 +133,11 @@ class InHandObjectSceneCfg(InteractiveSceneCfg):
                 solver_velocity_iteration_count=0,
                 disable_gravity=True,
             ),
-            collision_props=sim_utils.CollisionPropertiesCfg(collision_enabled=False),
+            collision_props=sim_utils.CollisionPropertiesCfg(collision_enabled=True),
             mass_props=sim_utils.MassPropertiesCfg(mass=0.2),
         ),
-        # 15 cm above the hand
-        init_state=RigidObjectCfg.InitialStateCfg(pos=(0.0, -0.05, 0.65), rot=(1.0, 0.0, 0.0, 0.0)),
+        # 12 cm above the hand
+        init_state=RigidObjectCfg.InitialStateCfg(pos=(0.0, -0.03, 0.62), rot=(1.0, 0.0, 0.0, 0.0)),
     )
     # plane
     plane = AssetBaseCfg(
