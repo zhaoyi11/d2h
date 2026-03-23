@@ -40,8 +40,25 @@ LEAP_HAND_CFG = ArticulationCfg(
     init_state=ArticulationCfg.InitialStateCfg(
         pos=(0.0, 0.0, 0.5),
         rot=(0.5, 0.5, -0.5, 0.5),
-        # rot=(1.0, 0.0, 0.0, 0.0),
-        joint_pos={"a_.*": 0.0},
+        # joint_pos={"a_.*": 0.0},
+        joint_pos={
+            'a_0': -0.250,
+            'a_1': 1.000,
+            'a_2': 0.750,
+            'a_3': 0.150,
+            'a_4': 0.000,
+            'a_5': 1.000,
+            'a_6': 0.700,
+            'a_7': 0.150,
+            'a_8': 0.250,
+            'a_9': 1.000,
+            'a_10': 0.750,
+            'a_11': 0.150,
+            'a_12': 1.250,
+            'a_13': 0.000,
+            'a_14': 0.150,
+            'a_15': 0.050,
+        }
     ),
     actuators={
         "fingers": ImplicitActuatorCfg(
