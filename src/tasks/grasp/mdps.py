@@ -1162,16 +1162,38 @@ def _load_stable_grasp_cache(cache_path: str) -> dict[str, np.ndarray]:
     return normalized
 
 
-def _get_reset_time_outs(env: ManagerBasedRLEnv) -> torch.Tensor:
-    """Return the timeout buffer even during the initial pre-step reset."""
-    if hasattr(env, "reset_time_outs"):
-        return env.reset_time_outs
+def _get_success_mask(env: ManagerBasedRLEnv) -> torch.Tensor:
+    """Return the success mask for the environment.
 
-    termination_manager = getattr(env, "termination_manager", None)
-    if termination_manager is not None and hasattr(termination_manager, "time_outs"):
-        return termination_manager.time_outs
+    The success mask is a boolean tensor of shape (num_envs,) where each element is True if the distance between the object and the fingertip is less than a certain threshold, and the number of contacts are greater than 2.
+    The threshold for the distance is 0.05 m.
+    The threshold for the number of contacts is 2.
+    """
+    CONTACT_SENSOR_NAMES = [
+        "thumb_tip_object_s",
+        "index_tip_object_s",
+        "middle_tip_object_s",
+        "ring_tip_object_s",
+    ]
+    DISTANCE_THRESHOLD = 0.05
+    CONTACT_FORCE_THRESHOLD = 1e-3
+    MIN_CONTACTS = 2
 
-    return torch.zeros(env.num_envs, device=env.device, dtype=torch.bool)
+    # distance check: mean fingertip–object distance
+    fingertip_pos_w = env.scene.sensors["fingertip_transforms"].data.target_pos_w
+    obj_pos_w = env.scene["object"].data.root_pos_w
+    dists = torch.linalg.norm(fingertip_pos_w - obj_pos_w.unsqueeze(1), dim=-1)  # (N, F)
+    close_enough = dists.mean(dim=1) < DISTANCE_THRESHOLD  # (N,)
+    print(f"close_enough: {close_enough.sum()}, total: {close_enough.numel()}")
+    # contact check: number of fingertips in contact with object
+    contact_flags = []
+    for name in CONTACT_SENSOR_NAMES:
+        mag = _contact_sensor_max_magnitude(env.scene.sensors[name], env.num_envs, env.device)
+        contact_flags.append(mag > CONTACT_FORCE_THRESHOLD)
+    enough_contacts = torch.stack(contact_flags, dim=1).sum(dim=1) > MIN_CONTACTS  # (N,)
+    print(f"enough_contacts: {enough_contacts.sum()}, total: {enough_contacts.numel()}")
+    return close_enough & enough_contacts
+
 
 
 class collect_stable_grasp_states(ManagerTermBase):
@@ -1213,7 +1235,7 @@ class collect_stable_grasp_states(ManagerTermBase):
             return
 
         env_ids_t = _normalize_env_ids(env, env_ids)
-        success_mask = _get_reset_time_outs(env).index_select(0, env_ids_t)
+        success_mask = _get_success_mask(env).index_select(0, env_ids_t)
         if not torch.any(success_mask):
             return
 
@@ -1235,7 +1257,7 @@ class collect_stable_grasp_states(ManagerTermBase):
         )
         self._num_cached_grasps += int(success_env_ids.numel())
         env.extras["stable_grasp_num_cached"] = self._num_cached_grasps
-
+        print(f"Number of cached grasps: {self._num_cached_grasps}, max cached grasp size: {self._max_cached_grasp_size}")
         if self._num_cached_grasps < self._max_cached_grasp_size:
             return
 

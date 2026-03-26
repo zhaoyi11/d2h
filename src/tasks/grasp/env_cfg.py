@@ -33,11 +33,8 @@ from isaaclab.utils.noise import AdditiveUniformNoiseCfg as Unoise
 from isaaclab.markers.config import FRAME_MARKER_CFG
 
 import src.tasks.common.mdps as mdp
-import src.tasks.reorient.mdps as task_mdp
+import src.tasks.grasp.mdps as task_mdp
 from src.assets.franka_leap_hand.leap import LEAP_HAND_CFG
-
-# from src.tasks.reorient.utils.grasp_init import GraspInitData, load_grasp_init
-
 
 ##
 # Scene definition
@@ -256,19 +253,6 @@ class ObservationsCfg:
             params={"asset_cfg": SceneEntityCfg("object")},
         )
 
-        # # -- command terms
-        # goal_pose = ObsTerm(
-        #     func=mdp.generated_commands, params={"command_name": "object_pose"}
-        # )
-        # goal_quat_diff = ObsTerm(
-        #     func=mdp.goal_quat_diff,
-        #     params={
-        #         "asset_cfg": SceneEntityCfg("object"),
-        #         "command_name": "object_pose",
-        #         "make_quat_unique": False,
-        #     },
-        # )
-
         # -- action terms
         last_action = ObsTerm(func=mdp.last_action)
 
@@ -417,7 +401,7 @@ class EventCfg:
         },
     )
 
-    # reset gravity to zero and then set it to -9.81 m/s^2 in
+    # reset gravity to zero
     reset_gravity = EventTerm(
         func=mdp.randomize_physics_scene_gravity,
         mode="reset",
@@ -437,6 +421,24 @@ class EventCfg:
     #     },
     # )
 
+@configclass
+class GraspGenEventCfg(EventCfg):
+    """Configuration for randomization for grasp generation."""
+
+    # startup
+    # -- object
+    save_grasp_data = EventTerm(
+        func=task_mdp.collect_stable_grasp_states,
+        mode="interval",
+        interval_range_s=(1.5, 1.5),
+        params={
+            "robot_asset_cfg": SceneEntityCfg("robot"),
+            "object_asset_cfg": SceneEntityCfg("object"),
+            "cache_path": "/home/yizha/yi/D2H/grasp_data",
+            "max_cached_grasp_size": 100,
+            "object_asset_path": "object_asset",
+        },
+    )
 
 @configclass
 class RewardsCfg:
@@ -575,51 +577,7 @@ class InHandObjectEnvCfg(ManagerBasedRLEnvCfg):
 ##
 # from src.assets.leap_hand.leap import LEAP_HAND_CFG
 
-# TODO: move this to config (initial rotation of the wrist)
-# Fixed rotation to apply to initial wrist/object poses.
-# Quaternion format is (w, x, y, z).
-
-# _BASE_ROT_WXYZ = (0.0, 0.7071067811865476, 0.0, 0.7071067811865476)  # face up
-# _BASE_ROT_WXYZ = (0.7071067811865476, 0.0, 0.7071067811865476, 0.0)  # face downward
 _BASE_ROT_WXYZ = (1.0, 0.0, 0.0, 0.0)  # face +y axis
-
-
-def _quat_mul_wxyz(
-    q1: tuple[float, float, float, float], q2: tuple[float, float, float, float]
-) -> tuple[float, float, float, float]:
-    """Quaternion multiply (wxyz): q = q1 * q2."""
-    w1, x1, y1, z1 = q1
-    w2, x2, y2, z2 = q2
-    return (
-        w1 * w2 - x1 * x2 - y1 * y2 - z1 * z2,
-        w1 * x2 + x1 * w2 + y1 * z2 - z1 * y2,
-        w1 * y2 - x1 * z2 + y1 * w2 + z1 * x2,
-        w1 * z2 + x1 * y2 - y1 * x2 + z1 * w2,
-    )
-
-
-def _rotate_pos_by_quat_wxyz(
-    q: tuple[float, float, float, float], pos: tuple[float, float, float]
-) -> tuple[float, float, float]:
-    """Rotate a position vector by a unit quaternion (w, x, y, z).
-
-    Uses the formula: p' = q * p * q_inv, implemented as:
-        p' = p + 2 * cross(q_xyz, cross(q_xyz, p) + w * p)
-    """
-    w, qx, qy, qz = q
-    px, py, pz = pos
-    # t = 2 * cross(q_xyz, p)
-    tx = 2.0 * (qy * pz - qz * py)
-    ty = 2.0 * (qz * px - qx * pz)
-    tz = 2.0 * (qx * py - qy * px)
-    return (
-        px + w * tx + (qy * tz - qz * ty),
-        py + w * ty + (qz * tx - qx * tz),
-        pz + w * tz + (qx * ty - qy * tx),
-    )
-
-
-# from isaaclab_assets.robots import ALLEGRO_HAND_CFG
 
 
 @configclass
@@ -683,7 +641,7 @@ class LeapObjectEnvCfg(InHandObjectEnvCfg):
             setattr(
                 self.scene,
                 sensor_name,
-                ContactSensorCfg(
+                ContactSensorCfg( 
                     prim_path=prim_path,
                     filter_prim_paths_expr=[
                         "{ENV_REGEX_NS}/Object"
@@ -694,121 +652,20 @@ class LeapObjectEnvCfg(InHandObjectEnvCfg):
                 ),
             )
 
-        # # Initial robot and object state
-        # if self.grasp_path is not None and self.object_urdf_path is not None:
-        #     grasp_init = load_grasp_init(
-        #         self.grasp_path,
-        #         self.object_urdf_path,
-        #         self.object_scale_override,
-        #         base_pos=(0, 0, 0),
-        #         base_rot=_BASE_ROT_WXYZ,
-        #     )
-
-        #     self.scene.robot = self.scene.robot.replace(
-        #         init_state=ArticulationCfg.InitialStateCfg(
-        #             pos=(0, 0, 0),
-        #             rot=_BASE_ROT_WXYZ,
-        #         ),
-        #     )
-
-        #     self._apply_grasp_events(grasp_init)
-
-    # # TODO: check this later.
-    # def _apply_grasp_events(self, grasp_init: GraspInitData):
-    #     """Configure scene and reset events from precomputed grasp data."""
-    #     object_asset_path = (
-    #         grasp_init.object_asset_path
-    #         if grasp_init.object_asset_path is not None
-    #         else self.scene.object.spawn.asset_path
-    #     )
-
-    #     object_pos_rot = _rotate_pos_by_quat_wxyz(_BASE_ROT_WXYZ, grasp_init.object_pos)
-    #     object_quat_rot = _quat_mul_wxyz(_BASE_ROT_WXYZ, grasp_init.object_quat)
-
-    #     self.scene.object = self.scene.object.replace(
-    #         spawn=self.scene.object.spawn.replace(
-    #             asset_path=object_asset_path,
-    #             scale=(
-    #                 # 0.1,
-    #                 # 0.1,
-    #                 # 0.1,  # TODO: !!!!! change this
-    #                 grasp_init.object_scale,
-    #                 grasp_init.object_scale,
-    #                 grasp_init.object_scale,
-    #             ),
-    #         ),
-    #         init_state=RigidObjectCfg.InitialStateCfg(
-    #             pos=object_pos_rot, rot=object_quat_rot
-    #         ),
-    #     )
-
-    #     self.events.reset_object = EventTerm(
-    #         func=mdp.reset_root_state_from_pose,
-    #         mode="reset",
-    #         params={
-    #             "asset_cfg": SceneEntityCfg("object", body_names=".*"),
-    #             "pose": (*object_pos_rot, *object_quat_rot),
-    #             "velocity": (0.0, 0.0, 0.0, 0.0, 0.0, 0.0),
-    #         },
-    #     )
-
-    #     # set robot joint positions to the precomputed grasp joint positions (conversion between MuJoCo order and IsaacGym order)
-    #     self.events.reset_robot_joints = EventTerm(
-    #         func=mdp.reset_joints_to_fixed,
-    #         mode="reset",
-    #         params={
-    #             "asset_cfg": SceneEntityCfg("robot", joint_names=".*"),
-    #             "joint_pos": grasp_init.robot_joint_pos,
-    #         },
-    #     )
-
-    #     self.events.reset_robot_root = EventTerm(
-    #         func=mdp.reset_root_state_from_pose,
-    #         mode="reset",
-    #         params={
-    #             "asset_cfg": SceneEntityCfg("robot"),
-    #             "pose": (0.0, 0.0, 0.0, *_BASE_ROT_WXYZ),
-    #             "velocity": (0.0, 0.0, 0.0, 0.0, 0.0, 0.0),
-    #         },
-    #     )
-
 
 @configclass
 class LeapObjectEnvCfg_PLAY(LeapObjectEnvCfg):
+    events: GraspGenEventCfg = GraspGenEventCfg()
+
     def __post_init__(self):
         # post init of parent
         super().__post_init__()
         # make a smaller scene for play
-        self.scene.num_envs = 50
+        self.scene.num_envs = 4096
         # disable randomization for play
         self.observations.policy.enable_corruption = False
-        # remove termination due to timeouts
-        self.terminations.time_out = None
 
-
-##
-# Environment configuration with no velocity observations.
-##
-
-
-@configclass
-class LeapObjectNoVelObsEnvCfg(LeapObjectEnvCfg):
-    def __post_init__(self):
-        # post init of parent
-        super().__post_init__()
-
-        # switch observation group to no velocity group
-        self.observations.policy = ObservationsCfg.NoVelocityKinematicObsGroupCfg()
-
-
-@configclass
-class LeapObjectNoVelObsEnvCfg_PLAY(LeapObjectNoVelObsEnvCfg):
-    def __post_init__(self):
-        # post init of parent
-        super().__post_init__()
-        # make a smaller scene for play
-        self.scene.num_envs = 50
-        # disable randomization for play
-        self.observations.policy.enable_corruption = False
-        # remove termination due to timeouts
-        self.terminations.time_out = None
+        # change the cache path and object asset path for grasp generation
+        self.events.save_grasp_data.params["cache_path"] = "grasp_data"
+        self.events.save_grasp_data.params["max_cached_grasp_size"] = 1000
+        self.events.save_grasp_data.params["object_asset_path"] = "object_asset"
