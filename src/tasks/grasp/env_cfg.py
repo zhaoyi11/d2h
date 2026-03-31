@@ -6,6 +6,7 @@
 from __future__ import annotations
 
 from dataclasses import MISSING, dataclass
+from pathlib import Path
 from re import I
 
 import numpy as np
@@ -41,6 +42,23 @@ from src.assets.franka_leap_hand.leap import LEAP_HAND_CFG
 ##
 
 
+def _get_visdex_usd_paths() -> list[str]:
+    """Return sorted visdex USD asset paths bundled with this repo."""
+    usd_root = Path(__file__).resolve().parents[2] / "assets" / "visdex_objects" / "USD"
+    if not usd_root.is_dir():
+        raise FileNotFoundError(f"visdex USD asset directory does not exist: {usd_root}")
+
+    usd_paths: list[str] = []
+    for object_dir in sorted(path for path in usd_root.iterdir() if path.is_dir()):
+        usd_path = object_dir / f"{object_dir.name}.usd"
+        if usd_path.is_file():
+            usd_paths.append(str(usd_path))
+
+    if not usd_paths:
+        raise ValueError(f"No visdex USD assets found in: {usd_root}")
+    return usd_paths
+
+
 @configclass
 class InHandObjectSceneCfg(InteractiveSceneCfg):
     """Configuration for a scene with an object and a dexterous hand."""
@@ -51,71 +69,12 @@ class InHandObjectSceneCfg(InteractiveSceneCfg):
     # object
     object: RigidObjectCfg = RigidObjectCfg(
         prim_path="{ENV_REGEX_NS}/Object",
-        spawn=sim_utils.MultiAssetSpawnerCfg(
-            assets_cfg=[
-                # CuboidCfg(
-                #     size=(0.05, 0.1, 0.1),
-                #     physics_material=RigidBodyMaterialCfg(static_friction=0.5),
-                # ),
-                # CuboidCfg(
-                #     size=(0.05, 0.05, 0.1),
-                #     physics_material=RigidBodyMaterialCfg(static_friction=0.5),
-                # ),
-                # CuboidCfg(
-                #     size=(0.025, 0.1, 0.1),
-                #     physics_material=RigidBodyMaterialCfg(static_friction=0.5),
-                # ),
-                # CuboidCfg(
-                #     size=(0.025, 0.05, 0.1),
-                #     physics_material=RigidBodyMaterialCfg(static_friction=0.5),
-                # ),
-                # CuboidCfg(
-                #     size=(0.025, 0.025, 0.1),
-                #     physics_material=RigidBodyMaterialCfg(static_friction=0.5),
-                # ),
-                # CuboidCfg(
-                #     size=(0.01, 0.1, 0.1),
-                #     physics_material=RigidBodyMaterialCfg(static_friction=0.5),
-                # ),
-                SphereCfg(
-                    radius=0.05,
-                    physics_material=RigidBodyMaterialCfg(static_friction=0.5),
-                ),
-                # SphereCfg(
-                #     radius=0.025,
-                #     physics_material=RigidBodyMaterialCfg(static_friction=0.5),
-                # ),
-                # CapsuleCfg(
-                #     radius=0.04,
-                #     height=0.025,
-                #     physics_material=RigidBodyMaterialCfg(static_friction=0.5),
-                # ),
-                # CapsuleCfg(
-                #     radius=0.04,
-                #     height=0.01,
-                #     physics_material=RigidBodyMaterialCfg(static_friction=0.5),
-                # ),
-                # CapsuleCfg(
-                #     radius=0.04,
-                #     height=0.1,
-                #     physics_material=RigidBodyMaterialCfg(static_friction=0.5),
-                # ),
-                # CapsuleCfg(
-                #     radius=0.025,
-                #     height=0.1,
-                #     physics_material=RigidBodyMaterialCfg(static_friction=0.5),
-                # ),
-                # ConeCfg(
-                #     radius=0.05,
-                #     height=0.1,
-                #     physics_material=RigidBodyMaterialCfg(static_friction=0.5),
-                # ),
-                # ConeCfg(
-                #     radius=0.025,
-                #     height=0.1,
-                #     physics_material=RigidBodyMaterialCfg(static_friction=0.5),
-                # ),
-            ],
+        spawn=sim_utils.MultiUsdFileCfg(
+            usd_path=_get_visdex_usd_paths(),
+            random_choice=True,
+            articulation_props=sim_utils.ArticulationRootPropertiesCfg(
+                articulation_enabled=False,
+            ),
             rigid_props=sim_utils.RigidBodyPropertiesCfg(
                 solver_position_iteration_count=16,
                 solver_velocity_iteration_count=0,
@@ -123,6 +82,7 @@ class InHandObjectSceneCfg(InteractiveSceneCfg):
             ),
             collision_props=sim_utils.CollisionPropertiesCfg(collision_enabled=True),
             mass_props=sim_utils.MassPropertiesCfg(mass=0.2),
+            scale=(0.8, 0.8, 0.8),
         ),
         # 12 cm above the hand
         init_state=RigidObjectCfg.InitialStateCfg(
@@ -644,8 +604,8 @@ class LeapObjectEnvCfg(InHandObjectEnvCfg):
                 ContactSensorCfg( 
                     prim_path=prim_path,
                     filter_prim_paths_expr=[
-                        "{ENV_REGEX_NS}/Object"
-                    ],  # TODO: check this, can't filter the object properly now.
+                        "{ENV_REGEX_NS}/Object/baseLink",
+                    ],
                     update_period=0.0,
                     history_length=6,
                     debug_vis=True,
