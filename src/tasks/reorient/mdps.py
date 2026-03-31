@@ -23,6 +23,8 @@ from isaaclab.assets import Articulation, RigidObject
 from isaaclab.managers import CommandTerm
 from isaaclab.markers.visualization_markers import VisualizationMarkers
 
+import src.utils as utils
+
 if TYPE_CHECKING:
     from isaaclab.envs import ManagerBasedRLEnv
 
@@ -64,18 +66,14 @@ class InHandReOrientationCommand(CommandTerm):
 
         # create buffers to store the command
         # -- command: (x, y, z)
-        init_pos_offset = torch.tensor(
+        self.init_pos_offset = torch.tensor(
             cfg.init_pos_offset, dtype=torch.float, device=self.device
         )
-        self.pos_command_e = (
-            self.object.data.default_root_state[:, :3] + init_pos_offset
-        )
-        self.pos_command_w = self.pos_command_e + self._env.scene.env_origins
+        self.pos_command_w = self.object.data.root_pos_w.clone() + self.init_pos_offset
+        self.pos_command_e = self.pos_command_w - self._env.scene.env_origins
 
         # -- orientation: (w, x, y, z)
-        # self.quat_command_w = torch.zeros(self.num_envs, 4, device=self.device)
-        # self.quat_command_w[:, 0] = 1.0  # set the scalar component to 1.0
-        self.quat_command_w = self.object.data.default_root_state[:, 3:7]
+        self.quat_command_w = self.object.data.root_quat_w.clone()
 
         # -- unit vectors
         self._X_UNIT_VEC = torch.tensor([1.0, 0, 0], device=self.device).repeat(
@@ -133,15 +131,14 @@ class InHandReOrientationCommand(CommandTerm):
         self.metrics["consecutive_success"] += successes.float()
 
     def _resample_command(self, env_ids: Sequence[int]):
+        # update position command from current object pose (set by load_grasp on reset)
+        self.pos_command_w[env_ids] = self.object.data.root_pos_w[env_ids] + self.init_pos_offset
+        self.pos_command_e[env_ids] = self.pos_command_w[env_ids] - self._env.scene.env_origins[env_ids]
+
         # sample new orientation targets
-        # range in pi (i.e. 0.25 * pi = 45 deg)
-        # TODO: set up a curriculum for the range (e.g., 0.1->0.25->0.5->1.0)
         r_range = self.random_range
-        # if r_range > 0.1:
-        #     print("r_range", r_range)
 
         rand_floats = 2.0 * torch.rand((len(env_ids), 3), device=self.device) - 1.0
-        # rotate randomly about x-axis, y-axis, and z-axis with small angles
         quat_delta = math_utils.quat_mul(
             math_utils.quat_from_angle_axis(
                 rand_floats[:, 0] * r_range * torch.pi, self._X_UNIT_VEC[env_ids]
@@ -156,12 +153,10 @@ class InHandReOrientationCommand(CommandTerm):
             ),
         )
 
-        # apply delta to the default orientation
-        init_quat = self.object.data.default_root_state[env_ids, 3:7]
-
+        # apply delta to the current object orientation (set by load_grasp on reset)
+        init_quat = self.object.data.root_quat_w[env_ids]
         quat = math_utils.quat_mul(init_quat, quat_delta)
 
-        # make sure the quaternion real-part is always positive
         self.quat_command_w[env_ids] = (
             math_utils.quat_unique(quat) if self.cfg.make_quat_unique else quat
         )
@@ -367,7 +362,6 @@ def track_pos_l2(
     object_cfg: SceneEntityCfg = SceneEntityCfg("object"),
     gravity_eps: float = 1e-6,
     max_pos_error: float|None = None, # maximum position error to enable the reward
-    use_gravity_gate: bool = True,
 ) -> torch.Tensor:
     """Reward for tracking the object position using the L2 norm.
 
@@ -383,8 +377,6 @@ def track_pos_l2(
     command_term: InHandReOrientationCommand = env.command_manager.get_term(
         command_name
     )
-    if use_gravity_gate and not gravity_enabled(env, gravity_eps):
-        return torch.zeros(env.num_envs, device=env.device, dtype=asset.data.root_quat_w.dtype)
 
     # obtain the goal position
     goal_pos_e = command_term.command[:, 0:3]
@@ -401,8 +393,7 @@ def track_orientation_inv_l2(
     command_name: str,
     object_cfg: SceneEntityCfg = SceneEntityCfg("object"),
     rot_eps: float = 1e-3,
-    gravity_eps: float = 1e-6,
-    use_gravity_gate: bool = True,
+
 ) -> torch.Tensor:
     """Reward for tracking the object orientation using the inverse of the orientation error.
 
@@ -413,7 +404,6 @@ def track_orientation_inv_l2(
         command_name: The command term to be used for extracting the goal.
         object_cfg: The configuration for the scene entity. Default is "object".
         rot_eps: The threshold for the orientation error. Default is 1e-3.
-        gravity_eps: Minimum gravity magnitude required to enable the reward.
     """
     # extract useful elements
     asset: RigidObject = env.scene[object_cfg.name]
@@ -421,8 +411,6 @@ def track_orientation_inv_l2(
         command_name
     )
     
-    if use_gravity_gate and not gravity_enabled(env, gravity_eps):
-        return torch.zeros(env.num_envs, device=env.device, dtype=asset.data.root_quat_w.dtype)
     # obtain the goal orientation
     goal_quat_w = command_term.command[:, 3:7]
     # calculate the orientation error
@@ -1253,6 +1241,80 @@ class collect_stable_grasp_states(ManagerTermBase):
         env.extras["stable_grasp_cache_path"] = str(self._cache_path)
 
 
+def _load_saved_stable_grasp_tensors(
+    env: ManagerBasedRLEnv,
+    robot_asset_cfg: SceneEntityCfg,
+    object_asset_cfg: SceneEntityCfg,
+    cache_path: str,
+) -> tuple[Articulation, RigidObject, dict[str, torch.Tensor | int]]:
+    """Load a stable-grasp cache into env-scoped torch tensors."""
+    robot: Articulation = env.scene[robot_asset_cfg.name]
+    obj: RigidObject = env.scene[object_asset_cfg.name]
+
+    cache_store = env.extras.setdefault("_stable_grasp_replay_cache", {})
+    cache_key = (str(cache_path), str(env.device))
+    cached_state = cache_store.get(cache_key)
+    if cached_state is None:
+        state = _load_stable_grasp_cache(cache_path)
+        joint_names = state.get("joint_names", [])
+        if joint_names and len(joint_names) != len(robot.joint_names):
+            raise ValueError("Stable grasp cache joint count does not match the current robot articulation.")
+
+        cached_state = {
+            "num_rows": state["robot_root_state"].shape[0],
+            "robot_root_state": torch.as_tensor(
+                state["robot_root_state"], dtype=torch.float32, device=env.device
+            ),
+            "object_root_state": torch.as_tensor(
+                state["object_root_state"], dtype=torch.float32, device=env.device
+            ),
+            "robot_joint_pos": torch.as_tensor(
+                state["robot_joint_pos"], dtype=torch.float32, device=env.device
+            ),
+            "robot_joint_vel": torch.as_tensor(
+                state["robot_joint_vel"], dtype=torch.float32, device=env.device
+            ),
+        }
+        cache_store[cache_key] = cached_state
+
+    return robot, obj, cached_state
+
+
+def reset_from_saved_stable_grasps(
+    env: ManagerBasedRLEnv,
+    env_ids: torch.Tensor | Sequence[int] | slice | None,
+    robot_asset_cfg: SceneEntityCfg = SceneEntityCfg("robot"),
+    object_asset_cfg: SceneEntityCfg = SceneEntityCfg("object"),
+    cache_path: str | None = None,
+):
+    """Sample arbitrary rows from a saved stable-grasp cache and apply them on reset.
+
+    This is a plain function variant of the replay term so the first reset does not
+    depend on Isaac Lab instantiating a ManagerTermBase-backed event class.
+    """
+    if cache_path is None:
+        raise ValueError("reset_from_saved_stable_grasps requires 'cache_path'.")
+
+    robot, obj, state = _load_saved_stable_grasp_tensors(env, robot_asset_cfg, object_asset_cfg, cache_path)
+
+    env_ids_t = _normalize_env_ids(env, env_ids)
+    sample_ids = torch.randint(0, state["num_rows"], (len(env_ids_t),), device=env.device)
+    env_origins = env.scene.env_origins.index_select(0, env_ids_t)
+
+    robot_root_state = state["robot_root_state"].index_select(0, sample_ids).clone()
+    object_root_state = state["object_root_state"].index_select(0, sample_ids).clone()
+    robot_root_state[:, 0:3] += env_origins
+    object_root_state[:, 0:3] += env_origins
+
+    robot_joint_pos = state["robot_joint_pos"].index_select(0, sample_ids).clone()
+    robot_joint_vel = state["robot_joint_vel"].index_select(0, sample_ids).clone()
+
+    robot.write_root_state_to_sim(robot_root_state, env_ids=env_ids_t)
+    obj.write_root_state_to_sim(object_root_state, env_ids=env_ids_t)
+    robot.write_joint_state_to_sim(robot_joint_pos, robot_joint_vel, env_ids=env_ids_t)
+    env.extras["stable_grasp_sample_ids"] = sample_ids.detach().cpu()
+
+
 class sample_saved_stable_grasps(ManagerTermBase):
     """Sample arbitrary rows from a saved stable-grasp cache and apply them on reset."""
 
@@ -1268,16 +1330,12 @@ class sample_saved_stable_grasps(ManagerTermBase):
         if cache_path is None:
             raise ValueError("sample_saved_stable_grasps requires 'cache_path'.")
 
-        state = _load_stable_grasp_cache(cache_path)
-        self._num_rows = state["robot_root_state"].shape[0]
-        self._robot_root_state = torch.as_tensor(state["robot_root_state"], dtype=torch.float32, device=env.device)
-        self._object_root_state = torch.as_tensor(state["object_root_state"], dtype=torch.float32, device=env.device)
-        self._robot_joint_pos = torch.as_tensor(state["robot_joint_pos"], dtype=torch.float32, device=env.device)
-        self._robot_joint_vel = torch.as_tensor(state["robot_joint_vel"], dtype=torch.float32, device=env.device)
-
-        joint_names = state.get("joint_names", [])
-        if joint_names and len(joint_names) != len(self._robot.joint_names):
-            raise ValueError("Stable grasp cache joint count does not match the current robot articulation.")
+        _, _, state = _load_saved_stable_grasp_tensors(env, robot_asset_cfg, object_asset_cfg, cache_path)
+        self._num_rows = state["num_rows"]
+        self._robot_root_state = state["robot_root_state"]
+        self._object_root_state = state["object_root_state"]
+        self._robot_joint_pos = state["robot_joint_pos"]
+        self._robot_joint_vel = state["robot_joint_vel"]
 
     def __call__(
         self,
@@ -1304,3 +1362,50 @@ class sample_saved_stable_grasps(ManagerTermBase):
         self._object.write_root_state_to_sim(object_root_state, env_ids=env_ids_t)
         self._robot.write_joint_state_to_sim(robot_joint_pos, robot_joint_vel, env_ids=env_ids_t)
         env.extras["stable_grasp_sample_ids"] = sample_ids.detach().cpu()
+
+
+class load_grasp(ManagerTermBase):
+    """Load grasp data and apply it on reset."""
+
+    def __init__(self, cfg: EventTermCfg, env: ManagerBasedRLEnv):
+        super().__init__(cfg, env)
+
+        # Load grasp data
+        grasp_data = utils.load_grasp_data(cfg.params["grasp_path"])  
+
+        self._robot_root_state = torch.as_tensor(grasp_data.robot_root_state, dtype=torch.float32, device=env.device)
+        self._robot_joint_pos = torch.as_tensor(grasp_data.robot_joint_pos, dtype=torch.float32, device=env.device)
+        self._robot_joint_vel = torch.as_tensor(grasp_data.robot_joint_vel, dtype=torch.float32, device=env.device)
+        self._object_root_state = torch.as_tensor(grasp_data.object_root_state, dtype=torch.float32, device=env.device)
+        self._num_rows = self._robot_root_state.shape[0]
+
+    def __call__(
+        self,
+        env: ManagerBasedRLEnv,
+        env_ids: torch.Tensor | Sequence[int] | slice | None,
+        robot_asset_cfg: SceneEntityCfg = SceneEntityCfg("robot"),
+        object_asset_cfg: SceneEntityCfg = SceneEntityCfg("object"),
+        grasp_path: str | None = None,
+    ):
+        # Get robot and object asset configurations
+        robot: Articulation = env.scene[robot_asset_cfg.name]
+        object: RigidObject = env.scene[object_asset_cfg.name]
+
+        env_ids_t = _normalize_env_ids(env, env_ids)
+        sample_ids = torch.randint(0, self._num_rows, (len(env_ids_t),), device=env.device)
+        env_origins = env.scene.env_origins.index_select(0, env_ids_t)
+
+        robot_root_state = self._robot_root_state.index_select(0, sample_ids).clone()
+        robot_root_state[:, 0:3] += env_origins
+        robot_root_state[:, 7:] = 0.0
+
+        object_root_state = self._object_root_state.index_select(0, sample_ids).clone()
+        object_root_state[:, 0:3] += env_origins
+        object_root_state[:, 7:] = 0.0 # set velocity to zero
+
+        robot_joint_pos = self._robot_joint_pos.index_select(0, sample_ids).clone()
+        robot_joint_vel = self._robot_joint_vel.index_select(0, sample_ids).clone()
+
+        robot.write_root_state_to_sim(robot_root_state, env_ids=env_ids_t)
+        object.write_root_state_to_sim(object_root_state, env_ids=env_ids_t)
+        robot.write_joint_state_to_sim(robot_joint_pos, robot_joint_vel, env_ids=env_ids_t)

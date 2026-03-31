@@ -70,6 +70,22 @@ def _resolve_object_asset_path(cfg: "StableGraspMixinCfg") -> str | None:
     return None
 
 
+def _resolve_explicit_object_asset_path(cfg: "StableGraspMixinCfg") -> str | None:
+    """Resolve an object asset path only from explicit config or the scene object itself."""
+    if cfg.object_asset_path is not None:
+        return cfg.object_asset_path
+    if getattr(cfg, "object_urdf_path", None) is not None:
+        return cfg.object_urdf_path
+
+    scene_object = getattr(getattr(cfg, "scene", None), "object", None)
+    if scene_object is not None and getattr(scene_object, "spawn", None) is not None:
+        asset_path = getattr(scene_object.spawn, "asset_path", None)
+        if asset_path:
+            return asset_path
+
+    return None
+
+
 def _make_single_object_cfg(asset_path: str, scale: float) -> RigidObjectCfg:
     """Create the single-object rigid-body config used for generation and replay."""
     return RigidObjectCfg(
@@ -234,7 +250,7 @@ class StableGraspGenEventsCfg:
 @configclass
 class StableGraspReplayEventsCfg:
     reset_from_saved_stable_grasp = EventTerm(
-        func=task_mdp.sample_saved_stable_grasps,
+        func=task_mdp.reset_from_saved_stable_grasps,
         mode="reset",
         params={
             "robot_asset_cfg": SceneEntityCfg("robot"),
@@ -294,7 +310,7 @@ class StableGraspMixinCfg:
 
     def _configure_single_object_scene(self):
         """Replace the multi-asset object with a single fixed object asset when provided."""
-        asset_path = _resolve_object_asset_path(self)
+        asset_path = self.object_asset_path
         if asset_path is None:
             return
 
@@ -355,7 +371,7 @@ class LeapObjectGraspInitEnvCfg(StableGraspMixinCfg, LeapObjectEnvCfg):
         super().__post_init__()
 
         self.grasp_cache_path = self.grasp_cache_path or self.grasp_path or _default_grasp_cache_path()
-        self.object_asset_path = _resolve_object_asset_path(self)
+        self.object_asset_path = _resolve_explicit_object_asset_path(self)
         self._configure_single_object_scene()
         self._configure_grasp_contact_sensors()
 

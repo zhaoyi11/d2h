@@ -1175,7 +1175,7 @@ def _get_success_mask(env: ManagerBasedRLEnv) -> torch.Tensor:
         "middle_tip_object_s",
         "ring_tip_object_s",
     ]
-    DISTANCE_THRESHOLD = 0.05
+    DISTANCE_THRESHOLD = 0.10
     CONTACT_FORCE_THRESHOLD = 1e-3
     MIN_CONTACTS = 2
 

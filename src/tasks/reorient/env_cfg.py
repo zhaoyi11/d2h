@@ -60,64 +60,64 @@ class InHandObjectSceneCfg(InteractiveSceneCfg):
                     size=(0.05, 0.1, 0.1),
                     physics_material=RigidBodyMaterialCfg(static_friction=0.5),
                 ),
-                CuboidCfg(
-                    size=(0.05, 0.05, 0.1),
-                    physics_material=RigidBodyMaterialCfg(static_friction=0.5),
-                ),
-                CuboidCfg(
-                    size=(0.025, 0.1, 0.1),
-                    physics_material=RigidBodyMaterialCfg(static_friction=0.5),
-                ),
-                CuboidCfg(
-                    size=(0.025, 0.05, 0.1),
-                    physics_material=RigidBodyMaterialCfg(static_friction=0.5),
-                ),
-                CuboidCfg(
-                    size=(0.025, 0.025, 0.1),
-                    physics_material=RigidBodyMaterialCfg(static_friction=0.5),
-                ),
-                CuboidCfg(
-                    size=(0.01, 0.1, 0.1),
-                    physics_material=RigidBodyMaterialCfg(static_friction=0.5),
-                ),
-                SphereCfg(
-                    radius=0.05,
-                    physics_material=RigidBodyMaterialCfg(static_friction=0.5),
-                ),
-                SphereCfg(
-                    radius=0.025,
-                    physics_material=RigidBodyMaterialCfg(static_friction=0.5),
-                ),
-                CapsuleCfg(
-                    radius=0.04,
-                    height=0.025,
-                    physics_material=RigidBodyMaterialCfg(static_friction=0.5),
-                ),
-                CapsuleCfg(
-                    radius=0.04,
-                    height=0.01,
-                    physics_material=RigidBodyMaterialCfg(static_friction=0.5),
-                ),
-                CapsuleCfg(
-                    radius=0.04,
-                    height=0.1,
-                    physics_material=RigidBodyMaterialCfg(static_friction=0.5),
-                ),
-                CapsuleCfg(
-                    radius=0.025,
-                    height=0.1,
-                    physics_material=RigidBodyMaterialCfg(static_friction=0.5),
-                ),
-                ConeCfg(
-                    radius=0.05,
-                    height=0.1,
-                    physics_material=RigidBodyMaterialCfg(static_friction=0.5),
-                ),
-                ConeCfg(
-                    radius=0.025,
-                    height=0.1,
-                    physics_material=RigidBodyMaterialCfg(static_friction=0.5),
-                ),
+                # CuboidCfg(
+                #     size=(0.05, 0.05, 0.1),
+                #     physics_material=RigidBodyMaterialCfg(static_friction=0.5),
+                # ),
+                # CuboidCfg(
+                #     size=(0.025, 0.1, 0.1),
+                #     physics_material=RigidBodyMaterialCfg(static_friction=0.5),
+                # ),
+                # CuboidCfg(
+                #     size=(0.025, 0.05, 0.1),
+                #     physics_material=RigidBodyMaterialCfg(static_friction=0.5),
+                # ),
+                # CuboidCfg(
+                #     size=(0.025, 0.025, 0.1),
+                #     physics_material=RigidBodyMaterialCfg(static_friction=0.5),
+                # ),
+                # CuboidCfg(
+                #     size=(0.01, 0.1, 0.1),
+                #     physics_material=RigidBodyMaterialCfg(static_friction=0.5),
+                # ),
+                # SphereCfg(
+                #     radius=0.05,
+                #     physics_material=RigidBodyMaterialCfg(static_friction=0.5),
+                # ),
+                # SphereCfg(
+                #     radius=0.025,
+                #     physics_material=RigidBodyMaterialCfg(static_friction=0.5),
+                # ),
+                # CapsuleCfg(
+                #     radius=0.04,
+                #     height=0.025,
+                #     physics_material=RigidBodyMaterialCfg(static_friction=0.5),
+                # ),
+                # CapsuleCfg(
+                #     radius=0.04,
+                #     height=0.01,
+                #     physics_material=RigidBodyMaterialCfg(static_friction=0.5),
+                # ),
+                # CapsuleCfg(
+                #     radius=0.04,
+                #     height=0.1,
+                #     physics_material=RigidBodyMaterialCfg(static_friction=0.5),
+                # ),
+                # CapsuleCfg(
+                #     radius=0.025,
+                #     height=0.1,
+                #     physics_material=RigidBodyMaterialCfg(static_friction=0.5),
+                # ),
+                # ConeCfg(
+                #     radius=0.05,
+                #     height=0.1,
+                #     physics_material=RigidBodyMaterialCfg(static_friction=0.5),
+                # ),
+                # ConeCfg(
+                #     radius=0.025,
+                #     height=0.1,
+                #     physics_material=RigidBodyMaterialCfg(static_friction=0.5),
+                # ),
             ],
             rigid_props=sim_utils.RigidBodyPropertiesCfg(
                 solver_position_iteration_count=16,
@@ -157,9 +157,9 @@ class CommandsCfg:
 
     object_pose = task_mdp.InHandReOrientationCommandCfg(
         asset_name="object",
-        random_range=0,
+        random_range=0.3,
         init_pos_offset=(0.0, 0.0, 0.0),
-        update_goal_on_success=False,
+        update_goal_on_success=True,
         orientation_success_threshold=0.3,
         make_quat_unique=False,
         marker_pos_offset=(-0.2, -0.06, 0.08),
@@ -184,7 +184,7 @@ class ActionsCfg:
     #    joint_names=[".*"],
     #    # debug_vis=True,
     #    use_zero_offset=False,
-    #    # scale=0.3,
+    #    scale=0.3,
     # )
 
     # joint_pos = mdp.EMACumulativeRelativeJointPositionActionCfg(
@@ -256,18 +256,18 @@ class ObservationsCfg:
             params={"asset_cfg": SceneEntityCfg("object")},
         )
 
-        # # -- command terms
-        # goal_pose = ObsTerm(
-        #     func=mdp.generated_commands, params={"command_name": "object_pose"}
-        # )
-        # goal_quat_diff = ObsTerm(
-        #     func=mdp.goal_quat_diff,
-        #     params={
-        #         "asset_cfg": SceneEntityCfg("object"),
-        #         "command_name": "object_pose",
-        #         "make_quat_unique": False,
-        #     },
-        # )
+        # -- command terms
+        goal_pose = ObsTerm(
+            func=mdp.generated_commands, params={"command_name": "object_pose"}
+        )
+        goal_quat_diff = ObsTerm(
+            func=mdp.goal_quat_diff,
+            params={
+                "asset_cfg": SceneEntityCfg("object"),
+                "command_name": "object_pose",
+                "make_quat_unique": False,
+            },
+        )
 
         # -- action terms
         last_action = ObsTerm(func=mdp.last_action)
@@ -376,46 +376,48 @@ class EventCfg:
         },
     )
 
-    randomize_hand_object_default_pose = EventTerm(
-        func=task_mdp.randomize_hand_object_default_pose,
-        mode="startup",
-        params={
-            "base_asset_cfg": SceneEntityCfg("robot", body_names="base"),
-            "object_asset_cfg": SceneEntityCfg("object"),
-            "roll_range": (-torch.pi, torch.pi),
-            "pitch_range": (-torch.pi, torch.pi),
-            "yaw_range": (-torch.pi, torch.pi),
-        },
-    )
+    # randomize_hand_object_default_pose = EventTerm(
+    #     func=task_mdp.randomize_hand_object_default_pose,
+    #     mode="startup",
+    #     params={
+    #         "base_asset_cfg": SceneEntityCfg("robot", body_names="base"),
+    #         "object_asset_cfg": SceneEntityCfg("object"),
+    #         "roll_range": (-torch.pi, torch.pi),
+    #         "pitch_range": (-torch.pi, torch.pi),
+    #         "yaw_range": (-torch.pi, torch.pi),
+    #     },
+    # )
 
     # reset
-    reset_object = EventTerm(
-        func=mdp.reset_root_state_uniform,
-        mode="reset",
-        params={
-            # "pose_range": {"x": [-0.01, 0.01], "y": [-0.01, 0.01], # TODO: disable this for now. later can change this when generating grasp data.
-            "pose_range": {
-                "x": [0.0, 0.0],
-                "y": [0.0, 0.0],
-                #  "z": [-0.01, 0.01]
-                "z": [0.0, 0.0],
-            },
-            "velocity_range": {},
-            "asset_cfg": SceneEntityCfg("object", body_names=".*"),
-        },
-    )
+    # reset_object = EventTerm(
+    #     func=mdp.reset_root_state_uniform,
+    #     mode="reset",
+    #     params={
+    #         # "pose_range": {"x": [-0.01, 0.01], "y": [-0.01, 0.01], # TODO: disable this for now. later can change this when generating grasp data.
+    #         "pose_range": {
+    #             "x": [0.0, 0.0],
+    #             "y": [0.0, 0.0],
+    #             #  "z": [-0.01, 0.01]
+    #             "z": [0.0, 0.0],
+    #         },
+    #         "velocity_range": {},
+    #         "asset_cfg": SceneEntityCfg("object", body_names=".*"),
+    #     },
+    # )
 
-    reset_robot_joints = EventTerm(
-        func=task_mdp.reset_joints_within_limits_range,
-        mode="reset",
-        params={
-            # "position_range": {".*": [0.2, 0.2]},
-            "position_range": {".*": [0.0, 0.0]},
-            "velocity_range": {".*": [0.0, 0.0]},
-            "use_default_offset": True,
-            "operation": "scale",
-        },
-    )
+    # reset_robot_joints = EventTerm(
+    #     func=task_mdp.reset_joints_within_limits_range,
+    #     mode="reset",
+    #     params={
+    #         # "position_range": {".*": [0.2, 0.2]},
+    #         "position_range": {".*": [0.0, 0.0]},
+    #         "velocity_range": {".*": [0.0, 0.0]},
+    #         "use_default_offset": True,
+    #         "operation": "scale",
+    #     },
+    # )
+
+    load_grasp: EventTerm | None = None
 
     # reset gravity to zero and then set it to -9.81 m/s^2 in
     reset_gravity = EventTerm(
@@ -427,6 +429,7 @@ class EventCfg:
         },
     )
 
+    # TODO: add this later.
     # variable_gravity = EventTerm(
     #     func=mdp.randomize_physics_scene_gravity,
     #     mode="interval",
@@ -450,29 +453,27 @@ class RewardsCfg:
     #         "object_cfg": SceneEntityCfg("object"),
     #         "command_name": "object_pose",
     #         "max_pos_error": 3.0,
-    #         "use_gravity_gate": True,
     #     },
     # )
-    # track_orientation_inv_l2 = RewTerm(
-    #     func=task_mdp.track_orientation_inv_l2,
-    #     weight=1.0,
-    #     params={
-    #         "object_cfg": SceneEntityCfg("object"),
-    #         "rot_eps": 0.1,
-    #         "command_name": "object_pose",
-    #         "use_gravity_gate": True,
-    #     },
-    # )
+    track_orientation_inv_l2 = RewTerm(
+        func=task_mdp.track_orientation_inv_l2,
+        weight=3.0,
+        params={
+            "object_cfg": SceneEntityCfg("object"),
+            "rot_eps": 0.1,
+            "command_name": "object_pose",
+        },
+    )
 
     fingertip_obj_dist = RewTerm(
         func=task_mdp.neg_fingertip_object_distance,
-        weight=3.0,
+        weight=0.5,
     )
 
     # TODO: add contact ralated info later.
     fingertip_contact = RewTerm(
         func=task_mdp.fingertip_object_contacts,
-        weight=3,
+        weight=1.0,
         params={
             "contact_sensor_names": [
                 "thumb_tip_object_s",
@@ -483,35 +484,37 @@ class RewardsCfg:
         },
     )
 
-    # success_bonus = RewTerm(
-    #     func=task_mdp.success_bonus,
-    #     weight=5.0,
-    #     params={"object_cfg": SceneEntityCfg("object"), "command_name": "object_pose"},
-    # )
+    success_bonus = RewTerm(
+        func=task_mdp.success_bonus,
+        weight=250.0,
+        params={"object_cfg": SceneEntityCfg("object"), "command_name": "object_pose"},
+    )
 
     # penalties
     joint_vel_l2 = RewTerm(func=mdp.joint_vel_l2, weight=-2.5e-5)
-    joint_pos_default_l2 = RewTerm(func=task_mdp.joint_pos_default_l2, weight=-1e-3)
+    # joint_pos_default_l2 = RewTerm(func=task_mdp.joint_pos_default_l2, weight=-1e-3)
     action_l2 = RewTerm(func=mdp.action_l2, weight=-0.0001)
     action_rate_l2 = RewTerm(func=mdp.action_rate_l2, weight=-0.01)
 
     # object_away_penalty = RewTerm(
     #     func=task_mdp.object_away_from_robot,
-    #     weight=-1,
+    #     weight=-5.0,
     #     params={"threshold": 0.3},
     # )
 
+    object_away_penalty = RewTerm(func=mdp.is_terminated_term, weight=-2.0, params={"term_keys": "object_out_of_reach"})
 
 @configclass
 class TerminationsCfg:
     """Termination terms for the MDP."""
+    pass
 
     time_out = DoneTerm(func=mdp.time_out, time_out=True)
 
-    # max_consecutive_success = DoneTerm(
-    #     func=task_mdp.max_consecutive_success,
-    #     params={"num_success": 6, "command_name": "object_pose"},
-    # )
+    max_consecutive_success = DoneTerm(
+        func=task_mdp.max_consecutive_success,
+        params={"num_success": 6, "command_name": "object_pose"},
+    )
 
     object_out_of_reach = DoneTerm(
         func=task_mdp.object_away_from_robot, params={"threshold": 0.3}
@@ -558,7 +561,7 @@ class InHandObjectEnvCfg(ManagerBasedRLEnvCfg):
         """Post initialization."""
         # general settings
         self.decimation = 4  # 25 Hz
-        self.episode_length_s = 3  # 10 seconds
+        self.episode_length_s = 20  # 20 seconds
         # simulation settings
         self.sim.dt = 1.0 / 120.0
         self.sim.render_interval = self.decimation
@@ -694,83 +697,19 @@ class LeapObjectEnvCfg(InHandObjectEnvCfg):
                 ),
             )
 
-        # # Initial robot and object state
-        # if self.grasp_path is not None and self.object_urdf_path is not None:
-        #     grasp_init = load_grasp_init(
-        #         self.grasp_path,
-        #         self.object_urdf_path,
-        #         self.object_scale_override,
-        #         base_pos=(0, 0, 0),
-        #         base_rot=_BASE_ROT_WXYZ,
-        #     )
+        # Initial robot and object state
+        self.events.load_grasp = EventTerm(
+            func=task_mdp.load_grasp,
+            mode="reset",
+            params={
+                "robot_asset_cfg": SceneEntityCfg("robot"),
+                "object_asset_cfg": SceneEntityCfg("object", body_names=".*"),
+                "grasp_path": self.grasp_path,
+            },
+        )
 
-        #     self.scene.robot = self.scene.robot.replace(
-        #         init_state=ArticulationCfg.InitialStateCfg(
-        #             pos=(0, 0, 0),
-        #             rot=_BASE_ROT_WXYZ,
-        #         ),
-        #     )
+        # 
 
-        #     self._apply_grasp_events(grasp_init)
-
-    # # TODO: check this later.
-    # def _apply_grasp_events(self, grasp_init: GraspInitData):
-    #     """Configure scene and reset events from precomputed grasp data."""
-    #     object_asset_path = (
-    #         grasp_init.object_asset_path
-    #         if grasp_init.object_asset_path is not None
-    #         else self.scene.object.spawn.asset_path
-    #     )
-
-    #     object_pos_rot = _rotate_pos_by_quat_wxyz(_BASE_ROT_WXYZ, grasp_init.object_pos)
-    #     object_quat_rot = _quat_mul_wxyz(_BASE_ROT_WXYZ, grasp_init.object_quat)
-
-    #     self.scene.object = self.scene.object.replace(
-    #         spawn=self.scene.object.spawn.replace(
-    #             asset_path=object_asset_path,
-    #             scale=(
-    #                 # 0.1,
-    #                 # 0.1,
-    #                 # 0.1,  # TODO: !!!!! change this
-    #                 grasp_init.object_scale,
-    #                 grasp_init.object_scale,
-    #                 grasp_init.object_scale,
-    #             ),
-    #         ),
-    #         init_state=RigidObjectCfg.InitialStateCfg(
-    #             pos=object_pos_rot, rot=object_quat_rot
-    #         ),
-    #     )
-
-    #     self.events.reset_object = EventTerm(
-    #         func=mdp.reset_root_state_from_pose,
-    #         mode="reset",
-    #         params={
-    #             "asset_cfg": SceneEntityCfg("object", body_names=".*"),
-    #             "pose": (*object_pos_rot, *object_quat_rot),
-    #             "velocity": (0.0, 0.0, 0.0, 0.0, 0.0, 0.0),
-    #         },
-    #     )
-
-    #     # set robot joint positions to the precomputed grasp joint positions (conversion between MuJoCo order and IsaacGym order)
-    #     self.events.reset_robot_joints = EventTerm(
-    #         func=mdp.reset_joints_to_fixed,
-    #         mode="reset",
-    #         params={
-    #             "asset_cfg": SceneEntityCfg("robot", joint_names=".*"),
-    #             "joint_pos": grasp_init.robot_joint_pos,
-    #         },
-    #     )
-
-    #     self.events.reset_robot_root = EventTerm(
-    #         func=mdp.reset_root_state_from_pose,
-    #         mode="reset",
-    #         params={
-    #             "asset_cfg": SceneEntityCfg("robot"),
-    #             "pose": (0.0, 0.0, 0.0, *_BASE_ROT_WXYZ),
-    #             "velocity": (0.0, 0.0, 0.0, 0.0, 0.0, 0.0),
-    #         },
-    #     )
 
 
 @configclass
@@ -812,3 +751,32 @@ class LeapObjectNoVelObsEnvCfg_PLAY(LeapObjectNoVelObsEnvCfg):
         self.observations.policy.enable_corruption = False
         # remove termination due to timeouts
         self.terminations.time_out = None
+
+
+@configclass
+class GraspReplayActionsCfg:
+    joint_pos = mdp.RelativeJointPositionActionCfg(
+        asset_name="robot",
+        joint_names=[".*"],
+        debug_vis=True,
+        use_zero_offset=True,
+        scale=0.25,
+        offset=0.0,
+    )
+
+@configclass
+class LeapObjectReplayEnvCfg(LeapObjectEnvCfg):
+    """ Replay grasp data from a file. """
+
+    def __post_init__(self):
+        # post init of parent
+        super().__post_init__()
+        # make a smaller scene for play
+        self.scene.num_envs = 2048
+        # disable randomization for play
+        self.observations.policy.enable_corruption = False
+        # enable gravity
+        self.events.reset_gravity.params["gravity_distribution_params"] = (
+            [0.0, 0.0, -9.81],
+            [0.0, 0.0, -9.81],
+        )

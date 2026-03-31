@@ -81,20 +81,11 @@ from isaaclab_tasks.utils.hydra import hydra_task_config
 # Import our custom env registry so that Gym knows about the task
 # before Hydra / gym.spec() tries to look them up.
 import src.tasks  
+from src.utils import apply_grasp_overrides_from_cli
 
 def _apply_grasp_overrides(env_cfg, args_cli):
     """Apply grasp/object overrides for both legacy and current env config schemas."""
-    if hasattr(env_cfg, "grasp_path"):
-        if args_cli.grasp_path is not None:
-            env_cfg.grasp_path = args_cli.grasp_path
-        if args_cli.obj_urdf_path is not None:
-            env_cfg.object_urdf_path = args_cli.obj_urdf_path
-        if args_cli.obj_scale is not None:
-            env_cfg.object_scale_override = args_cli.obj_scale
-
-        # Re-run post init after CLI overrides so grasp/object init state is applied.
-        if env_cfg.grasp_path is not None and env_cfg.object_urdf_path is not None:
-            env_cfg.__post_init__()
+    if apply_grasp_overrides_from_cli(env_cfg, args_cli):
         return
 
     if hasattr(env_cfg, "grasp_data_path"):

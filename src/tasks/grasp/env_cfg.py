@@ -57,64 +57,64 @@ class InHandObjectSceneCfg(InteractiveSceneCfg):
                     size=(0.05, 0.1, 0.1),
                     physics_material=RigidBodyMaterialCfg(static_friction=0.5),
                 ),
-                CuboidCfg(
-                    size=(0.05, 0.05, 0.1),
-                    physics_material=RigidBodyMaterialCfg(static_friction=0.5),
-                ),
-                CuboidCfg(
-                    size=(0.025, 0.1, 0.1),
-                    physics_material=RigidBodyMaterialCfg(static_friction=0.5),
-                ),
-                CuboidCfg(
-                    size=(0.025, 0.05, 0.1),
-                    physics_material=RigidBodyMaterialCfg(static_friction=0.5),
-                ),
-                CuboidCfg(
-                    size=(0.025, 0.025, 0.1),
-                    physics_material=RigidBodyMaterialCfg(static_friction=0.5),
-                ),
-                CuboidCfg(
-                    size=(0.01, 0.1, 0.1),
-                    physics_material=RigidBodyMaterialCfg(static_friction=0.5),
-                ),
-                SphereCfg(
-                    radius=0.05,
-                    physics_material=RigidBodyMaterialCfg(static_friction=0.5),
-                ),
-                SphereCfg(
-                    radius=0.025,
-                    physics_material=RigidBodyMaterialCfg(static_friction=0.5),
-                ),
-                CapsuleCfg(
-                    radius=0.04,
-                    height=0.025,
-                    physics_material=RigidBodyMaterialCfg(static_friction=0.5),
-                ),
-                CapsuleCfg(
-                    radius=0.04,
-                    height=0.01,
-                    physics_material=RigidBodyMaterialCfg(static_friction=0.5),
-                ),
-                CapsuleCfg(
-                    radius=0.04,
-                    height=0.1,
-                    physics_material=RigidBodyMaterialCfg(static_friction=0.5),
-                ),
-                CapsuleCfg(
-                    radius=0.025,
-                    height=0.1,
-                    physics_material=RigidBodyMaterialCfg(static_friction=0.5),
-                ),
-                ConeCfg(
-                    radius=0.05,
-                    height=0.1,
-                    physics_material=RigidBodyMaterialCfg(static_friction=0.5),
-                ),
-                ConeCfg(
-                    radius=0.025,
-                    height=0.1,
-                    physics_material=RigidBodyMaterialCfg(static_friction=0.5),
-                ),
+                # CuboidCfg(
+                #     size=(0.05, 0.05, 0.1),
+                #     physics_material=RigidBodyMaterialCfg(static_friction=0.5),
+                # ),
+                # CuboidCfg(
+                #     size=(0.025, 0.1, 0.1),
+                #     physics_material=RigidBodyMaterialCfg(static_friction=0.5),
+                # ),
+                # CuboidCfg(
+                #     size=(0.025, 0.05, 0.1),
+                #     physics_material=RigidBodyMaterialCfg(static_friction=0.5),
+                # ),
+                # CuboidCfg(
+                #     size=(0.025, 0.025, 0.1),
+                #     physics_material=RigidBodyMaterialCfg(static_friction=0.5),
+                # ),
+                # CuboidCfg(
+                #     size=(0.01, 0.1, 0.1),
+                #     physics_material=RigidBodyMaterialCfg(static_friction=0.5),
+                # ),
+                # SphereCfg(
+                #     radius=0.05,
+                #     physics_material=RigidBodyMaterialCfg(static_friction=0.5),
+                # ),
+                # SphereCfg(
+                #     radius=0.025,
+                #     physics_material=RigidBodyMaterialCfg(static_friction=0.5),
+                # ),
+                # CapsuleCfg(
+                #     radius=0.04,
+                #     height=0.025,
+                #     physics_material=RigidBodyMaterialCfg(static_friction=0.5),
+                # ),
+                # CapsuleCfg(
+                #     radius=0.04,
+                #     height=0.01,
+                #     physics_material=RigidBodyMaterialCfg(static_friction=0.5),
+                # ),
+                # CapsuleCfg(
+                #     radius=0.04,
+                #     height=0.1,
+                #     physics_material=RigidBodyMaterialCfg(static_friction=0.5),
+                # ),
+                # CapsuleCfg(
+                #     radius=0.025,
+                #     height=0.1,
+                #     physics_material=RigidBodyMaterialCfg(static_friction=0.5),
+                # ),
+                # ConeCfg(
+                #     radius=0.05,
+                #     height=0.1,
+                #     physics_material=RigidBodyMaterialCfg(static_friction=0.5),
+                # ),
+                # ConeCfg(
+                #     radius=0.025,
+                #     height=0.1,
+                #     physics_material=RigidBodyMaterialCfg(static_friction=0.5),
+                # ),
             ],
             rigid_props=sim_utils.RigidBodyPropertiesCfg(
                 solver_position_iteration_count=16,
@@ -653,8 +653,10 @@ class LeapObjectEnvCfg(InHandObjectEnvCfg):
             )
 
 
+
 @configclass
-class LeapObjectEnvCfg_PLAY(LeapObjectEnvCfg):
+class LeapObjectCollectGraspEnvCfg(LeapObjectEnvCfg):
+    """ Save grasp data to a file. """
     events: GraspGenEventCfg = GraspGenEventCfg()
 
     def __post_init__(self):
@@ -669,3 +671,22 @@ class LeapObjectEnvCfg_PLAY(LeapObjectEnvCfg):
         self.events.save_grasp_data.params["cache_path"] = "grasp_data"
         self.events.save_grasp_data.params["max_cached_grasp_size"] = 1000
         self.events.save_grasp_data.params["object_asset_path"] = "object_asset"
+
+
+
+@configclass
+class LeapObjectReplayEnvCfg(LeapObjectEnvCfg):
+    """ Replay grasp data from a checkpoint. """
+
+    def __post_init__(self):
+        # post init of parent
+        super().__post_init__()
+        # make a smaller scene for play
+        self.scene.num_envs = 2048
+        # disable randomization for play
+        self.observations.policy.enable_corruption = False
+        # enable gravity
+        self.events.reset_gravity.params["gravity_distribution_params"] = (
+            [0.0, 0.0, -9.81],
+            [0.0, 0.0, -9.81],
+        )

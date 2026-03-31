@@ -37,6 +37,7 @@ import isaaclab_tasks  # noqa: F401
 import src.tasks  # noqa: F401
 import torch
 from isaaclab_tasks.utils import parse_env_cfg
+from src.utils import apply_grasp_overrides_from_cli
 
 
 def main():
@@ -46,14 +47,7 @@ def main():
         args_cli.task, device=args_cli.device, num_envs=args_cli.num_envs, use_fabric=not args_cli.disable_fabric
     )
     # load grasp/object overrides from CLI and re-apply post-init dependent fields
-    if args_cli.grasp_path is not None:
-        env_cfg.grasp_path = args_cli.grasp_path
-    if args_cli.obj_urdf_path is not None:
-        env_cfg.object_urdf_path = args_cli.obj_urdf_path
-    if args_cli.obj_scale is not None:
-        env_cfg.object_scale_override = args_cli.obj_scale
-    if args_cli.grasp_path is not None and args_cli.obj_urdf_path is not None:
-        env_cfg.__post_init__()
+    apply_grasp_overrides_from_cli(env_cfg, args_cli)
     # create environment
     env = gym.make(args_cli.task, cfg=env_cfg)
 

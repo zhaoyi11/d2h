@@ -6,3 +6,4 @@ from src.tasks.common.mdps.rewards import *
 from src.tasks.common.mdps.terminations import *  
 from src.tasks.common.mdps.curriculums import *  
 from src.tasks.common.mdps.events import *  
+from src.tasks.common.mdps.action_manager import *  

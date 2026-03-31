@@ -24,12 +24,13 @@ gym.register(
     },
 )
 
+# Grasp Environments
 gym.register(
-    id="GraspGen-v0",
+    id="Grasp-v0",
     entry_point="isaaclab.envs:ManagerBasedRLEnv",
     disable_env_checker=True,
     kwargs={
-        "env_cfg_entry_point": f"{__name__}.reorient.env_cfg_grasp_gen:LeapObjectEnvCfg2",
+        "env_cfg_entry_point": f"{__name__}.grasp.env_cfg:LeapObjectEnvCfg",
         "rsl_rl_cfg_entry_point": "src.tasks.reorient.rsl_rl_ppo_cfg:LeapObjectRslRlPpoCfg",
     },
 )
@@ -38,20 +39,31 @@ gym.register(
     entry_point="isaaclab.envs:ManagerBasedRLEnv",
     disable_env_checker=True,
     kwargs={
-        "env_cfg_entry_point": f"{__name__}.grasp.env_cfg:LeapObjectEnvCfg_PLAY",
+        "env_cfg_entry_point": f"{__name__}.grasp.env_cfg:LeapObjectCollectGraspEnvCfg",
         "rsl_rl_cfg_entry_point": "src.tasks.grasp.rsl_rl_ppo_cfg:LeapObjectRslRlPpoCfg",
     },
 )
 
 gym.register(
-    id="Reorient_GraspInit-v0",
+    id="GraspReplay-v0",
     entry_point="isaaclab.envs:ManagerBasedRLEnv",
     disable_env_checker=True,
     kwargs={
-        "env_cfg_entry_point": f"{__name__}.reorient.grasp_init_cfg:LeapObjectGraspInitEnvCfg",
-        "rsl_rl_cfg_entry_point": "src.tasks.reorient.rsl_rl_ppo_cfg:LeapObjectRslRlPpoCfg",
+        "env_cfg_entry_point": f"{__name__}.grasp.env_cfg:LeapObjectReplayEnvCfg",
+        "rsl_rl_cfg_entry_point": "src.tasks.grasp.rsl_rl_ppo_cfg:LeapObjectRslRlPpoCfg",
     },
 )
+
+# # Reorient Environments
+# gym.register(
+#     id="Reorient_GraspInit-v0",
+#     entry_point="isaaclab.envs:ManagerBasedRLEnv",
+#     disable_env_checker=True,
+#     kwargs={
+#         "env_cfg_entry_point": f"{__name__}.reorient.grasp_init_cfg:LeapObjectGraspInitEnvCfg",
+#         "rsl_rl_cfg_entry_point": "src.tasks.reorient.rsl_rl_ppo_cfg:LeapObjectRslRlPpoCfg",
+#     },
+# )
 
 # Pick_AnyRotate Environment
 gym.register(
