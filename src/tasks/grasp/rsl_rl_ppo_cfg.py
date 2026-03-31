@@ -8,6 +8,6 @@ class LeapObjectRslRlPpoCfg(RslRlPpoCfgBase):
     experiment_name = "reorient"
     obs_groups = {"policy": ["policy", "perception"], "critic": ["policy", "perception"]}
     # obs_groups = {"policy": ["policy"], "critic": ["policy"]}
-    max_iterations = 15000
+    max_iterations = 1000
     save_interval = 250
 

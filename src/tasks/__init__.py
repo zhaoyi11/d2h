@@ -31,7 +31,7 @@ gym.register(
     disable_env_checker=True,
     kwargs={
         "env_cfg_entry_point": f"{__name__}.grasp.env_cfg:LeapObjectEnvCfg",
-        "rsl_rl_cfg_entry_point": "src.tasks.reorient.rsl_rl_ppo_cfg:LeapObjectRslRlPpoCfg",
+        "rsl_rl_cfg_entry_point": "src.tasks.grasp.rsl_rl_ppo_cfg:LeapObjectRslRlPpoCfg",
     },
 )
 gym.register(

@@ -53,10 +53,10 @@ class InHandObjectSceneCfg(InteractiveSceneCfg):
         prim_path="{ENV_REGEX_NS}/Object",
         spawn=sim_utils.MultiAssetSpawnerCfg(
             assets_cfg=[
-                CuboidCfg(
-                    size=(0.05, 0.1, 0.1),
-                    physics_material=RigidBodyMaterialCfg(static_friction=0.5),
-                ),
+                # CuboidCfg(
+                #     size=(0.05, 0.1, 0.1),
+                #     physics_material=RigidBodyMaterialCfg(static_friction=0.5),
+                # ),
                 # CuboidCfg(
                 #     size=(0.05, 0.05, 0.1),
                 #     physics_material=RigidBodyMaterialCfg(static_friction=0.5),
@@ -77,10 +77,10 @@ class InHandObjectSceneCfg(InteractiveSceneCfg):
                 #     size=(0.01, 0.1, 0.1),
                 #     physics_material=RigidBodyMaterialCfg(static_friction=0.5),
                 # ),
-                # SphereCfg(
-                #     radius=0.05,
-                #     physics_material=RigidBodyMaterialCfg(static_friction=0.5),
-                # ),
+                SphereCfg(
+                    radius=0.05,
+                    physics_material=RigidBodyMaterialCfg(static_friction=0.5),
+                ),
                 # SphereCfg(
                 #     radius=0.025,
                 #     physics_material=RigidBodyMaterialCfg(static_friction=0.5),
