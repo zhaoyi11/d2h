@@ -120,7 +120,7 @@ class CommandsCfg:
         orientation_success_threshold=0.3,
         make_quat_unique=False,
         marker_pos_offset=(-0.2, -0.06, 0.08),
-        debug_vis=True,
+        debug_vis=False,
     )
 
 
@@ -396,7 +396,6 @@ class GraspGenEventCfg(EventCfg):
             "object_asset_cfg": SceneEntityCfg("object"),
             "cache_path": "/home/yizha/yi/D2H/grasp_data",
             "max_cached_grasp_size": 100,
-            "object_asset_path": "object_asset",
         },
     )
 
@@ -574,7 +573,7 @@ class LeapObjectEnvCfg(InHandObjectEnvCfg):
                     offset=OffsetCfg(pos=(0.0, -0.03, 0.015)),
                 ),
             ],
-            debug_vis=True,
+            debug_vis=False,
             visualizer_cfg=FRAME_MARKER_CFG.replace(
                 prim_path="/Visuals/FrameTransformer",
                 markers={
@@ -608,7 +607,7 @@ class LeapObjectEnvCfg(InHandObjectEnvCfg):
                     ],
                     update_period=0.0,
                     history_length=6,
-                    debug_vis=True,
+                    debug_vis=False,
                 ),
             )
 
@@ -627,10 +626,8 @@ class LeapObjectCollectGraspEnvCfg(LeapObjectEnvCfg):
         # disable randomization for play
         self.observations.policy.enable_corruption = False
 
-        # change the cache path and object asset path for grasp generation
-        self.events.save_grasp_data.params["cache_path"] = "grasp_data"
+        self.events.save_grasp_data.params["cache_path"] = "grasp_data_visdex"
         self.events.save_grasp_data.params["max_cached_grasp_size"] = 1000
-        self.events.save_grasp_data.params["object_asset_path"] = "object_asset"
 
 
 
@@ -646,7 +643,7 @@ class LeapObjectReplayEnvCfg(LeapObjectEnvCfg):
         # disable randomization for play
         self.observations.policy.enable_corruption = False
         # enable gravity
-        self.events.reset_gravity.params["gravity_distribution_params"] = (
-            [0.0, 0.0, -9.81],
-            [0.0, 0.0, -9.81],
-        )
+        # self.events.reset_gravity.params["gravity_distribution_params"] = (
+        #     [0.0, 0.0, -9.81],
+        #     [0.0, 0.0, -9.81],
+        # )

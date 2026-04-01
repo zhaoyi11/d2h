@@ -1157,6 +1157,9 @@ def _load_stable_grasp_cache(cache_path: str) -> dict[str, np.ndarray]:
 
     normalized["joint_names"] = list(data.get("joint_names", []))
     normalized["object_asset_path"] = data.get("object_asset_path")
+    raw_paths = data.get("object_asset_paths")
+    if raw_paths is not None:
+        normalized["object_asset_paths"] = list(np.asarray(raw_paths).flat)
     normalized["generator_version"] = data.get("generator_version")
     normalized["config_snapshot"] = data.get("config_snapshot")
     return normalized
@@ -1196,6 +1199,64 @@ def _get_success_mask(env: ManagerBasedRLEnv) -> torch.Tensor:
 
 
 
+def _resolve_per_env_object_asset_paths(
+    env: ManagerBasedRLEnv,
+    object_scene_key: str,
+    fallback_path: str | None,
+) -> list[str | None]:
+    """Build a per-environment list of object USD asset paths.
+
+    When ``MultiUsdFileCfg(random_choice=True)`` is used, each environment's Object
+    prim holds a USD reference to its source file.  This function inspects those
+    references to produce a mapping ``env_idx -> asset_path``.
+
+    Falls back to the single ``fallback_path`` (or the spawner's ``usd_path``) when
+    per-env references cannot be determined (e.g. single-asset scenes).
+    """
+    num_envs = env.num_envs
+    scene_object = env.scene[object_scene_key]
+    spawn_cfg = scene_object.cfg.spawn
+
+    usd_path_list: list[str] | None = None
+    if hasattr(spawn_cfg, "usd_path"):
+        raw = spawn_cfg.usd_path
+        usd_path_list = raw if isinstance(raw, list) else [raw]
+
+    if usd_path_list is not None and len(usd_path_list) == 1:
+        return [usd_path_list[0]] * num_envs
+
+    if fallback_path and (usd_path_list is None or len(usd_path_list) <= 1):
+        return [fallback_path] * num_envs
+
+    try:
+        from pxr import Sdf
+        import isaaclab.sim as _sim_utils
+
+        stage = _sim_utils.get_current_stage()
+        env_prim_paths = env.scene.env_prim_paths
+        object_prim_name = scene_object.cfg.prim_path.rsplit("/", 1)[-1]
+
+        per_env: list[str | None] = []
+        for env_path in env_prim_paths:
+            obj_prim_path = f"{env_path}/{object_prim_name}"
+            prim_spec = stage.GetRootLayer().GetPrimAtPath(Sdf.Path(obj_prim_path))
+            if prim_spec is None:
+                per_env.append(fallback_path)
+                continue
+            refs = prim_spec.referenceList.GetAddedOrExplicitItems()
+            if refs:
+                per_env.append(str(refs[0].assetPath))
+            else:
+                per_env.append(fallback_path)
+        return per_env
+    except Exception as e:
+        print(f"[collect_stable_grasp_states] Could not resolve per-env asset paths: {e}")
+        single = fallback_path
+        if single is None and usd_path_list:
+            single = usd_path_list[0]
+        return [single] * num_envs
+
+
 class collect_stable_grasp_states(ManagerTermBase):
     """Collect stable-grasp states on reset and persist them once the cache is full."""
 
@@ -1211,11 +1272,16 @@ class collect_stable_grasp_states(ManagerTermBase):
         self._max_cached_grasp_size = int(cfg.params.get("max_cached_grasp_size", 1024))
         self._object_asset_path = cfg.params.get("object_asset_path")
         self._config_snapshot = _sanitize_cache_metadata(cfg.params)
+
+        self._per_env_asset_paths: list[str | None] = _resolve_per_env_object_asset_paths(
+            env, object_asset_cfg.name, self._object_asset_path
+        )
         self._cache = {
             "robot_root_state": [],
             "object_root_state": [],
             "robot_joint_pos": [],
             "robot_joint_vel": [],
+            "object_asset_paths": [],
         }
         self._num_cached_grasps = 0
 
@@ -1255,6 +1321,10 @@ class collect_stable_grasp_states(ManagerTermBase):
         self._cache["robot_joint_vel"].append(
             self._robot.data.joint_vel.index_select(0, success_env_ids).detach().cpu().numpy().astype(np.float32)
         )
+        import ipdb; ipdb.set_trace()
+        row_asset_paths = [self._per_env_asset_paths[i] for i in success_env_ids.cpu().tolist()]
+        self._cache["object_asset_paths"].extend(row_asset_paths)
+
         self._num_cached_grasps += int(success_env_ids.numel())
         env.extras["stable_grasp_num_cached"] = self._num_cached_grasps
         print(f"Number of cached grasps: {self._num_cached_grasps}, max cached grasp size: {self._max_cached_grasp_size}")
@@ -1263,8 +1333,13 @@ class collect_stable_grasp_states(ManagerTermBase):
 
         payload = {}
         for key, chunks in self._cache.items():
+            if key == "object_asset_paths":
+                continue
             payload[key] = np.concatenate(chunks, axis=0)[: self._max_cached_grasp_size]
         payload["joint_names"] = list(self._robot.joint_names)
+        payload["object_asset_paths"] = np.array(
+            self._cache["object_asset_paths"][: self._max_cached_grasp_size], dtype=object
+        )
         payload["object_asset_path"] = self._object_asset_path
         payload["generator_version"] = "isaaclab_manager_based_v1"
         payload["config_snapshot"] = self._config_snapshot
