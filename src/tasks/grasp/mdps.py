@@ -1274,7 +1274,7 @@ class collect_stable_grasp_states(ManagerTermBase):
         self._config_snapshot = _sanitize_cache_metadata(cfg.params)
 
         self._per_env_asset_paths: list[str | None] = _resolve_per_env_object_asset_paths(
-            env, object_asset_cfg.name, self._object_asset_path
+            env, object_asset_cfg.name, self._object_asset_path # TODO: use relative path later.
         )
         self._cache = {
             "robot_root_state": [],

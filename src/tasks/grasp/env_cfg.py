@@ -71,7 +71,7 @@ class InHandObjectSceneCfg(InteractiveSceneCfg):
         prim_path="{ENV_REGEX_NS}/Object",
         spawn=sim_utils.MultiUsdFileCfg(
             usd_path=_get_visdex_usd_paths(),
-            random_choice=True,
+            random_choice=True, # TODO: check this later. what is the difference of using random choice or not.
             articulation_props=sim_utils.ArticulationRootPropertiesCfg(
                 articulation_enabled=False,
             ),
