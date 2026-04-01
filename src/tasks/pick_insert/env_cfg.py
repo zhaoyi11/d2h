@@ -36,7 +36,7 @@ class SceneCfg(InteractiveSceneCfg):
 
     # insertive_object: 
     object: RigidObjectCfg = RigidObjectCfg(
-        prim_path="{ENV_REGEX_NS}/InsertiveObject",
+        prim_path="{ENV_REGEX_NS}/Object",
         spawn=sim_utils.UsdFileCfg(
             usd_path=f"{UWLAB_CLOUD_ASSETS_DIR}/Props/Custom/Peg/peg.usd",
             scale=(1.5, 1.5, 1.5),
@@ -46,7 +46,7 @@ class SceneCfg(InteractiveSceneCfg):
                 disable_gravity=False,
                 kinematic_enabled=False,
             ),
-            mass_props=sim_utils.MassPropertiesCfg(mass=0.02),
+            mass_props=sim_utils.MassPropertiesCfg(mass=0.2),
         ),
         init_state=RigidObjectCfg.InitialStateCfg(pos=(0.45, 0.2, 0.3), rot=(1.0, 0.0, 0.0, 0.0)),
     )
@@ -104,13 +104,16 @@ class CommandsCfg:
         asset_name="robot",
         object_name="object",
         resampling_time_range=(3.0, 5.0),
-        debug_vis=False,
+        debug_vis=True,
         ranges=mdp.ObjectUniformPoseCommandCfg.Ranges(
             pos_x=(0.3, 0.7),
             pos_y=(-0.25, 0.25),
-            pos_z=(0.55, 0.95),
-            roll=(-3.14, 3.14),
-            pitch=(-3.14, 3.14),
+            # pos_z=(0.55, 0.95),
+            pos_z=(0.35, 0.75),
+            roll=(0.0, 0.0),
+            pitch=(0.0, 0.0),
+            # roll=(-3.14, 3.14),
+            # pitch=(-3.14, 3.14),
             yaw=(0.0, 0.0),
         ),
         success_vis_asset_name="table",
@@ -123,9 +126,9 @@ class ObservationsCfg:
     class PolicyCfg(ObsGroup):
         """Observations for policy group."""
 
-        # object_pos_b = ObsTerm(
-        #     func=mdp.object_pos_b, noise=Unoise(n_min=-0.0, n_max=0.0)
-        # )
+        object_pos_b = ObsTerm(
+            func=mdp.object_pos_b, noise=Unoise(n_min=-0.0, n_max=0.0)
+        )
 
         object_quat_b = ObsTerm(
             func=mdp.object_quat_b, noise=Unoise(n_min=-0.0, n_max=0.0)
@@ -157,7 +160,8 @@ class ObservationsCfg:
                 "base_asset_cfg": SceneEntityCfg("robot"),
             },
         )
-        # contact: ObsTerm = MISSING
+
+        contact: ObsTerm = MISSING
 
         def __post_init__(self):
             self.enable_corruption = True
@@ -334,39 +338,46 @@ class RewardsCfg:
         func=mdp.object_ee_distance, params={"std": 0.4}, weight=1.0
     )
 
-    # position_tracking = RewTerm(
-    #     func=mdp.position_command_error_tanh,
-    #     weight=2.0,
-    #     params={
-    #         "asset_cfg": SceneEntityCfg("robot"),
-    #         "std": 0.2,
-    #         "command_name": "object_pose",
-    #         "align_asset_cfg": SceneEntityCfg("object"),
-    #     },
-    # )
+    position_tracking = RewTerm(
+        func=mdp.position_command_error_tanh,
+        weight=2.0,
+        params={
+            "asset_cfg": SceneEntityCfg("robot"),
+            "std": 0.2,
+            "command_name": "object_pose",
+            "align_asset_cfg": SceneEntityCfg("object"),
+        },
+    )
 
-    # orientation_tracking = RewTerm(
-    #     func=mdp.orientation_command_error_tanh,
-    #     weight=2.0,
-    #     params={
-    #         "asset_cfg": SceneEntityCfg("robot"),
-    #         "std": 1.5,
-    #         "command_name": "object_pose",
-    #         "align_asset_cfg": SceneEntityCfg("object"),
-    #     },
-    # )
+    orientation_tracking = RewTerm(
+        func=mdp.orientation_command_error_tanh,
+        weight=2.0,
+        params={
+            "asset_cfg": SceneEntityCfg("robot"),
+            "std": 1.5,
+            "command_name": "object_pose",
+            "align_asset_cfg": SceneEntityCfg("object"),
+        },
+    )
 
-    # success_position = RewTerm(
-    #     func=mdp.success_reward,
-    #     weight=5,
-    #     params={
-    #         "asset_cfg": SceneEntityCfg("robot"),
-    #         "pos_std": 0.1,
-    #         "rot_std": None,
-    #         "command_name": "object_pose",
-    #         "align_asset_cfg": SceneEntityCfg("object"),
-    #     },
-    # )
+    # bool awarding term if 2 finger tips are in contact with object, one of the contacting fingers has to be thumb.
+    good_finger_contact = RewTerm(
+        func=mdp.contacts,
+        weight=0.5,
+        params={"threshold": 1.0},
+    )
+
+    success_position = RewTerm(
+        func=mdp.success_reward,
+        weight=5,
+        params={
+            "asset_cfg": SceneEntityCfg("robot"),
+            "pos_std": 0.1,
+            "rot_std": None,
+            "command_name": "object_pose",
+            "align_asset_cfg": SceneEntityCfg("object"),
+        },
+    )
 
     success = RewTerm(
         func=mdp.success_reward,
@@ -374,7 +385,7 @@ class RewardsCfg:
         params={
             "asset_cfg": SceneEntityCfg("robot"),
             "pos_std": 0.1,
-            "rot_std": 0.5,
+            "rot_std": 0.3,
             "command_name": "object_pose",
             "align_asset_cfg": SceneEntityCfg("object"),
         },
@@ -455,6 +466,7 @@ class DexsuiteInsertEnvCfg(ManagerBasedRLEnvCfg):
         self.sim.physx.bounce_threshold_velocity = 0.2
         self.sim.physx.bounce_threshold_velocity = 0.01
         self.sim.physx.gpu_max_rigid_patch_count = 4 * 5 * 2**15
+        self.sim.physx.gpu_collision_stack_size = 2**28
 
         if self.curriculum is not None:
             self.curriculum.adr.params["pos_tol"] = (
@@ -466,20 +478,20 @@ class DexsuiteInsertEnvCfg(ManagerBasedRLEnvCfg):
             )
 
 
-class DexsuiteInsertEnvCfg(DexsuiteInsertEnvCfg):
-    """Dexsuite lift task definition"""
+# class DexsuiteInsertEnvCfg(DexsuiteInsertEnvCfg):
+#     """Dexsuite lift task definition"""
 
-    def __post_init__(self):
-        super().__post_init__()
-        self.rewards.orientation_tracking = None  # no orientation reward
-        self.commands.object_pose.position_only = True
-        if self.curriculum is not None:
-            self.rewards.success.params["rot_std"] = (
-                None  # make success reward not consider orientation
-            )
-            self.curriculum.adr.params["rot_tol"] = (
-                None  # make adr not tracking orientation
-            )
+#     def __post_init__(self):
+#         super().__post_init__()
+#         self.rewards.orientation_tracking = None  # no orientation reward
+#         self.commands.object_pose.position_only = True
+#         if self.curriculum is not None:
+#             self.rewards.success.params["rot_std"] = (
+#                 None  # make success reward not consider orientation
+#             )
+#             self.curriculum.adr.params["rot_tol"] = (
+#                 None  # make adr not tracking orientation
+#             )
 
 
 class DexsuiteInsertEnvCfg_PLAY(DexsuiteInsertEnvCfg):
@@ -494,17 +506,17 @@ class DexsuiteInsertEnvCfg_PLAY(DexsuiteInsertEnvCfg):
         ]
 
 
-class DexsuiteInsertEnvCfg_PLAY(DexsuiteInsertEnvCfg):
-    """Dexsuite lift task evaluation environment definition"""
+# class DexsuiteInsertEnvCfg_PLAY(DexsuiteInsertEnvCfg):
+#     """Dexsuite lift task evaluation environment definition"""
 
-    def __post_init__(self):
-        super().__post_init__()
-        self.commands.object_pose.resampling_time_range = (2.0, 3.0)
-        self.commands.object_pose.debug_vis = True
-        self.commands.object_pose.position_only = True
-        self.curriculum.adr.params["init_difficulty"] = self.curriculum.adr.params[
-            "max_difficulty"
-        ]
+#     def __post_init__(self):
+#         super().__post_init__()
+#         self.commands.object_pose.resampling_time_range = (2.0, 3.0)
+#         self.commands.object_pose.debug_vis = True
+#         self.commands.object_pose.position_only = True
+#         self.curriculum.adr.params["init_difficulty"] = self.curriculum.adr.params[
+#             "max_difficulty"
+#         ]
 
 
 ##########
@@ -524,24 +536,24 @@ class FrankaLeapMixinCfg:
             "fingertip_2",
             "fingertip_3",
         ]
-        # for link_name in finger_tip_body_list:
-        #     setattr(
-        #         self.scene,
-        #         f"{link_name}_object_s",
-        #         ContactSensorCfg(
-        #             prim_path="{ENV_REGEX_NS}/Robot/Franka_LeapHand/leap_hand_right/" + link_name,
-        #             filter_prim_paths_expr=["{ENV_REGEX_NS}/Object/square_table_leg1"],
-        #         ),
-        #     )
-        # self.observations.proprio.contact = ObsTerm(
-        #     func=mdp.fingers_contact_force_b,
-        #     params={
-        #         "contact_sensor_names": [
-        #             f"{link}_object_s" for link in finger_tip_body_list
-        #         ]
-        #     },
-        #     clip=(-20.0, 20.0),  # contact force in finger tips is under 20N normally
-        # )
+        for link_name in finger_tip_body_list:
+            setattr(
+                self.scene,
+                f"{link_name}_object_s",
+                ContactSensorCfg(
+                    prim_path="{ENV_REGEX_NS}/Robot/Franka_LeapHand/leap_hand_right/" + link_name,
+                    filter_prim_paths_expr=["{ENV_REGEX_NS}/Object"], # TODO: check this !!
+                ),
+            )
+        self.observations.proprio.contact = ObsTerm(
+            func=mdp.fingers_contact_force_b,
+            params={
+                "contact_sensor_names": [
+                    f"{link}_object_s" for link in finger_tip_body_list
+                ]
+            },
+            clip=(-20.0, 20.0),  # contact force in finger tips is under 20N normally
+        )
 
         self.observations.proprio.hand_tips_state_b.params[
             "body_asset_cfg"
@@ -551,16 +563,16 @@ class FrankaLeapMixinCfg:
         )
 
 
-@configclass
-class DexsuiteFrankaLeapInsertEnvCfg(FrankaLeapMixinCfg, DexsuiteInsertEnvCfg):
-    pass
+# @configclass
+# class DexsuiteFrankaLeapInsertEnvCfg(FrankaLeapMixinCfg, DexsuiteInsertEnvCfg):
+#     pass
 
 
-@configclass
-class DexsuiteFrankaLeapInsertEnvCfg_PLAY(
-    FrankaLeapMixinCfg, DexsuiteInsertEnvCfg_PLAY
-):
-    pass
+# @configclass
+# class DexsuiteFrankaLeapInsertEnvCfg_PLAY(
+#     FrankaLeapMixinCfg, DexsuiteInsertEnvCfg_PLAY
+# ):
+#     pass
 
 
 @configclass
