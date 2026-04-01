@@ -9,6 +9,7 @@
 from __future__ import annotations
 
 from dataclasses import MISSING
+import math
 import torch
 from collections.abc import Sequence
 from typing import TYPE_CHECKING
@@ -16,7 +17,7 @@ from typing import TYPE_CHECKING
 from isaaclab.assets import Articulation, RigidObject
 from isaaclab.managers import CommandTerm
 from isaaclab.markers import VisualizationMarkers
-from isaaclab.utils.math import combine_frame_transforms, compute_pose_error, quat_from_euler_xyz, quat_unique
+from isaaclab.utils.math import combine_frame_transforms, compute_pose_error, quat_from_euler_xyz, quat_unique, matrix_from_quat
 import isaaclab.sim as sim_utils
 from isaaclab.managers import CommandTermCfg
 from isaaclab.markers import VisualizationMarkersCfg
@@ -25,7 +26,7 @@ from isaaclab.utils.assets import ISAAC_NUCLEUS_DIR
 
 
 if TYPE_CHECKING:
-    from isaaclab.envs import ManagerBasedEnv
+    from isaaclab.envs import ManagerBasedEnv, ManagerBasedRLEnv
 
 
 class ObjectUniformPoseCommand(CommandTerm):
@@ -265,3 +266,84 @@ class ObjectUniformPoseCommandCfg(CommandTermCfg):
     # success markers
     success_visualizer_cfg = VisualizationMarkersCfg(prim_path="/Visuals/SuccessMarkers", markers={})
     """The configuration for the success visualization marker. User needs to add the markers"""
+
+
+class GraspCommand(CommandTerm):
+    """Provides a target grasp as a [N, 32] tensor per environment.
+
+    Command layout:
+        [:, :16]  -- flattened 4x4 object pose in hand base frame (row-major)
+        [:, 16:]  -- 16 target hand joint angles
+
+    If dataset_path is empty, uses a placeholder (identity pose + zero joints).
+    Otherwise loads a .pt file of shape [n_grasps, 32] and samples on each reset.
+
+    Loads the dataset and handles visualisations.  Sampling is handled by
+    EventTerm.
+    """
+
+    cfg: GraspCommandCfg
+    _env: ManagerBasedRLEnv
+
+    def __init__(self, cfg: GraspCommandCfg, env: ManagerBasedRLEnv):
+        super().__init__(cfg, env)
+
+        robot = self._env.scene["robot"]
+        self._hand_body_id = robot.data.body_names.index("base")
+
+        # Isaac Lab stores a_.* joints in USD order, which differs from the URDF
+        # numerical order (0,1,...,15) used by the dataset.  Build a permutation
+        # so dataset[:,16:][perm] maps URDF indices to Isaac Lab joint positions.
+        isaac_hand_joints = [n for n in robot.data.joint_names if n.startswith("a_")]
+        joint_perm = [int(name.split("_")[1]) for name in isaac_hand_joints]
+        # Indices of hand joints in the full robot joint list (for targeted writes at reset)
+        self._hand_joint_ids = [list(robot.data.joint_names).index(n) for n in isaac_hand_joints]
+
+        if cfg.dataset_path:
+            raw = torch.load(cfg.dataset_path, weights_only=False)  # [N, 32]
+            self._dataset = torch.cat([raw[:, :16], raw[:, 16:][:, joint_perm]], dim=1).to(device=env.device)
+        else:
+            r, p, y = (0.0, math.pi / 2, 0.0)
+            pos = (0.15, 0.0, 0.1)
+            quat = quat_from_euler_xyz(
+                torch.tensor([r]), torch.tensor([p]), torch.tensor([y])
+            )  # [1, 4]
+            rot = matrix_from_quat(quat).squeeze(0)  # [3, 3]
+            T = torch.eye(4)
+            T[:3, :3] = rot
+            T[:3, 3] = torch.tensor(pos)
+            self._dataset = torch.cat([T.flatten(), torch.zeros(16)]).unsqueeze(0).to(device=env.device)  # [1, 32]
+
+        if cfg.debug_vis:
+            ghost_hand = self._env.scene[self.cfg.ghost_hand_cfg.name]
+            self._ghost_hand_body_id = ghost_hand.data.body_names.index("base")
+            self.cfg.ghost_hand_cfg.resolve(env.scene)
+            self.ghost_hand_joint_ids = self.cfg.ghost_hand_cfg.joint_ids
+
+        self._command = torch.zeros(env.num_envs, 32, device=env.device)
+
+    def _resample_command(self, env_ids: torch.Tensor):
+        """Sample new target grasps for the given envs."""
+        if len(env_ids) != 0:
+            n = len(env_ids)
+            indices = torch.randint(0, len(self._dataset), (n,), device=self._env.device)
+            self._command[env_ids] = self._dataset[indices]
+
+    def resample(self, env_ids: torch.Tensor) -> None:
+        self._resample_command(env_ids)
+
+    def _update_metrics(self):
+        pass
+
+    def _update_command(self):
+        pass
+
+    @property
+    def command(self) -> torch.Tensor:
+        return self._command
+
+@configclass
+class GraspCommandCfg(CommandTermCfg):
+    class_type: type = GraspCommand
+    resampling_time_range: tuple = (1e9, 1e9)  # resampling driven by ReachedGrasp termination
+    dataset_path: str = MISSING

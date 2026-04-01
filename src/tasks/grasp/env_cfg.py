@@ -123,6 +123,13 @@ class CommandsCfg:
         debug_vis=False,
     )
 
+# @configclass
+# class CommandsCfg:
+#     grasp = mdp.GraspCommandCfg(
+#         debug_vis=False,
+#         dataset_path="./test_filtered.pt",
+#     )
+
 
 @configclass
 class ActionsCfg:
