@@ -65,7 +65,7 @@ class SceneCfg(InteractiveSceneCfg):
             ),
             mass_props=sim_utils.MassPropertiesCfg(mass=0.5),
         ),
-        init_state=RigidObjectCfg.InitialStateCfg(pos=(0.55, 0.0, 0.271), rot=(0.7071068, 0.7071068, 0.0, 0.0)),
+        init_state=RigidObjectCfg.InitialStateCfg(pos=(0.55, 0.0, 0.271), rot=(1.0, 0.0, 0.0, 0.0)),
     )
 
     # # table base
@@ -455,8 +455,8 @@ class TerminationsCfg:
 
 
 @configclass
-class DexsuiteReorientEnvCfg(ManagerBasedRLEnvCfg):
-    """Dexsuite reorientation task definition, also the base definition for derivative Lift task and evaluation task"""
+class DexsuiteScrewEnvCfg(ManagerBasedRLEnvCfg):
+    """Dexsuite screw task definition, also the base definition for derivative Lift task and evaluation task"""
 
     # Scene settings
     viewer: ViewerCfg = ViewerCfg(
@@ -507,6 +507,7 @@ class DexsuiteReorientEnvCfg(ManagerBasedRLEnvCfg):
         self.sim.physx.bounce_threshold_velocity = 0.2
         self.sim.physx.bounce_threshold_velocity = 0.01
         self.sim.physx.gpu_max_rigid_patch_count = 4 * 5 * 2**15
+        self.sim.physx.gpu_collision_stack_size = 2**28
 
         if self.curriculum is not None:
             self.curriculum.adr.params["pos_tol"] = (
@@ -518,8 +519,8 @@ class DexsuiteReorientEnvCfg(ManagerBasedRLEnvCfg):
             )
 
 
-class DexsuiteLiftEnvCfg(DexsuiteReorientEnvCfg):
-    """Dexsuite lift task definition"""
+class DexsuiteScrewLiftEnvCfg(DexsuiteScrewEnvCfg):
+    """Dexsuite screw lift task definition"""
 
     def __post_init__(self):
         super().__post_init__()
@@ -534,7 +535,7 @@ class DexsuiteLiftEnvCfg(DexsuiteReorientEnvCfg):
             )
 
 
-class DexsuiteReorientEnvCfg_PLAY(DexsuiteReorientEnvCfg):
+class DexsuiteScrewEnvCfg_PLAY(DexsuiteScrewEnvCfg):
     """Dexsuite reorientation task evaluation environment definition"""
 
     def __post_init__(self):
@@ -546,7 +547,7 @@ class DexsuiteReorientEnvCfg_PLAY(DexsuiteReorientEnvCfg):
         ]
 
 
-class DexsuiteLiftEnvCfg_PLAY(DexsuiteLiftEnvCfg):
+class DexsuiteScrewLiftEnvCfg_PLAY(DexsuiteScrewLiftEnvCfg):
     """Dexsuite lift task evaluation environment definition"""
 
     def __post_init__(self):
@@ -567,7 +568,7 @@ class DexsuiteLiftEnvCfg_PLAY(DexsuiteLiftEnvCfg):
 @configclass
 class FrankaLeapMixinCfg:
 
-    def __post_init__(self: DexsuiteReorientEnvCfg):
+    def __post_init__(self: DexsuiteScrewEnvCfg):
         super().__post_init__()
         self.commands.object_pose.body_name = "base"  # TODO: check this !!
         finger_tip_body_list = [
@@ -604,22 +605,22 @@ class FrankaLeapMixinCfg:
 
 
 @configclass
-class DexsuiteFrankaLeapReorientEnvCfg(FrankaLeapMixinCfg, DexsuiteReorientEnvCfg):
+class DexsuiteFrankaLeapScrewEnvCfg(FrankaLeapMixinCfg, DexsuiteScrewEnvCfg):
     pass
 
 
 @configclass
-class DexsuiteFrankaLeapReorientEnvCfg_PLAY(
-    FrankaLeapMixinCfg, DexsuiteReorientEnvCfg_PLAY
+class DexsuiteFrankaLeapScrewEnvCfg_PLAY(
+    FrankaLeapMixinCfg, DexsuiteScrewEnvCfg_PLAY
 ):
     pass
 
 
 @configclass
-class DexsuiteFrankaLeapLiftEnvCfg(FrankaLeapMixinCfg, DexsuiteLiftEnvCfg):
+class DexsuiteFrankaLeapScrewLiftEnvCfg(FrankaLeapMixinCfg, DexsuiteScrewLiftEnvCfg):
     pass
 
 
 @configclass
-class DexsuiteFrankaLeapLiftEnvCfg_PLAY(FrankaLeapMixinCfg, DexsuiteLiftEnvCfg_PLAY):
+class DexsuiteFrankaLeapScrewLiftEnvCfg_PLAY(FrankaLeapMixinCfg, DexsuiteScrewLiftEnvCfg_PLAY):
     pass
