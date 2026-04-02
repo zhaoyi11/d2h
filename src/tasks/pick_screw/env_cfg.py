@@ -25,6 +25,7 @@ from isaaclab.sensors import ContactSensorCfg
 import src.tasks.pick_anyrotate.mdps as mdp
 from src.assets.franka_leap_hand.franka_leap import FRANKA_LEAP_HAND_CFG
 
+UWLAB_CLOUD_ASSETS_DIR = "https://huggingface.co/datasets/UW-Lab/uwlab-assets/resolve/main"
 
 @configclass
 class SceneCfg(InteractiveSceneCfg):
@@ -33,56 +34,90 @@ class SceneCfg(InteractiveSceneCfg):
     # robot
     robot = FRANKA_LEAP_HAND_CFG.replace(prim_path="{ENV_REGEX_NS}/Robot")
 
-    # table base
-    object_table = RigidObjectCfg(
-        prim_path="{ENV_REGEX_NS}/ObjectTable",
-        spawn=sim_utils.UsdFileCfg(
-            usd_path=f"/home/yizhao/yi/D2H/src/assets/square_table_leg/square_table_top_convex.usd",
-            activate_contact_sensors=True,
-            rigid_props=sim_utils.RigidBodyPropertiesCfg(
-                kinematic_enabled=True,
-                disable_gravity=True,
-                max_depenetration_velocity=1000.0,
-                max_linear_velocity=1000.0,
-                max_angular_velocity=1000.0,
-            ),
-            articulation_props=sim_utils.ArticulationRootPropertiesCfg(
-                articulation_enabled=False,
-            ),
-            collision_props=sim_utils.CollisionPropertiesCfg(),
-            mass_props=sim_utils.MassPropertiesCfg(mass=0.2),
-            scale=(1.5, 1.5, 1.5),
-        ),
-        init_state=RigidObjectCfg.InitialStateCfg(
-            pos=[0.55, 0.0, 0.271],
-            rot=[0.7071068, 0.7071068, 0.0, 0.0],
-        ),
-    )
-
-    # table leg
+    # object
     object = RigidObjectCfg(
         prim_path="{ENV_REGEX_NS}/Object",
         spawn=sim_utils.UsdFileCfg(
-            usd_path=f"/home/yizhao/yi/D2H/src/assets/square_table_leg/square_table_leg1_convex.usd",
-            activate_contact_sensors=True,
-            rigid_props=sim_utils.RigidBodyPropertiesCfg(
-                disable_gravity=False,
-                max_depenetration_velocity=1000.0,
-                max_linear_velocity=1000.0,
-                max_angular_velocity=1000.0,
-            ),
-            articulation_props=sim_utils.ArticulationRootPropertiesCfg(
-                articulation_enabled=False,
-            ),
-            collision_props=sim_utils.CollisionPropertiesCfg(),
-            mass_props=sim_utils.MassPropertiesCfg(mass=0.2),
+            usd_path=f"{UWLAB_CLOUD_ASSETS_DIR}/Props/FurnitureBench/SquareLeg/square_leg.usd",
             scale=(1.5, 1.5, 1.5),
+            rigid_props=sim_utils.RigidBodyPropertiesCfg(
+                solver_position_iteration_count=4,
+                solver_velocity_iteration_count=0,
+                disable_gravity=False,
+                kinematic_enabled=False,
+            ),
+            mass_props=sim_utils.MassPropertiesCfg(mass=0.2),
         ),
-        init_state=RigidObjectCfg.InitialStateCfg(
-            pos=[0.55, 0.1, 0.34],
-            rot=[1.0, 0.0, 0.0, 0.0],
+        init_state=RigidObjectCfg.InitialStateCfg(pos=(0.55, 0.1, 0.34), 
+                                                rot=(1.0, 0.0, 0.0, 0.0)),
+    )
+    
+    receptive_object = RigidObjectCfg(
+        prim_path="{ENV_REGEX_NS}/ReceptiveObject",
+        spawn=sim_utils.UsdFileCfg(
+            usd_path=f"{UWLAB_CLOUD_ASSETS_DIR}/Props/FurnitureBench/SquareTableTop/square_table_top.usd",
+            scale=(1.5, 1.5, 1.5),
+            rigid_props=sim_utils.RigidBodyPropertiesCfg(
+                solver_position_iteration_count=4,
+                solver_velocity_iteration_count=0,
+                disable_gravity=False,
+                kinematic_enabled=True,
+            ),
+            mass_props=sim_utils.MassPropertiesCfg(mass=0.5),
         ),
-    )    
+        init_state=RigidObjectCfg.InitialStateCfg(pos=(0.55, 0.0, 0.271), rot=(0.7071068, 0.7071068, 0.0, 0.0)),
+    )
+
+    # # table base
+    # object_table = RigidObjectCfg(
+    #     prim_path="{ENV_REGEX_NS}/ObjectTable",
+    #     spawn=sim_utils.UsdFileCfg(
+    #         usd_path=f"/home/yizhao/yi/D2H/src/assets/square_table_leg/square_table_top_convex.usd",
+    #         activate_contact_sensors=True,
+    #         rigid_props=sim_utils.RigidBodyPropertiesCfg(
+    #             kinematic_enabled=True,
+    #             disable_gravity=True,
+    #             max_depenetration_velocity=1000.0,
+    #             max_linear_velocity=1000.0,
+    #             max_angular_velocity=1000.0,
+    #         ),
+    #         articulation_props=sim_utils.ArticulationRootPropertiesCfg(
+    #             articulation_enabled=False,
+    #         ),
+    #         collision_props=sim_utils.CollisionPropertiesCfg(),
+    #         mass_props=sim_utils.MassPropertiesCfg(mass=0.2),
+    #         scale=(1.5, 1.5, 1.5),
+    #     ),
+    #     init_state=RigidObjectCfg.InitialStateCfg(
+    #         pos=[0.55, 0.0, 0.271],
+    #         rot=[0.7071068, 0.7071068, 0.0, 0.0],
+    #     ),
+    # )
+
+    # # table leg
+    # object = RigidObjectCfg(
+    #     prim_path="{ENV_REGEX_NS}/Object",
+    #     spawn=sim_utils.UsdFileCfg(
+    #         usd_path=f"/home/yizhao/yi/D2H/src/assets/square_table_leg/square_table_leg1_convex.usd",
+    #         activate_contact_sensors=True,
+    #         rigid_props=sim_utils.RigidBodyPropertiesCfg(
+    #             disable_gravity=False,
+    #             max_depenetration_velocity=1000.0,
+    #             max_linear_velocity=1000.0,
+    #             max_angular_velocity=1000.0,
+    #         ),
+    #         articulation_props=sim_utils.ArticulationRootPropertiesCfg(
+    #             articulation_enabled=False,
+    #         ),
+    #         collision_props=sim_utils.CollisionPropertiesCfg(),
+    #         mass_props=sim_utils.MassPropertiesCfg(mass=0.2),
+    #         scale=(1.5, 1.5, 1.5),
+    #     ),
+    #     init_state=RigidObjectCfg.InitialStateCfg(
+    #         pos=[0.55, 0.1, 0.34],
+    #         rot=[1.0, 0.0, 0.0, 0.0],
+    #     ),
+    # )    
     
     # table
     table: RigidObjectCfg = RigidObjectCfg(
