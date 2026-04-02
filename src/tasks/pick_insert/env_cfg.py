@@ -381,7 +381,7 @@ class RewardsCfg:
 
     success = RewTerm(
         func=mdp.success_reward,
-        weight=10,
+        weight=15,
         params={
             "asset_cfg": SceneEntityCfg("robot"),
             "pos_std": 0.1,
@@ -414,7 +414,7 @@ class TerminationsCfg:
 
 
 @configclass
-class DexsuiteInsertEnvCfg(ManagerBasedRLEnvCfg):
+class DexsuiteInsertPegEnvCfg(ManagerBasedRLEnvCfg):
     """Dexsuite reorientation task definition, also the base definition for derivative Lift task and evaluation task"""
 
     # Scene settings
@@ -478,23 +478,23 @@ class DexsuiteInsertEnvCfg(ManagerBasedRLEnvCfg):
             )
 
 
-# class DexsuiteInsertEnvCfg(DexsuiteInsertEnvCfg):
-#     """Dexsuite lift task definition"""
+class DexsuiteInsertEnvCfg(DexsuiteInsertPegEnvCfg):
+    """Dexsuite lift task definition"""
 
-#     def __post_init__(self):
-#         super().__post_init__()
-#         self.rewards.orientation_tracking = None  # no orientation reward
-#         self.commands.object_pose.position_only = True
-#         if self.curriculum is not None:
-#             self.rewards.success.params["rot_std"] = (
-#                 None  # make success reward not consider orientation
-#             )
-#             self.curriculum.adr.params["rot_tol"] = (
-#                 None  # make adr not tracking orientation
-#             )
+    def __post_init__(self):
+        super().__post_init__()
+        self.rewards.orientation_tracking = None  # no orientation reward
+        self.commands.object_pose.position_only = True
+        if self.curriculum is not None:
+            self.rewards.success.params["rot_std"] = (
+                None  # make success reward not consider orientation
+            )
+            self.curriculum.adr.params["rot_tol"] = (
+                None  # make adr not tracking orientation
+            )
 
 
-class DexsuiteInsertEnvCfg_PLAY(DexsuiteInsertEnvCfg):
+class DexsuiteInsertEnvCfg_PLAY(DexsuiteInsertPegEnvCfg):
     """Dexsuite reorientation task evaluation environment definition"""
 
     def __post_init__(self):
@@ -527,7 +527,7 @@ class DexsuiteInsertEnvCfg_PLAY(DexsuiteInsertEnvCfg):
 @configclass
 class FrankaLeapMixinCfg:
 
-    def __post_init__(self: DexsuiteInsertEnvCfg):
+    def __post_init__(self: DexsuiteInsertPegEnvCfg):
         super().__post_init__()
         self.commands.object_pose.body_name = "base"  # TODO: check this !!
         finger_tip_body_list = [
@@ -543,6 +543,7 @@ class FrankaLeapMixinCfg:
                 ContactSensorCfg(
                     prim_path="{ENV_REGEX_NS}/Robot/Franka_LeapHand/leap_hand_right/" + link_name,
                     filter_prim_paths_expr=["{ENV_REGEX_NS}/Object"], # TODO: check this !!
+                    debug_vis=True,
                 ),
             )
         self.observations.proprio.contact = ObsTerm(

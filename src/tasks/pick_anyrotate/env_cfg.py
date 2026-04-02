@@ -4,6 +4,7 @@
 # SPDX-License-Identifier: BSD-3-Clause
 
 from dataclasses import MISSING
+from pathlib import Path
 
 import isaaclab.sim as sim_utils
 from isaaclab.assets import ArticulationCfg, AssetBaseCfg, RigidObjectCfg
@@ -26,6 +27,23 @@ import src.tasks.pick_anyrotate.mdps as mdp
 from src.assets.franka_leap_hand.franka_leap import FRANKA_LEAP_HAND_CFG
 
 
+def _get_visdex_usd_paths() -> list[str]:
+    """Return sorted visdex USD asset paths bundled with this repo."""
+    usd_root = Path(__file__).resolve().parents[2] / "assets" / "visdex_objects" / "USD"
+    if not usd_root.is_dir():
+        raise FileNotFoundError(f"visdex USD asset directory does not exist: {usd_root}")
+
+    usd_paths: list[str] = []
+    for object_dir in sorted(path for path in usd_root.iterdir() if path.is_dir()):
+        usd_path = object_dir / f"{object_dir.name}.usd"
+        if usd_path.is_file():
+            usd_paths.append(str(usd_path))
+
+    if not usd_paths:
+        raise ValueError(f"No visdex USD assets found in: {usd_root}")
+    return usd_paths
+
+
 @configclass
 class SceneCfg(InteractiveSceneCfg):
     """Dexsuite Scene for multi-objects Lifting"""
@@ -39,61 +57,25 @@ class SceneCfg(InteractiveSceneCfg):
                 enabled_self_collisions=False,
             ),
         ),
-    )   
+    )  
 
-    # table base
-    object_table = RigidObjectCfg(
-        prim_path="{ENV_REGEX_NS}/ObjectTable",
-        spawn=sim_utils.UrdfFileCfg(
-            asset_path="/home/yizhao/yi/D2H/_src/assets/furniture_bench/urdf/square_table/square_table_top.urdf",
-            rigid_props=sim_utils.RigidBodyPropertiesCfg(
-                kinematic_enabled=True,
-                disable_gravity=True,
-                enable_gyroscopic_forces=True,
-            ),
-            fix_base=False,
-            joint_drive=sim_utils.UrdfConverterCfg.JointDriveCfg(
-                gains=sim_utils.UrdfConverterCfg.JointDriveCfg.PDGainsCfg(
-                    stiffness=None, damping=None
-                ),
-            ),
+    # object
+    object = RigidObjectCfg(
+        prim_path="{ENV_REGEX_NS}/Object",
+        spawn=sim_utils.MultiUsdFileCfg(
+            usd_path=_get_visdex_usd_paths(),
+            random_choice=False,
             articulation_props=sim_utils.ArticulationRootPropertiesCfg(
                 articulation_enabled=False,
             ),
-            # Keep this asset visual-only to avoid overlapping support collisions with the task table cuboid.
-            collision_props=sim_utils.CollisionPropertiesCfg(collision_enabled=False),
-            mass_props=sim_utils.MassPropertiesCfg(mass=0.2),
-            scale=(1.5, 1.5, 1.5),
-        ),
-        init_state=RigidObjectCfg.InitialStateCfg(
-            pos=[0.55, 0.0, 0.271],
-            rot=[0.7071068, 0.7071068, 0.0, 0.0],
-        ),
-    )
-
-    # table leg
-    object = RigidObjectCfg(
-        prim_path="{ENV_REGEX_NS}/Object",
-        spawn=sim_utils.UrdfFileCfg(
-            asset_path="/home/yizhao/yi/D2H/_src/assets/furniture_bench/urdf/square_table/square_table_leg1.urdf",
             rigid_props=sim_utils.RigidBodyPropertiesCfg(
                 kinematic_enabled=False,
                 disable_gravity=False,
                 enable_gyroscopic_forces=True,
             ),
-            fix_base=False,
-            joint_drive=sim_utils.UrdfConverterCfg.JointDriveCfg(
-                gains=sim_utils.UrdfConverterCfg.JointDriveCfg.PDGainsCfg(
-                    stiffness=None, damping=None
-                ),
-            ),
-            articulation_props=sim_utils.ArticulationRootPropertiesCfg(
-                articulation_enabled=False,
-            ),
-            collision_props=sim_utils.CollisionPropertiesCfg(),
+            collision_props=sim_utils.CollisionPropertiesCfg(collision_enabled=True),
             mass_props=sim_utils.MassPropertiesCfg(mass=0.2),
-            scale=(1.5, 1.5, 1.5),
-            # physics_material=RigidBodyMaterialCfg(static_friction=0.5), # TODO: check how the friction defined in the urdf file
+            scale=(0.8, 0.8, 0.8),
         ),
         init_state=RigidObjectCfg.InitialStateCfg(
             pos=[0.55, 0.1, 0.34],
@@ -102,57 +84,6 @@ class SceneCfg(InteractiveSceneCfg):
     )
 
 
-    # # table base
-    # object_table = RigidObjectCfg(
-    #     prim_path="{ENV_REGEX_NS}/ObjectTable",
-    #     spawn=sim_utils.UsdFileCfg(
-    #         usd_path=f"/home/yizhao/yi/D2H/src/assets/square_table_leg/square_table_top_convex.usd",
-    #         activate_contact_sensors=True,
-    #         rigid_props=sim_utils.RigidBodyPropertiesCfg(
-    #             kinematic_enabled=True,
-    #             disable_gravity=True,
-    #             max_depenetration_velocity=1000.0,
-    #             max_linear_velocity=1000.0,
-    #             max_angular_velocity=1000.0,
-    #         ),
-    #         articulation_props=sim_utils.ArticulationRootPropertiesCfg(
-    #             articulation_enabled=False,
-    #         ),
-    #         collision_props=sim_utils.CollisionPropertiesCfg(),
-    #         mass_props=sim_utils.MassPropertiesCfg(mass=0.2),
-    #         scale=(1.5, 1.5, 1.5),
-    #     ),
-    #     init_state=RigidObjectCfg.InitialStateCfg(
-    #         pos=[0.55, 0.0, 0.271],
-    #         rot=[0.7071068, 0.7071068, 0.0, 0.0],
-    #     ),
-    # )
-
-    # # table leg
-    # object = RigidObjectCfg(
-    #     prim_path="{ENV_REGEX_NS}/Object",
-    #     spawn=sim_utils.UsdFileCfg(
-    #         usd_path=f"/home/yizhao/yi/D2H/src/assets/square_table_leg/square_table_leg1_convex.usd",
-    #         activate_contact_sensors=True,
-    #         rigid_props=sim_utils.RigidBodyPropertiesCfg(
-    #             disable_gravity=False,
-    #             max_depenetration_velocity=1000.0,
-    #             max_linear_velocity=1000.0,
-    #             max_angular_velocity=1000.0,
-    #         ),
-    #         articulation_props=sim_utils.ArticulationRootPropertiesCfg(
-    #             articulation_enabled=False,
-    #         ),
-    #         collision_props=sim_utils.CollisionPropertiesCfg(),
-    #         mass_props=sim_utils.MassPropertiesCfg(mass=0.2),
-    #         scale=(1.5, 1.5, 1.5),
-    #     ),
-    #     init_state=RigidObjectCfg.InitialStateCfg(
-    #         pos=[0.55, 0.1, 0.34],
-    #         rot=[1.0, 0.0, 0.0, 0.0],
-    #     ),
-    # )    
-    
     # table
     table: RigidObjectCfg = RigidObjectCfg(
         prim_path="{ENV_REGEX_NS}/Table",
@@ -493,7 +424,7 @@ class DexsuiteReorientEnvCfg(ManagerBasedRLEnvCfg):
     )
     scene: SceneCfg = SceneCfg(num_envs=4096,
                                env_spacing=3,
-                               replicate_physics=True)
+                               replicate_physics=False)
     # Basic settings
     observations: ObservationsCfg = ObservationsCfg()
     actions: ActionsCfg = ActionsCfg()
@@ -613,7 +544,7 @@ class FrankaLeapMixinCfg:
                 f"{link_name}_object_s",
                 ContactSensorCfg(
                     prim_path="{ENV_REGEX_NS}/Robot/Franka_LeapHand/leap_hand_right/" + link_name,
-                    filter_prim_paths_expr=["{ENV_REGEX_NS}/Object/square_table_leg1"],
+                    filter_prim_paths_expr=["{ENV_REGEX_NS}/Object/baseLink"],
                 ),
             )
         self.observations.proprio.contact = ObsTerm(
