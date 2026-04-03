@@ -16,7 +16,7 @@ from isaaclab.utils.math import sample_uniform
 import torch
 import numpy as np
 from collections.abc import Sequence
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Literal
 
 import isaaclab.utils.math as math_utils
 from isaaclab.assets import Articulation, RigidObject
@@ -380,6 +380,7 @@ def track_orientation_inv_l2(
     command_name: str,
     object_cfg: SceneEntityCfg = SceneEntityCfg("object"),
     rot_eps: float = 1e-3,
+    need_contact: bool = False,
 ) -> torch.Tensor:
     """Reward for tracking the object orientation using the inverse of the orientation error.
 
@@ -401,7 +402,10 @@ def track_orientation_inv_l2(
     goal_quat_w = command_term.command[:, 3:7]
     # calculate the orientation error
     dtheta = math_utils.quat_error_magnitude(asset.data.root_quat_w, goal_quat_w)
-    return 1.0 / (dtheta + rot_eps)
+    value = 1.0 / (dtheta + rot_eps)
+    if need_contact:
+        value = value * contacts(env, 1.0, mode="anytwo")
+    return value
 
 
 def neg_fingertip_object_distance(
@@ -836,10 +840,8 @@ def _normalize_env_ids(
     return torch.as_tensor(env_ids, device=env.device, dtype=torch.long)
 
 
-
-def contacts(env: ManagerBasedRLEnv, threshold: float) -> torch.Tensor:
-    """Penalize undesired contacts as the number of violations that are above a threshold."""
-
+def contacts(env: ManagerBasedRLEnv, threshold: float, mode: Literal["opposite", "anytwo"] = "opposite") -> torch.Tensor:
+    """Check if the fingertip contacts with the object is above a threshold."""
     thumb_contact_sensor: ContactSensor = env.scene.sensors["thumb_tip_object_s"]
     index_contact_sensor: ContactSensor = env.scene.sensors["index_tip_object_s"]
     middle_contact_sensor: ContactSensor = env.scene.sensors["middle_tip_object_s"]
@@ -853,10 +855,18 @@ def contacts(env: ManagerBasedRLEnv, threshold: float) -> torch.Tensor:
     index_contact_mag = torch.norm(index_contact, dim=-1)
     middle_contact_mag = torch.norm(middle_contact, dim=-1)
     ring_contact_mag = torch.norm(ring_contact, dim=-1)
-    good_contact_cond1 = (thumb_contact_mag > threshold) & (
-        (index_contact_mag > threshold) | (middle_contact_mag > threshold) | (ring_contact_mag > threshold)
-    )
-
+    if mode == "opposite":
+        good_contact_cond1 = (thumb_contact_mag > threshold) & (
+            (index_contact_mag > threshold) | (middle_contact_mag > threshold) | (ring_contact_mag > threshold)
+        )
+    if mode == "anytwo":
+        finger_contacts = torch.stack([
+            thumb_contact_mag > threshold,
+            index_contact_mag > threshold,
+            middle_contact_mag > threshold,
+            ring_contact_mag > threshold,
+        ], dim=-1)  # (num_envs, 4)
+        good_contact_cond1 = finger_contacts.sum(dim=-1) >= 2
     return good_contact_cond1
 
 
@@ -903,7 +913,7 @@ class apply_gravity_compensation_assist(ManagerTermBase):
         mass = masses[env_ids_t, 0]                               # (n,)
 
         # Decay _assist_scale by 10% wherever contacts() reports good contact.
-        good_contact = contacts(env, contact_threshold)           # (num_envs,) bool
+        good_contact = contacts(env, contact_threshold, mode="opposite")           # (num_envs,) bool
         self._assist_scale[env_ids_t] = torch.where(
             good_contact[env_ids_t],
             (self._assist_scale[env_ids_t] * decay_ratio).round(decimals=4),

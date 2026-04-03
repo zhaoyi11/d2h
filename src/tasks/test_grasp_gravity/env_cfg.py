@@ -159,18 +159,18 @@ class ObservationsCfg:
             },
         )
 
-        # # fingertip contact
-        # fingertip_contact_force_b = ObsTerm(
-        #     func=mdp.fingers_contact_force_b,
-        #     params={
-        #         "contact_sensor_names": [
-        #             "thumb_tip_object_s",
-        #             "index_tip_object_s",
-        #             "middle_tip_object_s",
-        #             "ring_tip_object_s",
-        #         ],
-        #     },
-        # )
+        # fingertip contact
+        fingertip_contact_force_b = ObsTerm(
+            func=mdp.fingers_contact_force_b,
+            params={
+                "contact_sensor_names": [
+                    "thumb_tip_object_s",
+                    "index_tip_object_s",
+                    "middle_tip_object_s",
+                    "ring_tip_object_s",
+                ],
+            },
+        )
 
         # -- object terms
         object_pos = ObsTerm(
@@ -194,18 +194,18 @@ class ObservationsCfg:
             params={"asset_cfg": SceneEntityCfg("object")},
         )
 
-        # -- command terms
-        goal_pose = ObsTerm(
-            func=mdp.generated_commands, params={"command_name": "object_pose"}
-        )
-        goal_quat_diff = ObsTerm(
-            func=mdp.goal_quat_diff,
-            params={
-                "asset_cfg": SceneEntityCfg("object"),
-                "command_name": "object_pose",
-                "make_quat_unique": False,
-            },
-        )
+        # # -- command terms
+        # goal_pose = ObsTerm(
+        #     func=mdp.generated_commands, params={"command_name": "object_pose"}
+        # )
+        # goal_quat_diff = ObsTerm(
+        #     func=mdp.goal_quat_diff,
+        #     params={
+        #         "asset_cfg": SceneEntityCfg("object"),
+        #         "command_name": "object_pose",
+        #         "make_quat_unique": False,
+        #     },
+        # )
 
         # -- action terms
         last_action = ObsTerm(func=mdp.last_action)
@@ -399,6 +399,7 @@ class RewardsCfg:
             "object_cfg": SceneEntityCfg("object"),
             "rot_eps": 0.1,
             "command_name": "object_pose",
+            "need_contact": True,
         },
     )
 
@@ -407,19 +408,19 @@ class RewardsCfg:
         weight=1.0,
     )
 
-    # # TODO: add contact ralated info later.
-    # fingertip_contact = RewTerm(
-    #     func=task_mdp.fingertip_object_contacts,
-    #     weight=3,
-    #     params={
-    #         "contact_sensor_names": [
-    #             "thumb_tip_object_s",
-    #             "index_tip_object_s",
-    #             "middle_tip_object_s",
-    #             "ring_tip_object_s",
-    #         ],
-    #     },
-    # )
+    # TODO: add contact ralated info later.
+    fingertip_contact = RewTerm(
+        func=task_mdp.fingertip_object_contacts,
+        weight=3,
+        params={
+            "contact_sensor_names": [
+                "thumb_tip_object_s",
+                "index_tip_object_s",
+                "middle_tip_object_s",
+                "ring_tip_object_s",
+            ],
+        },
+    )
 
     success = RewTerm(
         func=task_mdp.success_bonus,
@@ -495,13 +496,13 @@ class InHandObjectEnvCfg(ManagerBasedRLEnvCfg):
     rewards: RewardsCfg = RewardsCfg()
     terminations: TerminationsCfg = TerminationsCfg()
     events: EventCfg = EventCfg()
-    curriculum: task_curriculum.CurriculumCfg | None = task_curriculum.CurriculumCfg()
+    # curriculum: task_curriculum.CurriculumCfg | None = task_curriculum.CurriculumCfg()
 
     def __post_init__(self):
         """Post initialization."""
         # general settings
         self.decimation = 4  # 25 Hz
-        self.episode_length_s = 3  # 10 seconds
+        self.episode_length_s = 15  # 15 seconds
         # simulation settings
         self.sim.dt = 1.0 / 120.0
         self.sim.render_interval = self.decimation
