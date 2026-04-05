@@ -107,7 +107,7 @@ class InHandObjectSceneCfg(InteractiveSceneCfg):
             scale=(0.9, 0.9, 0.9),
         ),
         init_state=RigidObjectCfg.InitialStateCfg(
-            pos=(0.0, -0.03, 0.62), rot=(1.0, 0.0, 0.0, 0.0)
+            pos=(0.0, -0.08, 0.62), rot=(1.0, 0.0, 0.0, 0.0)
         ),
     )
 
@@ -136,7 +136,7 @@ class CommandsCfg:
 
     object_pose = task_mdp.InHandReOrientationCommandCfg(
         asset_name="object",
-        random_range=0.2, # TODO: tune this with curriculum later.
+        random_range=1.0, # TODO: tune this with curriculum later.
         init_pos_offset=(0.0, 0.0, 0.0),
         update_goal_on_success=True,
         orientation_success_threshold=0.3, 
@@ -150,14 +150,14 @@ class CommandsCfg:
 class ActionsCfg:
     """Action specifications for the MDP."""
 
-    # TODO: check which action manager to use.
-    joint_pos = mdp.EMAJointPositionToLimitsActionCfg(
-        asset_name="robot",
-        joint_names=[".*"],
-        # alpha=0.95
-        alpha=0.5,
-        rescale_to_limits=True,
-    )
+    # # TODO: check which action manager to use.
+    # joint_pos = mdp.EMAJointPositionToLimitsActionCfg(
+    #     asset_name="robot",
+    #     joint_names=[".*"],
+    #     # alpha=0.95
+    #     alpha=0.5,
+    #     rescale_to_limits=True,
+    # )
 
     # joint_pos = mdp.RelativeJointPositionActionCfg(
     #   asset_name="robot",
@@ -167,11 +167,11 @@ class ActionsCfg:
     #    # scale=0.3,
     # )
 
-    # joint_pos = mdp.EMACumulativeRelativeJointPositionActionCfg(
-    # asset_name="robot",
-    # joint_names=[".*"],
-    # alpha=0.95,
-    # )
+    joint_pos = mdp.EMACumulativeRelativeJointPositionActionCfg(
+        asset_name="robot",
+        joint_names=[".*"],
+        alpha=0.95,
+    )
 
 
 @configclass

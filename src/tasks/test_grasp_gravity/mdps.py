@@ -13,6 +13,8 @@ from isaaclab.managers import EventTermCfg, ManagerTermBase, SceneEntityCfg
 from isaaclab.utils.math import sample_uniform
 
 
+import math
+
 import torch
 import numpy as np
 from collections.abc import Sequence
@@ -74,6 +76,12 @@ class InHandReOrientationCommand(CommandTerm):
         # -- orientation: (w, x, y, z)
         self.quat_command_w = self.object.data.root_quat_w.clone()
 
+        # -- intermediate goal
+        self.quat_intermediate_w = self.object.data.root_quat_w.clone()
+        self.use_intermediate = torch.zeros(self.num_envs, dtype=torch.bool, device=self.device)
+        self._INTERMEDIATE_STEP_RAD = math.radians(45.0)
+        self._INTERMEDIATE_UPDATE_RAD = math.radians(15.0)
+
         # -- unit vectors
         self._X_UNIT_VEC = torch.tensor([1.0, 0, 0], device=self.device).repeat(
             (self.num_envs, 1)
@@ -107,7 +115,12 @@ class InHandReOrientationCommand(CommandTerm):
     @property
     def command(self) -> torch.Tensor:
         """The desired goal pose in the environment frame. Shape is (num_envs, 7)."""
-        return torch.cat((self.pos_command_e, self.quat_command_w), dim=-1)
+        active_quat = torch.where(
+            self.use_intermediate.unsqueeze(-1),
+            self.quat_intermediate_w,
+            self.quat_command_w,
+        )
+        return torch.cat((self.pos_command_e, active_quat), dim=-1)
 
     """
     Implementation specific functions.
@@ -129,7 +142,32 @@ class InHandReOrientationCommand(CommandTerm):
         )
         self.metrics["consecutive_success"] += successes.float()
 
+    def _compute_intermediate_goal(self, env_ids):
+        """Return the quaternion exactly _INTERMEDIATE_STEP_RAD from current pose toward the final goal."""
+        q_cur = self.object.data.root_quat_w[env_ids]
+        q_goal = self.quat_command_w[env_ids]
+
+        q_rel = math_utils.quat_mul(math_utils.quat_inv(q_cur), q_goal)
+        q_rel = math_utils.quat_unique(q_rel)
+
+        w = q_rel[..., 0].clamp(-1.0, 1.0)
+        angle = 2.0 * torch.acos(w)
+        half = angle / 2.0
+        new_half = torch.full_like(half, self._INTERMEDIATE_STEP_RAD / 2.0)
+
+        safe_sin = torch.sin(half).clamp(min=1e-6)
+        scale = torch.sin(new_half) / safe_sin
+
+        q_step = torch.empty_like(q_rel)
+        q_step[..., 0] = torch.cos(new_half)
+        q_step[..., 1:] = q_rel[..., 1:] * scale.unsqueeze(-1)
+
+        q_int = math_utils.quat_mul(q_cur, q_step)
+        return math_utils.quat_unique(q_int)
+
     def _resample_command(self, env_ids: Sequence[int]):
+        # reset intermediate state on episode reset
+        self.use_intermediate[env_ids] = False
         # update position command from current object pose (set by load_grasp on reset)
         self.pos_command_w[env_ids] = self.object.data.root_pos_w[env_ids] + self.init_pos_offset
         self.pos_command_e[env_ids] = self.pos_command_w[env_ids] - self._env.scene.env_origins[env_ids]
@@ -161,15 +199,35 @@ class InHandReOrientationCommand(CommandTerm):
         )
 
     def _update_command(self):
+        err_to_goal = self.metrics["orientation_error"]
+        err_to_intermediate = math_utils.quat_error_magnitude(
+            self.object.data.root_quat_w, self.quat_intermediate_w
+        )
+
+        needs_intermediate = err_to_goal > self._INTERMEDIATE_STEP_RAD
+        should_update = (
+            self.use_intermediate
+            & (err_to_intermediate < self._INTERMEDIATE_UPDATE_RAD)
+            & needs_intermediate
+        )
+
+        activate_ids = (needs_intermediate & ~self.use_intermediate).nonzero(as_tuple=False).squeeze(-1)
+        update_ids = should_update.nonzero(as_tuple=False).squeeze(-1)
+        refresh_ids = torch.unique(torch.cat([activate_ids, update_ids]))
+        if len(refresh_ids) > 0:
+            self.quat_intermediate_w[refresh_ids] = self._compute_intermediate_goal(refresh_ids)
+            self.use_intermediate[refresh_ids] = True
+
+        deactivate = self.use_intermediate & ~needs_intermediate
+        self.use_intermediate[deactivate] = False
+
         # update the command if goal is reached
         if self.cfg.update_goal_on_success:
-            # compute the goal resets
             goal_resets = (
                 self.metrics["orientation_error"]
                 < self.cfg.orientation_success_threshold
             )
             goal_reset_ids = goal_resets.nonzero(as_tuple=False).squeeze(-1)
-            # resample the goals
             self._resample(goal_reset_ids)
 
     def _set_debug_vis_impl(self, debug_vis: TYPE_CHECKING):
@@ -181,37 +239,50 @@ class InHandReOrientationCommand(CommandTerm):
                 self.goal_pose_visualizer = VisualizationMarkers(
                     self.cfg.goal_pose_visualizer_cfg
                 )
+            if not hasattr(self, "intermediate_pose_visualizer"):
+                self.intermediate_pose_visualizer = VisualizationMarkers(
+                    self.cfg.intermediate_pose_visualizer_cfg
+                )
             if not hasattr(self, "current_pose_visualizer"):
                 self.current_pose_visualizer = VisualizationMarkers(
                     self.cfg.current_pose_visualizer_cfg
                 )
             # set visibility
             self.goal_pose_visualizer.set_visibility(True)
+            self.intermediate_pose_visualizer.set_visibility(True)
             self.current_pose_visualizer.set_visibility(True)
         else:
             if hasattr(self, "goal_pose_visualizer"):
                 self.goal_pose_visualizer.set_visibility(False)
+            if hasattr(self, "intermediate_pose_visualizer"):
+                self.intermediate_pose_visualizer.set_visibility(False)
             if hasattr(self, "current_pose_visualizer"):
                 self.current_pose_visualizer.set_visibility(False)
 
     def _debug_vis_callback(self, event):
-        # Goal pose visualization
-        # add an offset to the marker position to visualize the goal
-        marker_pos = self.pos_command_w + torch.tensor(
-            self.cfg.marker_pos_offset, device=self.device
-        )
-        marker_quat = self.quat_command_w
-        # visualize the goal marker
+        marker_offset = torch.tensor(self.cfg.marker_pos_offset, device=self.device)
+        goal_pos = self.pos_command_w + marker_offset
+
+        # Final goal marker (full opacity)
         self.goal_pose_visualizer.visualize(
-            translations=marker_pos, orientations=marker_quat
+            translations=goal_pos, orientations=self.quat_command_w
+        )
+
+        # Intermediate goal marker (semi-transparent).
+        # When not active, overlap with the final goal marker.
+        intermediate_quat = torch.where(
+            self.use_intermediate.unsqueeze(-1),
+            self.quat_intermediate_w,
+            self.quat_command_w,
+        )
+        self.intermediate_pose_visualizer.visualize(
+            translations=goal_pos, orientations=intermediate_quat
         )
 
         # Current object pose visualization
-        # visualize at actual object position
-        current_pos = self.object.data.root_pos_w
-        current_quat = self.object.data.root_quat_w
         self.current_pose_visualizer.visualize(
-            translations=current_pos, orientations=current_quat
+            translations=self.object.data.root_pos_w,
+            orientations=self.object.data.root_quat_w,
         )
 
 
@@ -273,6 +344,18 @@ class InHandReOrientationCommandCfg(CommandTermCfg):
         },
     )
     """The configuration for the goal pose visualization marker. Defaults to XYZ axes (5cm)."""
+
+    # Intermediate goal pose visualization - semi-transparent XYZ frame axes (5cm scale)
+    intermediate_pose_visualizer_cfg: VisualizationMarkersCfg = VisualizationMarkersCfg(
+        prim_path="/Visuals/Command/intermediate_marker",
+        markers={
+            "frame": sim_utils.UsdFileCfg(
+                usd_path=f"{ISAAC_NUCLEUS_DIR}/Props/UIElements/frame_prim.usd",
+                scale=(0.08, 0.08, 0.08),
+            ),
+        },
+    )
+    """The configuration for the intermediate goal pose visualization marker (semi-transparent)."""
 
     # Current object pose visualization - XYZ frame axes (5cm scale)
     current_pose_visualizer_cfg: VisualizationMarkersCfg = VisualizationMarkersCfg(
