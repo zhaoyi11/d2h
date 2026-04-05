@@ -404,7 +404,7 @@ def track_orientation_inv_l2(
     dtheta = math_utils.quat_error_magnitude(asset.data.root_quat_w, goal_quat_w)
     value = 1.0 / (dtheta + rot_eps)
     if need_contact:
-        value = value * contacts(env, 1.0, mode="anytwo")
+        value = value * contacts(env, 0.3, mode="any")
     return value
 
 
@@ -840,7 +840,7 @@ def _normalize_env_ids(
     return torch.as_tensor(env_ids, device=env.device, dtype=torch.long)
 
 
-def contacts(env: ManagerBasedRLEnv, threshold: float, mode: Literal["opposite", "anytwo"] = "opposite") -> torch.Tensor:
+def contacts(env: ManagerBasedRLEnv, threshold: float, mode: Literal["opposite", "any"] = "opposite") -> torch.Tensor:
     """Check if the fingertip contacts with the object is above a threshold."""
     thumb_contact_sensor: ContactSensor = env.scene.sensors["thumb_tip_object_s"]
     index_contact_sensor: ContactSensor = env.scene.sensors["index_tip_object_s"]
@@ -859,7 +859,7 @@ def contacts(env: ManagerBasedRLEnv, threshold: float, mode: Literal["opposite",
         good_contact_cond1 = (thumb_contact_mag > threshold) & (
             (index_contact_mag > threshold) | (middle_contact_mag > threshold) | (ring_contact_mag > threshold)
         )
-    if mode == "anytwo":
+    if mode == "any":
         finger_contacts = torch.stack([
             thumb_contact_mag > threshold,
             index_contact_mag > threshold,

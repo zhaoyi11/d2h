@@ -44,6 +44,22 @@ from src.assets.franka_leap_hand.leap import LEAP_HAND_CFG
 UWLAB_CLOUD_ASSETS_DIR = "https://huggingface.co/datasets/UW-Lab/uwlab-assets/resolve/main"
 
 
+def _get_visdex_usd_paths() -> list[str]:
+    """Return sorted visdex USD asset paths bundled with this repo."""
+    usd_root = Path(__file__).resolve().parents[2] / "assets" / "visdex_objects" / "USD"
+    if not usd_root.is_dir():
+        raise FileNotFoundError(f"visdex USD asset directory does not exist: {usd_root}")
+
+    usd_paths: list[str] = []
+    for object_dir in sorted(path for path in usd_root.iterdir() if path.is_dir()):
+        usd_path = object_dir / f"{object_dir.name}.usd"
+        if usd_path.is_file():
+            usd_paths.append(str(usd_path))
+
+    if not usd_paths:
+        raise ValueError(f"No visdex USD assets found in: {usd_root}")
+    return usd_paths
+
 @configclass
 class InHandObjectSceneCfg(InteractiveSceneCfg):
     """Configuration for a scene with an object and a dexterous hand."""
@@ -51,23 +67,48 @@ class InHandObjectSceneCfg(InteractiveSceneCfg):
     # robots
     robot: ArticulationCfg = LEAP_HAND_CFG.replace(prim_path="{ENV_REGEX_NS}/Robot")
 
-    # object
+    # # object
+    # object: RigidObjectCfg = RigidObjectCfg(
+    #     prim_path="{ENV_REGEX_NS}/Object",
+    #     spawn=sim_utils.UsdFileCfg(
+    #         usd_path=f"{UWLAB_CLOUD_ASSETS_DIR}/Props/Custom/Peg/peg.usd",
+    #         scale=(1.5, 1.5, 1.5),
+    #         rigid_props=sim_utils.RigidBodyPropertiesCfg(
+    #             solver_position_iteration_count=4,
+    #             solver_velocity_iteration_count=0,
+    #             disable_gravity=False,
+    #             kinematic_enabled=False,
+    #         ),
+    #         collision_props=sim_utils.CollisionPropertiesCfg(collision_enabled=True),
+    #         mass_props=sim_utils.MassPropertiesCfg(mass=0.2),
+    #     ),
+    #     # 12 cm above the hand (0.5 + 0.12 = 0.62)
+    #     init_state=RigidObjectCfg.InitialStateCfg(pos=(0.0, -0.03, 0.62), rot=(1.0, 0.0, 0.0, 0.0)),
+    # )
+
+
+    # all visdex objects
     object: RigidObjectCfg = RigidObjectCfg(
         prim_path="{ENV_REGEX_NS}/Object",
-        spawn=sim_utils.UsdFileCfg(
-            usd_path=f"{UWLAB_CLOUD_ASSETS_DIR}/Props/Custom/Peg/peg.usd",
-            scale=(1.5, 1.5, 1.5),
+        spawn=sim_utils.MultiUsdFileCfg(
+            usd_path=_get_visdex_usd_paths(),
+            # random_choice=True,
+            random_choice=False,
+            articulation_props=sim_utils.ArticulationRootPropertiesCfg(
+                articulation_enabled=False,
+            ),
             rigid_props=sim_utils.RigidBodyPropertiesCfg(
-                solver_position_iteration_count=4,
+                solver_position_iteration_count=16,
                 solver_velocity_iteration_count=0,
                 disable_gravity=False,
-                kinematic_enabled=False,
             ),
             collision_props=sim_utils.CollisionPropertiesCfg(collision_enabled=True),
             mass_props=sim_utils.MassPropertiesCfg(mass=0.2),
+            scale=(0.9, 0.9, 0.9),
         ),
-        # 12 cm above the hand (0.5 + 0.12 = 0.62)
-        init_state=RigidObjectCfg.InitialStateCfg(pos=(0.0, -0.03, 0.62), rot=(1.0, 0.0, 0.0, 0.0)),
+        init_state=RigidObjectCfg.InitialStateCfg(
+            pos=(0.0, -0.03, 0.62), rot=(1.0, 0.0, 0.0, 0.0)
+        ),
     )
 
     # plane
@@ -95,7 +136,7 @@ class CommandsCfg:
 
     object_pose = task_mdp.InHandReOrientationCommandCfg(
         asset_name="object",
-        random_range=0.3, # TODO: tune this with curriculum later.
+        random_range=0.2, # TODO: tune this with curriculum later.
         init_pos_offset=(0.0, 0.0, 0.0),
         update_goal_on_success=True,
         orientation_success_threshold=0.3, 
@@ -113,7 +154,8 @@ class ActionsCfg:
     joint_pos = mdp.EMAJointPositionToLimitsActionCfg(
         asset_name="robot",
         joint_names=[".*"],
-        alpha=0.95,
+        # alpha=0.95
+        alpha=0.5,
         rescale_to_limits=True,
     )
 
@@ -194,18 +236,18 @@ class ObservationsCfg:
             params={"asset_cfg": SceneEntityCfg("object")},
         )
 
-        # # -- command terms
-        # goal_pose = ObsTerm(
-        #     func=mdp.generated_commands, params={"command_name": "object_pose"}
-        # )
-        # goal_quat_diff = ObsTerm(
-        #     func=mdp.goal_quat_diff,
-        #     params={
-        #         "asset_cfg": SceneEntityCfg("object"),
-        #         "command_name": "object_pose",
-        #         "make_quat_unique": False,
-        #     },
-        # )
+        # -- command terms
+        goal_pose = ObsTerm(
+            func=mdp.generated_commands, params={"command_name": "object_pose"}
+        )
+        goal_quat_diff = ObsTerm(
+            func=mdp.goal_quat_diff,
+            params={
+                "asset_cfg": SceneEntityCfg("object"),
+                "command_name": "object_pose",
+                "make_quat_unique": False,
+            },
+        )
 
         # -- action terms
         last_action = ObsTerm(func=mdp.last_action)
@@ -314,17 +356,17 @@ class EventCfg:
         },
     )
 
-    randomize_hand_object_default_pose = EventTerm(
-        func=task_mdp.randomize_hand_object_default_pose,
-        mode="startup",
-        params={
-            "base_asset_cfg": SceneEntityCfg("robot", body_names="base"),
-            "object_asset_cfg": SceneEntityCfg("object"),
-            "roll_range": (-torch.pi, torch.pi),
-            "pitch_range": (-torch.pi, torch.pi),
-            "yaw_range": (-torch.pi, torch.pi),
-        },
-    )
+    # randomize_hand_object_default_pose = EventTerm(
+    #     func=task_mdp.randomize_hand_object_default_pose,
+    #     mode="startup",
+    #     params={
+    #         "base_asset_cfg": SceneEntityCfg("robot", body_names="base"),
+    #         "object_asset_cfg": SceneEntityCfg("object"),
+    #         "roll_range": (-torch.pi, torch.pi),
+    #         "pitch_range": (-torch.pi, torch.pi),
+    #         "yaw_range": (-torch.pi, torch.pi),
+    #     },
+    # )
 
     # reset
     reset_object = EventTerm(
@@ -408,19 +450,19 @@ class RewardsCfg:
         weight=1.0,
     )
 
-    # TODO: add contact ralated info later.
-    fingertip_contact = RewTerm(
-        func=task_mdp.fingertip_object_contacts,
-        weight=3,
-        params={
-            "contact_sensor_names": [
-                "thumb_tip_object_s",
-                "index_tip_object_s",
-                "middle_tip_object_s",
-                "ring_tip_object_s",
-            ],
-        },
-    )
+    # # TODO: add contact ralated info later.
+    # fingertip_contact = RewTerm(
+    #     func=task_mdp.fingertip_object_contacts,
+    #     weight=3,
+    #     params={
+    #         "contact_sensor_names": [
+    #             "thumb_tip_object_s",
+    #             "index_tip_object_s",
+    #             "middle_tip_object_s",
+    #             "ring_tip_object_s",
+    #         ],
+    #     },
+    # )
 
     success = RewTerm(
         func=task_mdp.success_bonus,
@@ -582,7 +624,8 @@ class LeapObjectEnvCfg(InHandObjectEnvCfg):
                 ContactSensorCfg( 
                     prim_path=prim_path,
                     filter_prim_paths_expr=[
-                        "{ENV_REGEX_NS}/Object",  # TODO: check this, in case itcan't filter the object properly now.
+                        # "{ENV_REGEX_NS}/Object",  # TODO: check this, in case itcan't filter the object properly now.
+                        "{ENV_REGEX_NS}/Object/baseLink",
                     ],
                     update_period=0.0,
                     history_length=6,
