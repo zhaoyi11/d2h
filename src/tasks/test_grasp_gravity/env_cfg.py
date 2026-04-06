@@ -67,49 +67,49 @@ class InHandObjectSceneCfg(InteractiveSceneCfg):
     # robots
     robot: ArticulationCfg = LEAP_HAND_CFG.replace(prim_path="{ENV_REGEX_NS}/Robot")
 
-    # # object
-    # object: RigidObjectCfg = RigidObjectCfg(
-    #     prim_path="{ENV_REGEX_NS}/Object",
-    #     spawn=sim_utils.UsdFileCfg(
-    #         usd_path=f"{UWLAB_CLOUD_ASSETS_DIR}/Props/Custom/Peg/peg.usd",
-    #         scale=(1.5, 1.5, 1.5),
-    #         rigid_props=sim_utils.RigidBodyPropertiesCfg(
-    #             solver_position_iteration_count=4,
-    #             solver_velocity_iteration_count=0,
-    #             disable_gravity=False,
-    #             kinematic_enabled=False,
-    #         ),
-    #         collision_props=sim_utils.CollisionPropertiesCfg(collision_enabled=True),
-    #         mass_props=sim_utils.MassPropertiesCfg(mass=0.2),
-    #     ),
-    #     # 12 cm above the hand (0.5 + 0.12 = 0.62)
-    #     init_state=RigidObjectCfg.InitialStateCfg(pos=(0.0, -0.03, 0.62), rot=(1.0, 0.0, 0.0, 0.0)),
-    # )
-
-
-    # all visdex objects
+    # object
     object: RigidObjectCfg = RigidObjectCfg(
         prim_path="{ENV_REGEX_NS}/Object",
-        spawn=sim_utils.MultiUsdFileCfg(
-            usd_path=_get_visdex_usd_paths(),
-            # random_choice=True,
-            random_choice=False,
-            articulation_props=sim_utils.ArticulationRootPropertiesCfg(
-                articulation_enabled=False,
-            ),
+        spawn=sim_utils.UsdFileCfg(
+            usd_path=f"{UWLAB_CLOUD_ASSETS_DIR}/Props/Custom/Peg/peg.usd",
+            scale=(1.5, 1.5, 1.5),
             rigid_props=sim_utils.RigidBodyPropertiesCfg(
-                solver_position_iteration_count=16,
+                solver_position_iteration_count=4,
                 solver_velocity_iteration_count=0,
                 disable_gravity=False,
+                kinematic_enabled=False,
             ),
             collision_props=sim_utils.CollisionPropertiesCfg(collision_enabled=True),
             mass_props=sim_utils.MassPropertiesCfg(mass=0.2),
-            scale=(0.9, 0.9, 0.9),
         ),
-        init_state=RigidObjectCfg.InitialStateCfg(
-            pos=(0.0, -0.03, 0.62), rot=(1.0, 0.0, 0.0, 0.0)
-        ),
+        # 12 cm above the hand (0.5 + 0.12 = 0.62)
+        init_state=RigidObjectCfg.InitialStateCfg(pos=(0.0, -0.03, 0.62), rot=(1.0, 0.0, 0.0, 0.0)),
     )
+
+
+    # # all visdex objects
+    # object: RigidObjectCfg = RigidObjectCfg(
+    #     prim_path="{ENV_REGEX_NS}/Object",
+    #     spawn=sim_utils.MultiUsdFileCfg(
+    #         usd_path=_get_visdex_usd_paths(),
+    #         # random_choice=True,
+    #         random_choice=False,
+    #         articulation_props=sim_utils.ArticulationRootPropertiesCfg(
+    #             articulation_enabled=False,
+    #         ),
+    #         rigid_props=sim_utils.RigidBodyPropertiesCfg(
+    #             solver_position_iteration_count=16,
+    #             solver_velocity_iteration_count=0,
+    #             disable_gravity=False,
+    #         ),
+    #         collision_props=sim_utils.CollisionPropertiesCfg(collision_enabled=True),
+    #         mass_props=sim_utils.MassPropertiesCfg(mass=0.2),
+    #         scale=(0.9, 0.9, 0.9),
+    #     ),
+    #     init_state=RigidObjectCfg.InitialStateCfg(
+    #         pos=(0.0, -0.03, 0.62), rot=(1.0, 0.0, 0.0, 0.0)
+    #     ),
+    # )
 
     # plane
     plane = AssetBaseCfg(
@@ -136,7 +136,7 @@ class CommandsCfg:
 
     object_pose = task_mdp.InHandReOrientationCommandCfg(
         asset_name="object",
-        random_range=0.2, # TODO: tune this with curriculum later.
+        random_range=0.5, # TODO: tune this with curriculum later.
         init_pos_offset=(0.0, 0.0, 0.0),
         update_goal_on_success=True,
         orientation_success_threshold=0.3, 
@@ -375,10 +375,12 @@ class EventCfg:
         params={
             # "pose_range": {"x": [-0.01, 0.01], "y": [-0.01, 0.01], # TODO: disable this for now. later can change this when generating grasp data.
             "pose_range": {
-                "x": [0.0, 0.0],
-                "y": [0.0, 0.0],
-                #  "z": [-0.01, 0.01]
-                "z": [0.0, 0.0],
+                "x": [-0.01, 0.01],
+                "y": [-0.01, 0.01],
+                "z": [-0.01, 0.01],
+                "roll": [-3.14, 3.14],
+                "pitch": [-3.14, 3.14],
+                "yaw": [-3.14, 3.14],
             },
             "velocity_range": {},
             "asset_cfg": SceneEntityCfg("object", body_names=".*"),
@@ -402,7 +404,7 @@ class EventCfg:
         func=mdp.randomize_physics_scene_gravity,
         mode="reset",
         params={
-            "gravity_distribution_params": ([0.0, 0.0, 0.0], [0.0, 0.0, 0.0]),
+            "gravity_distribution_params": ([0.0, 0.0, -1.0], [0.0, 0.0, -1.0]),
             "operation": "abs",
         },
     )
@@ -500,7 +502,7 @@ class TerminationsCfg:
     abnormal_robot = DoneTerm(func=mdp.abnormal_robot_state)
 
     object_out_of_reach = DoneTerm(
-        func=task_mdp.object_away_from_robot, params={"threshold": 0.3}
+        func=task_mdp.object_away_from_robot, params={"threshold": 0.2}
     )
 
 
@@ -624,8 +626,8 @@ class LeapObjectEnvCfg(InHandObjectEnvCfg):
                 ContactSensorCfg( 
                     prim_path=prim_path,
                     filter_prim_paths_expr=[
-                        # "{ENV_REGEX_NS}/Object",  # TODO: check this, in case itcan't filter the object properly now.
-                        "{ENV_REGEX_NS}/Object/baseLink",
+                        "{ENV_REGEX_NS}/Object",  # TODO: check this, in case itcan't filter the object properly now.
+                        # "{ENV_REGEX_NS}/Object/baseLink",
                     ],
                     update_period=0.0,
                     history_length=6,
