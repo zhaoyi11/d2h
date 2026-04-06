@@ -150,21 +150,21 @@ class CommandsCfg:
 class ActionsCfg:
     """Action specifications for the MDP."""
 
-    # # TODO: check which action manager to use.
-    # joint_pos = mdp.EMAJointPositionToLimitsActionCfg(
-    #     asset_name="robot",
-    #     joint_names=[".*"],
-    #     # alpha=0.95
-    #     alpha=0.5,
-    #     rescale_to_limits=True,
-    # )
-
-    joint_pos = mdp.RelativeJointPositionActionCfg(
-       asset_name="robot",
-       joint_names=["a_.*"],
-       use_zero_offset=False,
-       scale=0.3,
+    # TODO: check which action manager to use.
+    joint_pos = mdp.EMAJointPositionToLimitsActionCfg(
+        asset_name="robot",
+        joint_names=[".*"],
+        # alpha=0.95
+        alpha=0.5, # TODO: can I add this to curriculum?
+        rescale_to_limits=True,
     )
+
+    # joint_pos = mdp.RelativeJointPositionActionCfg(
+    #    asset_name="robot",
+    #    joint_names=["a_.*"],
+    #    use_zero_offset=False,
+    # #    scale=0.3,
+    # )
 
     # joint_pos = mdp.EMACumulativeRelativeJointPositionActionCfg(
     # asset_name="robot",
@@ -215,13 +215,19 @@ class ObservationsCfg:
 
         # -- object terms
         object_pos = ObsTerm(
-            func=mdp.root_pos_w,
+            func=mdp.object_pos_b,
             noise=Gnoise(std=0.002),
-            params={"asset_cfg": SceneEntityCfg("object")},
+            params={
+                "robot_cfg": SceneEntityCfg("robot"),
+                "object_cfg": SceneEntityCfg("object"),
+            },
         )
         object_quat = ObsTerm(
-            func=mdp.root_quat_w,
-            params={"asset_cfg": SceneEntityCfg("object"), "make_quat_unique": False},
+            func=mdp.object_quat_b,
+            params={
+                "robot_cfg": SceneEntityCfg("robot"),
+                "object_cfg": SceneEntityCfg("object"),
+            },
         )
         object_lin_vel = ObsTerm(
             func=mdp.root_lin_vel_w,
@@ -235,10 +241,13 @@ class ObservationsCfg:
             params={"asset_cfg": SceneEntityCfg("object")},
         )
 
-        # -- command terms
-        goal_pose = ObsTerm(
-            func=mdp.generated_commands, params={"command_name": "object_pose"}
+        # -- gravity in robot frame (needed for orientation-dependent grasp strategy)
+        gravity_dir = ObsTerm(
+            func=task_mdp.gravity_dir_b,
+            params={"base_asset_cfg": SceneEntityCfg("robot")},
         )
+
+        # -- command terms
         goal_quat_diff = ObsTerm(
             func=mdp.goal_quat_diff,
             params={
@@ -362,10 +371,10 @@ class EventCfg:
             "base_asset_cfg": SceneEntityCfg("robot", body_names="base"),
             "object_asset_cfg": SceneEntityCfg("object"),
             "roll_range": (-torch.pi, -torch.pi),
-            "pitch_range": (0.0, 0.0),
-            "yaw_range": (0.0, 0.0),
-            # "pitch_range": (-torch.pi, torch.pi),
-            # "yaw_range": (-torch.pi, torch.pi),
+            # "pitch_range": (0.0, 0.0),
+            # "yaw_range": (0.0, 0.0),
+            "pitch_range": (-torch.pi, torch.pi),
+            "yaw_range": (-torch.pi, torch.pi),
         },
     )
 

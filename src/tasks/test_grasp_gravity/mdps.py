@@ -431,6 +431,21 @@ def neg_fingertip_object_distance(
     return -torch.mean(dists, dim=-1)
 
 
+def gravity_dir_b(
+    env: ManagerBasedRLEnv,
+    base_asset_cfg: SceneEntityCfg = SceneEntityCfg("robot"),
+) -> torch.Tensor:
+    """Unit gravity vector expressed in robot root frame. Shape: (num_envs, 3).
+
+    When the scene is rotated (e.g., by randomize_hand_object_default_pose), the gravity
+    direction changes in robot frame. This observation allows the policy to adapt its
+    grasp strategy based on orientation (palm-up vs palm-down vs sideways).
+    """
+    robot: Articulation = env.scene[base_asset_cfg.name]
+    gravity_w = torch.tensor([0.0, 0.0, -1.0], device=env.device).expand(env.num_envs, -1)
+    return math_utils.quat_apply_inverse(robot.data.root_quat_w, gravity_w)
+
+
 def joint_pos_default_l2(
     env: ManagerBasedRLEnv,
     asset_cfg: SceneEntityCfg = SceneEntityCfg("robot"),
