@@ -150,21 +150,21 @@ class CommandsCfg:
 class ActionsCfg:
     """Action specifications for the MDP."""
 
-    # TODO: check which action manager to use.
-    joint_pos = mdp.EMAJointPositionToLimitsActionCfg(
-        asset_name="robot",
-        joint_names=[".*"],
-        # alpha=0.95
-        alpha=0.5,
-        rescale_to_limits=True,
-    )
-
-    # joint_pos = mdp.RelativeJointPositionActionCfg(
-    #    asset_name="robot",
-    #    joint_names=["a_.*"],
-    #    use_zero_offset=False,
-    #    scale=0.3,
+    # # TODO: check which action manager to use.
+    # joint_pos = mdp.EMAJointPositionToLimitsActionCfg(
+    #     asset_name="robot",
+    #     joint_names=[".*"],
+    #     # alpha=0.95
+    #     alpha=0.5,
+    #     rescale_to_limits=True,
     # )
+
+    joint_pos = mdp.RelativeJointPositionActionCfg(
+       asset_name="robot",
+       joint_names=["a_.*"],
+       use_zero_offset=False,
+       scale=0.3,
+    )
 
     # joint_pos = mdp.EMACumulativeRelativeJointPositionActionCfg(
     # asset_name="robot",
