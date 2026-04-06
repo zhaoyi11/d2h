@@ -356,17 +356,19 @@ class EventCfg:
         },
     )
 
-    # randomize_hand_object_default_pose = EventTerm(
-    #     func=task_mdp.randomize_hand_object_default_pose,
-    #     mode="startup",
-    #     params={
-    #         "base_asset_cfg": SceneEntityCfg("robot", body_names="base"),
-    #         "object_asset_cfg": SceneEntityCfg("object"),
-    #         "roll_range": (-torch.pi, torch.pi),
-    #         "pitch_range": (-torch.pi, torch.pi),
-    #         "yaw_range": (-torch.pi, torch.pi),
-    #     },
-    # )
+    randomize_hand_object_default_pose = EventTerm(
+        func=task_mdp.randomize_hand_object_default_pose,
+        mode="startup",
+        params={
+            "base_asset_cfg": SceneEntityCfg("robot", body_names="base"),
+            "object_asset_cfg": SceneEntityCfg("object"),
+            "roll_range": (-torch.pi, -torch.pi),
+            "pitch_range": (0.0, 0.0),
+            "yaw_range": (0.0, 0.0),
+            # "pitch_range": (-torch.pi, torch.pi),
+            # "yaw_range": (-torch.pi, torch.pi),
+        },
+    )
 
     # reset
     reset_object = EventTerm(
@@ -496,7 +498,7 @@ class TerminationsCfg:
 
     max_consecutive_success = DoneTerm(
         func=task_mdp.max_consecutive_success,
-        params={"num_success": 6, "command_name": "object_pose"},
+        params={"num_success": 100, "command_name": "object_pose"},
     )
 
     abnormal_robot = DoneTerm(func=mdp.abnormal_robot_state)
