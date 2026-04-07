@@ -6,6 +6,7 @@
 from __future__ import annotations
 
 from dataclasses import MISSING, dataclass
+from pathlib import Path
 from re import I
 
 import numpy as np
@@ -44,6 +45,33 @@ from src.assets.franka_leap_hand.leap import LEAP_HAND_CFG
 ##
 
 
+def _get_visdex_usd_paths() -> list[str]:
+    """Return sorted visdex USD asset paths bundled with this repo."""
+    usd_root = Path(__file__).resolve().parents[2] / "assets" / "visdex_objects" / "USD"
+    if not usd_root.is_dir():
+        raise FileNotFoundError(f"visdex USD asset directory does not exist: {usd_root}")
+
+    usd_paths: list[str] = []
+    for object_dir in sorted(path for path in usd_root.iterdir() if path.is_dir()):
+        usd_path = object_dir / f"{object_dir.name}.usd"
+        if usd_path.is_file():
+            usd_paths.append(str(usd_path))
+
+    if not usd_paths:
+        raise ValueError(f"No visdex USD assets found in: {usd_root}")
+    return usd_paths
+
+
+def _get_usd_paths_from_grasp_data(grasp_path: str) -> list[str]:
+    """Extract sorted unique USD asset paths from a grasp data .npy file."""
+    data = np.load(grasp_path, allow_pickle=True).item()
+    raw_paths = data.get("object_asset_paths")
+    if raw_paths is None:
+        raise ValueError(f"grasp data at {grasp_path} has no 'object_asset_paths'")
+    unique_paths = sorted(set(np.asarray(raw_paths).flat))
+    return [str(p) for p in unique_paths]
+
+
 @configclass
 class InHandObjectSceneCfg(InteractiveSceneCfg):
     """Configuration for a scene with an object and a dexterous hand."""
@@ -54,71 +82,12 @@ class InHandObjectSceneCfg(InteractiveSceneCfg):
     # object
     object: RigidObjectCfg = RigidObjectCfg(
         prim_path="{ENV_REGEX_NS}/Object",
-        spawn=sim_utils.MultiAssetSpawnerCfg(
-            assets_cfg=[
-                # CuboidCfg(
-                #     size=(0.05, 0.1, 0.1),
-                #     physics_material=RigidBodyMaterialCfg(static_friction=0.5),
-                # ),
-                # CuboidCfg(
-                #     size=(0.05, 0.05, 0.1),
-                #     physics_material=RigidBodyMaterialCfg(static_friction=0.5),
-                # ),
-                # CuboidCfg(
-                #     size=(0.025, 0.1, 0.1),
-                #     physics_material=RigidBodyMaterialCfg(static_friction=0.5),
-                # ),
-                # CuboidCfg(
-                #     size=(0.025, 0.05, 0.1),
-                #     physics_material=RigidBodyMaterialCfg(static_friction=0.5),
-                # ),
-                # CuboidCfg(
-                #     size=(0.025, 0.025, 0.1),
-                #     physics_material=RigidBodyMaterialCfg(static_friction=0.5),
-                # ),
-                # CuboidCfg(
-                #     size=(0.01, 0.1, 0.1),
-                #     physics_material=RigidBodyMaterialCfg(static_friction=0.5),
-                # ),
-                SphereCfg(
-                    radius=0.05,
-                    physics_material=RigidBodyMaterialCfg(static_friction=0.5),
-                ),
-                # SphereCfg(
-                #     radius=0.025,
-                #     physics_material=RigidBodyMaterialCfg(static_friction=0.5),
-                # ),
-                # CapsuleCfg(
-                #     radius=0.04,
-                #     height=0.025,
-                #     physics_material=RigidBodyMaterialCfg(static_friction=0.5),
-                # ),
-                # CapsuleCfg(
-                #     radius=0.04,
-                #     height=0.01,
-                #     physics_material=RigidBodyMaterialCfg(static_friction=0.5),
-                # ),
-                # CapsuleCfg(
-                #     radius=0.04,
-                #     height=0.1,
-                #     physics_material=RigidBodyMaterialCfg(static_friction=0.5),
-                # ),
-                # CapsuleCfg(
-                #     radius=0.025,
-                #     height=0.1,
-                #     physics_material=RigidBodyMaterialCfg(static_friction=0.5),
-                # ),
-                # ConeCfg(
-                #     radius=0.05,
-                #     height=0.1,
-                #     physics_material=RigidBodyMaterialCfg(static_friction=0.5),
-                # ),
-                # ConeCfg(
-                #     radius=0.025,
-                #     height=0.1,
-                #     physics_material=RigidBodyMaterialCfg(static_friction=0.5),
-                # ),
-            ],
+        spawn=sim_utils.MultiUsdFileCfg(
+            usd_path=_get_visdex_usd_paths(),
+            random_choice=False,
+            articulation_props=sim_utils.ArticulationRootPropertiesCfg(
+                articulation_enabled=False,
+            ),
             rigid_props=sim_utils.RigidBodyPropertiesCfg(
                 solver_position_iteration_count=16,
                 solver_velocity_iteration_count=0,
@@ -126,8 +95,8 @@ class InHandObjectSceneCfg(InteractiveSceneCfg):
             ),
             collision_props=sim_utils.CollisionPropertiesCfg(collision_enabled=True),
             mass_props=sim_utils.MassPropertiesCfg(mass=0.2),
+            scale=(0.8, 0.8, 0.8),
         ),
-        # 12 cm above the hand
         init_state=RigidObjectCfg.InitialStateCfg(
             pos=(0.0, -0.03, 0.62), rot=(1.0, 0.0, 0.0, 0.0)
         ),
@@ -467,13 +436,13 @@ class RewardsCfg:
 
     fingertip_obj_dist = RewTerm(
         func=task_mdp.neg_fingertip_object_distance,
-        weight=0.5,
+        weight=1.0,
     )
 
     # TODO: add contact ralated info later.
     fingertip_contact = RewTerm(
         func=task_mdp.fingertip_object_contacts,
-        weight=1.0,
+        weight=0.1,
         params={
             "contact_sensor_names": [
                 "thumb_tip_object_s",
@@ -513,7 +482,7 @@ class TerminationsCfg:
 
     max_consecutive_success = DoneTerm(
         func=task_mdp.max_consecutive_success,
-        params={"num_success": 6, "command_name": "object_pose"},
+        params={"num_success": 30, "command_name": "object_pose"},
     )
 
     object_out_of_reach = DoneTerm(
@@ -550,7 +519,7 @@ class InHandObjectEnvCfg(ManagerBasedRLEnvCfg):
     # Basic settings
     observations: ObservationsCfg = ObservationsCfg()
     actions: ActionsCfg = ActionsCfg()
-    commands: CommandsCfg = CommandsCfg()
+    commands: CommandsCfg = CommandsCfg() # TODO: check the order, this previously after the action, before reward.
     # MDP settings
     rewards: RewardsCfg = RewardsCfg()
     terminations: TerminationsCfg = TerminationsCfg()
@@ -638,6 +607,31 @@ class LeapObjectEnvCfg(InHandObjectEnvCfg):
         # switch robot to leap hand
         self.scene.robot = LEAP_HAND_CFG.replace(prim_path="{ENV_REGEX_NS}/Robot")
 
+        # override object USD paths from grasp data when available
+        if self.grasp_path is not None:
+            grasp_usd_paths = _get_usd_paths_from_grasp_data(self.grasp_path)
+            self.scene.object = RigidObjectCfg(
+                prim_path="{ENV_REGEX_NS}/Object",
+                spawn=sim_utils.MultiUsdFileCfg(
+                    usd_path=grasp_usd_paths,
+                    random_choice=False,
+                    articulation_props=sim_utils.ArticulationRootPropertiesCfg(
+                        articulation_enabled=False,
+                    ),
+                    rigid_props=sim_utils.RigidBodyPropertiesCfg(
+                        solver_position_iteration_count=16,
+                        solver_velocity_iteration_count=0,
+                        disable_gravity=False,
+                    ),
+                    collision_props=sim_utils.CollisionPropertiesCfg(collision_enabled=True),
+                    mass_props=sim_utils.MassPropertiesCfg(mass=0.2),
+                    scale=(0.8, 0.8, 0.8),
+                ),
+                init_state=RigidObjectCfg.InitialStateCfg(
+                    pos=(0.0, -0.03, 0.62), rot=(1.0, 0.0, 0.0, 0.0)
+                ),
+            )
+
         # attach transform sensors to fingertip links for contact-based rewards/observations
         self.scene.fingertip_transforms = FrameTransformerCfg(
             prim_path="{ENV_REGEX_NS}/Robot/base",
@@ -689,14 +683,14 @@ class LeapObjectEnvCfg(InHandObjectEnvCfg):
                 ContactSensorCfg(
                     prim_path=prim_path,
                     filter_prim_paths_expr=[
-                        "{ENV_REGEX_NS}/Object"
-                    ],  # TODO: check this, can't filter the object properly now.
+                        "{ENV_REGEX_NS}/Object/baseLink",
+                    ],
                     update_period=0.0,
                     history_length=6,
                     debug_vis=True,
                 ),
             )
-
+        # TODO: check the object load more carefully. looks some objects have penetration issues.
         # Initial robot and object state
         self.events.load_grasp = EventTerm(
             func=task_mdp.load_grasp,
@@ -752,31 +746,3 @@ class LeapObjectNoVelObsEnvCfg_PLAY(LeapObjectNoVelObsEnvCfg):
         # remove termination due to timeouts
         self.terminations.time_out = None
 
-
-@configclass
-class GraspReplayActionsCfg:
-    joint_pos = mdp.RelativeJointPositionActionCfg(
-        asset_name="robot",
-        joint_names=[".*"],
-        debug_vis=True,
-        use_zero_offset=True,
-        scale=0.25,
-        offset=0.0,
-    )
-
-@configclass
-class LeapObjectReplayEnvCfg(LeapObjectEnvCfg):
-    """ Replay grasp data from a file. """
-
-    def __post_init__(self):
-        # post init of parent
-        super().__post_init__()
-        # make a smaller scene for play
-        self.scene.num_envs = 2048
-        # disable randomization for play
-        self.observations.policy.enable_corruption = False
-        # enable gravity
-        self.events.reset_gravity.params["gravity_distribution_params"] = (
-            [0.0, 0.0, -9.81],
-            [0.0, 0.0, -9.81],
-        )

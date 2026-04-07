@@ -190,8 +190,9 @@ class GraspInitData:
     robot_joint_pos: np.ndarray
     robot_joint_vel: np.ndarray
     object_root_state: np.ndarray
-    object_asset_path: str|None
-    object_scale: float|None
+    object_asset_path: str | None
+    object_asset_paths: list[str] | None
+    object_scale: float | None
 
 
 def load_grasp_data(grasp_path: str) -> GraspInitData:
@@ -203,11 +204,15 @@ def load_grasp_data(grasp_path: str) -> GraspInitData:
     robot_joint_vel = np.array(grasp_data["robot_joint_vel"])
     object_root_state = np.array(grasp_data["object_root_state"])
 
+    raw_paths = grasp_data.get("object_asset_paths")
+    object_asset_paths = list(np.asarray(raw_paths).flat) if raw_paths is not None else None
+
     return GraspInitData(
         robot_root_state=robot_root_state,
         robot_joint_pos=robot_joint_pos,
         robot_joint_vel=robot_joint_vel,
         object_root_state=object_root_state,
-        object_asset_path=None,
-        object_scale=None,
+        object_asset_path=grasp_data.get("object_asset_path"),
+        object_asset_paths=object_asset_paths,
+        object_scale=grasp_data.get("object_scale"),
     )

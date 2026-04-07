@@ -44,6 +44,16 @@ gym.register(
     },
 )
 
+gym.register(
+    id="TestGraspGravity-v0",
+    entry_point="isaaclab.envs:ManagerBasedRLEnv",
+    disable_env_checker=True,
+    kwargs={
+        "env_cfg_entry_point": f"{__name__}.test_grasp_gravity.env_cfg:LeapObjectEnvCfg",
+        "rsl_rl_cfg_entry_point": "src.tasks.test_grasp_gravity.rsl_rl_ppo_cfg:LeapObjectRslRlPpoCfg",
+    },
+)
+
 # Pick Lift / AnyRotate Environment
 gym.register(
     id="Pick_AnyRotate-v0",
@@ -93,5 +103,16 @@ gym.register(
     kwargs={
         "env_cfg_entry_point": f"{__name__}.pick_insert.env_cfg:DexsuiteFrankaLeapInsertEnvCfg",
         "rsl_rl_cfg_entry_point": "src.tasks.pick_insert.rsl_rl_ppo_cfg:PickInsertRslRlPpoCfg",
+    },
+)
+
+## Pick Screw Environment
+gym.register(
+    id="Pick_Screw-v0",
+    entry_point="isaaclab.envs:ManagerBasedRLEnv",
+    disable_env_checker=True,
+    kwargs={
+        "env_cfg_entry_point": f"{__name__}.pick_screw.env_cfg:DexsuiteFrankaLeapScrewEnvCfg",
+        "rsl_rl_cfg_entry_point": "src.tasks.pick_screw.rsl_rl_ppo_cfg:PickScrewRslRlPpoCfg",
     },
 )

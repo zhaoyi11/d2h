@@ -1365,19 +1365,57 @@ class sample_saved_stable_grasps(ManagerTermBase):
 
 
 class load_grasp(ManagerTermBase):
-    """Load grasp data and apply it on reset."""
+    """Load grasp data and apply it on reset.
+
+    When the grasp data contains per-row ``object_asset_paths`` and the scene
+    uses ``MultiUsdFileCfg(random_choice=False)`` (round-robin assignment), each
+    env is matched to the correct grasp rows for its object.
+    """
 
     def __init__(self, cfg: EventTermCfg, env: ManagerBasedRLEnv):
         super().__init__(cfg, env)
 
-        # Load grasp data
-        grasp_data = utils.load_grasp_data(cfg.params["grasp_path"])  
+        grasp_data = utils.load_grasp_data(cfg.params["grasp_path"])
 
         self._robot_root_state = torch.as_tensor(grasp_data.robot_root_state, dtype=torch.float32, device=env.device)
         self._robot_joint_pos = torch.as_tensor(grasp_data.robot_joint_pos, dtype=torch.float32, device=env.device)
         self._robot_joint_vel = torch.as_tensor(grasp_data.robot_joint_vel, dtype=torch.float32, device=env.device)
         self._object_root_state = torch.as_tensor(grasp_data.object_root_state, dtype=torch.float32, device=env.device)
         self._num_rows = self._robot_root_state.shape[0]
+
+        self._per_object_indices: dict[str, torch.Tensor] | None = None
+        self._usd_paths: list[str] | None = None
+
+        if grasp_data.object_asset_paths is not None:
+            object_cfg = env.scene["object"].cfg
+            spawn_cfg = object_cfg.spawn
+            if hasattr(spawn_cfg, "usd_path") and isinstance(spawn_cfg.usd_path, list):
+                self._usd_paths = spawn_cfg.usd_path
+                path_to_indices: dict[str, list[int]] = {}
+                for i, p in enumerate(grasp_data.object_asset_paths):
+                    path_to_indices.setdefault(str(p), []).append(i)
+                self._per_object_indices = {
+                    k: torch.tensor(v, dtype=torch.long, device=env.device)
+                    for k, v in path_to_indices.items()
+                }
+
+    def _sample_ids_for_envs(
+        self, env_ids_t: torch.Tensor, device: torch.device
+    ) -> torch.Tensor:
+        """Return grasp row indices matched to each env's object."""
+        if self._per_object_indices is None or self._usd_paths is None:
+            return torch.randint(0, self._num_rows, (len(env_ids_t),), device=device)
+
+        num_objects = len(self._usd_paths)
+        sample_ids = torch.empty(len(env_ids_t), dtype=torch.long, device=device)
+        for i, env_idx in enumerate(env_ids_t):
+            obj_path = self._usd_paths[int(env_idx) % num_objects]
+            valid = self._per_object_indices.get(obj_path)
+            if valid is not None and len(valid) > 0:
+                sample_ids[i] = valid[torch.randint(len(valid), (1,), device=device)]
+            else:
+                sample_ids[i] = torch.randint(0, self._num_rows, (1,), device=device)
+        return sample_ids
 
     def __call__(
         self,
@@ -1387,12 +1425,11 @@ class load_grasp(ManagerTermBase):
         object_asset_cfg: SceneEntityCfg = SceneEntityCfg("object"),
         grasp_path: str | None = None,
     ):
-        # Get robot and object asset configurations
         robot: Articulation = env.scene[robot_asset_cfg.name]
-        object: RigidObject = env.scene[object_asset_cfg.name]
+        obj: RigidObject = env.scene[object_asset_cfg.name]
 
         env_ids_t = _normalize_env_ids(env, env_ids)
-        sample_ids = torch.randint(0, self._num_rows, (len(env_ids_t),), device=env.device)
+        sample_ids = self._sample_ids_for_envs(env_ids_t, env.device)
         env_origins = env.scene.env_origins.index_select(0, env_ids_t)
 
         robot_root_state = self._robot_root_state.index_select(0, sample_ids).clone()
@@ -1401,11 +1438,11 @@ class load_grasp(ManagerTermBase):
 
         object_root_state = self._object_root_state.index_select(0, sample_ids).clone()
         object_root_state[:, 0:3] += env_origins
-        object_root_state[:, 7:] = 0.0 # set velocity to zero
+        object_root_state[:, 7:] = 0.0
 
         robot_joint_pos = self._robot_joint_pos.index_select(0, sample_ids).clone()
         robot_joint_vel = self._robot_joint_vel.index_select(0, sample_ids).clone()
 
         robot.write_root_state_to_sim(robot_root_state, env_ids=env_ids_t)
-        object.write_root_state_to_sim(object_root_state, env_ids=env_ids_t)
+        obj.write_root_state_to_sim(object_root_state, env_ids=env_ids_t)
         robot.write_joint_state_to_sim(robot_joint_pos, robot_joint_vel, env_ids=env_ids_t)

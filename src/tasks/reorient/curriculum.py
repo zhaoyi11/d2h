@@ -118,7 +118,7 @@ class DifficultyScheduler(ManagerTermBase):
         self.difficulty_frac = torch.mean(self.current_adr_difficulties).item() / max(
             max_difficulty, 1
         )
-        print(f"Difficulty frac: {self.difficulty_frac}")
+        # print(f"Difficulty frac: {self.difficulty_frac}")
         return self.difficulty_frac
 
 
