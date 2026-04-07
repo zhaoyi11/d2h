@@ -307,10 +307,17 @@ def goal_quat_diff(
     asset_cfg: SceneEntityCfg,
     command_name: str,
     make_quat_unique: bool,
+    robot_cfg: SceneEntityCfg | None = None,
 ) -> torch.Tensor:
-    """Goal orientation relative to the asset's root frame.
+    """Rotation from the goal orientation to the asset's current orientation.
 
-    The quaternion is represented as (w, x, y, z). The real part is always positive.
+    When ``robot_cfg`` is provided both quaternions are first transformed into the
+    robot root frame before computing the difference, making the result invariant to
+    rigid scene rotations (e.g. startup wrist-pose randomisation).  When ``robot_cfg``
+    is ``None`` (default) the computation is done in world frame for backward
+    compatibility.
+
+    The quaternion is represented as (w, x, y, z).
     """
     # extract useful elements
     asset: RigidObject = env.scene[asset_cfg.name]
@@ -318,11 +325,22 @@ def goal_quat_diff(
         command_name
     )
 
-    # obtain the orientations
+    # obtain world-frame orientations
     goal_quat_w = command_term.command[:, 3:7]
     asset_quat_w = asset.data.root_quat_w
 
+    if robot_cfg is not None:
+        # transform both into robot root frame so the result is invariant to
+        # rigid scene rotations applied at startup
+        robot: Articulation = env.scene[robot_cfg.name]
+        robot_quat_inv = quat_inv(robot.data.root_quat_w)
+        asset_quat = quat_mul(robot_quat_inv, asset_quat_w)
+        goal_quat = quat_mul(robot_quat_inv, goal_quat_w)
+    else:
+        asset_quat = asset_quat_w
+        goal_quat = goal_quat_w
+
     # compute quaternion difference
-    quat = math_utils.quat_mul(asset_quat_w, math_utils.quat_conjugate(goal_quat_w))
+    quat = math_utils.quat_mul(asset_quat, math_utils.quat_conjugate(goal_quat))
     # make sure the quaternion real-part is always positive
     return math_utils.quat_unique(quat) if make_quat_unique else quat

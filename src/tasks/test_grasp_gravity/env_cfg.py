@@ -254,6 +254,7 @@ class ObservationsCfg:
                 "asset_cfg": SceneEntityCfg("object"),
                 "command_name": "object_pose",
                 "make_quat_unique": False,
+                "robot_cfg": SceneEntityCfg("robot"),
             },
         )
 
