@@ -4,6 +4,7 @@
 # SPDX-License-Identifier: BSD-3-Clause
 
 from dataclasses import MISSING
+from pathlib import Path
 
 import isaaclab.sim as sim_utils
 from isaaclab.assets import ArticulationCfg, AssetBaseCfg, RigidObjectCfg
@@ -25,8 +26,6 @@ from isaaclab.sensors import ContactSensorCfg
 import src.tasks.pick_anyrotate.mdps as mdp
 from src.assets.franka_leap_hand.franka_leap import FRANKA_LEAP_HAND_CFG
 
-UWLAB_CLOUD_ASSETS_DIR = "https://huggingface.co/datasets/UW-Lab/uwlab-assets/resolve/main"
-
 @configclass
 class SceneCfg(InteractiveSceneCfg):
     """Dexsuite Scene for multi-objects Lifting"""
@@ -38,8 +37,8 @@ class SceneCfg(InteractiveSceneCfg):
     object = RigidObjectCfg(
         prim_path="{ENV_REGEX_NS}/Object",
         spawn=sim_utils.UsdFileCfg(
-            usd_path=f"{UWLAB_CLOUD_ASSETS_DIR}/Props/Custom/InsertiveCube/insertive_cube.usd",
-            scale=(1.5, 1.5, 1.5),
+            usd_path=str(Path(__file__).resolve().parents[2] / "assets/uwlab/cupcake.usd"),
+            scale=(1.0, 1.0, 1.0),
             rigid_props=sim_utils.RigidBodyPropertiesCfg(
                 solver_position_iteration_count=4,
                 solver_velocity_iteration_count=0,
@@ -55,8 +54,8 @@ class SceneCfg(InteractiveSceneCfg):
     receptive_object = RigidObjectCfg(
         prim_path="{ENV_REGEX_NS}/ReceptiveObject",
         spawn=sim_utils.UsdFileCfg(
-            usd_path=f"{UWLAB_CLOUD_ASSETS_DIR}/Props/Custom/Custom/ReceptiveCube/receptive_cube.usd",
-            scale=(1.5, 1.5, 1.5),
+            usd_path=str(Path(__file__).resolve().parents[2] / "assets/uwlab/plate.usd"),
+            scale=(1.0, 1.0, 1.0),
             rigid_props=sim_utils.RigidBodyPropertiesCfg(
                 solver_position_iteration_count=4,
                 solver_velocity_iteration_count=0,
@@ -65,7 +64,7 @@ class SceneCfg(InteractiveSceneCfg):
             ),
             mass_props=sim_utils.MassPropertiesCfg(mass=0.5),
         ),
-        init_state=RigidObjectCfg.InitialStateCfg(pos=(0.55, 0.0, 0.271), rot=(0.7071068, 0.7071068, 0.0, 0.0)),
+        init_state=RigidObjectCfg.InitialStateCfg(pos=(0.55, 0.0, 0.271), rot=(1.0, 0.0, 0.0, 0.0)),
     )
 
     # # table base
@@ -582,7 +581,7 @@ class FrankaLeapMixinCfg:
                 f"{link_name}_object_s",
                 ContactSensorCfg(
                     prim_path="{ENV_REGEX_NS}/Robot/Franka_LeapHand/leap_hand_right/" + link_name,
-                    filter_prim_paths_expr=["{ENV_REGEX_NS}/Object/square_table_leg1"],
+                    filter_prim_paths_expr=["{ENV_REGEX_NS}/Object"],
                 ),
             )
         self.observations.proprio.contact = ObsTerm(
@@ -604,22 +603,14 @@ class FrankaLeapMixinCfg:
 
 
 @configclass
-class DexsuiteFrankaLeapReorientEnvCfg(FrankaLeapMixinCfg, DexsuiteReorientEnvCfg):
+class DexsuiteFrankaLeapCupcakeOnPlateEnvCfg(FrankaLeapMixinCfg, DexsuiteReorientEnvCfg):
     pass
 
 
 @configclass
-class DexsuiteFrankaLeapReorientEnvCfg_PLAY(
+class DexsuiteFrankaLeapCupcakeOnPlateEnvCfg_PLAY(
     FrankaLeapMixinCfg, DexsuiteReorientEnvCfg_PLAY
 ):
     pass
 
 
-@configclass
-class DexsuiteFrankaLeapLiftEnvCfg(FrankaLeapMixinCfg, DexsuiteLiftEnvCfg):
-    pass
-
-
-@configclass
-class DexsuiteFrankaLeapLiftEnvCfg_PLAY(FrankaLeapMixinCfg, DexsuiteLiftEnvCfg_PLAY):
-    pass

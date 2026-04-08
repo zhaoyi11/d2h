@@ -4,6 +4,7 @@
 # SPDX-License-Identifier: BSD-3-Clause
 
 from dataclasses import MISSING
+from pathlib import Path
 
 import isaaclab.sim as sim_utils
 from isaaclab.assets import ArticulationCfg, AssetBaseCfg, RigidObjectCfg
@@ -25,7 +26,23 @@ from isaaclab.sensors import ContactSensorCfg
 import src.tasks.pick_anyrotate.mdps as mdp
 from src.assets.franka_leap_hand.franka_leap import FRANKA_LEAP_HAND_CFG
 
-UWLAB_CLOUD_ASSETS_DIR = "https://huggingface.co/datasets/UW-Lab/uwlab-assets/resolve/main"
+# UWLAB_CLOUD_ASSETS_DIR = "https://huggingface.co/datasets/UW-Lab/uwlab-assets/resolve/main"
+
+def _get_visdex_usd_paths() -> list[str]:
+    """Return sorted visdex USD asset paths bundled with this repo."""
+    usd_root = Path(__file__).resolve().parents[2] / "assets" / "visdex_objects" / "USD"
+    if not usd_root.is_dir():
+        raise FileNotFoundError(f"visdex USD asset directory does not exist: {usd_root}")
+
+    usd_paths: list[str] = []
+    for object_dir in sorted(path for path in usd_root.iterdir() if path.is_dir()):
+        usd_path = object_dir / f"{object_dir.name}.usd"
+        if usd_path.is_file():
+            usd_paths.append(str(usd_path))
+
+    if not usd_paths:
+        raise ValueError(f"No visdex USD assets found in: {usd_root}")
+    return usd_paths
 
 @configclass
 class SceneCfg(InteractiveSceneCfg):
@@ -37,26 +54,35 @@ class SceneCfg(InteractiveSceneCfg):
     # object
     object = RigidObjectCfg(
         prim_path="{ENV_REGEX_NS}/Object",
-        spawn=sim_utils.UsdFileCfg(
-            usd_path=f"{UWLAB_CLOUD_ASSETS_DIR}/Props/Custom/CupCake/cupcake.usd",
-            scale=(1.5, 1.5, 1.5),
-            rigid_props=sim_utils.RigidBodyPropertiesCfg(
-                solver_position_iteration_count=4,
-                solver_velocity_iteration_count=0,
-                disable_gravity=False,
-                kinematic_enabled=False,
+        spawn=sim_utils.MultiUsdFileCfg(
+            usd_path=_get_visdex_usd_paths(),
+            random_choice=False,
+            articulation_props=sim_utils.ArticulationRootPropertiesCfg(
+                articulation_enabled=False,
             ),
+            rigid_props=sim_utils.RigidBodyPropertiesCfg(
+                kinematic_enabled=False,
+                disable_gravity=False,
+                enable_gyroscopic_forces=True,
+            ),
+            collision_props=sim_utils.CollisionPropertiesCfg(collision_enabled=True),
             mass_props=sim_utils.MassPropertiesCfg(mass=0.2),
+            scale=(0.8, 0.8, 0.8),
         ),
-        init_state=RigidObjectCfg.InitialStateCfg(pos=(0.55, 0.1, 0.34), 
-                                                rot=(1.0, 0.0, 0.0, 0.0)),
+        init_state=RigidObjectCfg.InitialStateCfg(
+            pos=[0.55, 0.1, 0.34],
+            rot=[1.0, 0.0, 0.0, 0.0],
+        ),
     )
-    
+
+
     receptive_object = RigidObjectCfg(
         prim_path="{ENV_REGEX_NS}/ReceptiveObject",
         spawn=sim_utils.UsdFileCfg(
-            usd_path=f"{UWLAB_CLOUD_ASSETS_DIR}/Props/Custom/Plate/plate.usd",
-            scale=(1.5, 1.5, 1.5),
+            usd_path=str(
+                Path(__file__).resolve().parents[2] / "assets/symdex/tote_collision.usd"
+            ),
+            scale=(0.6, 0.6, 0.6),
             rigid_props=sim_utils.RigidBodyPropertiesCfg(
                 solver_position_iteration_count=4,
                 solver_velocity_iteration_count=0,
@@ -65,7 +91,7 @@ class SceneCfg(InteractiveSceneCfg):
             ),
             mass_props=sim_utils.MassPropertiesCfg(mass=0.5),
         ),
-        init_state=RigidObjectCfg.InitialStateCfg(pos=(0.55, 0.0, 0.271), rot=(0.7071068, 0.7071068, 0.0, 0.0)),
+        init_state=RigidObjectCfg.InitialStateCfg(pos=(0.55, 0.0, 0.271), rot=(1.0, 0.0, 0.0, 0.0)),
     )
 
     # # table base
@@ -604,22 +630,12 @@ class FrankaLeapMixinCfg:
 
 
 @configclass
-class DexsuiteFrankaLeapReorientEnvCfg(FrankaLeapMixinCfg, DexsuiteReorientEnvCfg):
+class DexsuiteFrankaLeapCleanTableEnvCfg(FrankaLeapMixinCfg, DexsuiteReorientEnvCfg):
     pass
 
 
 @configclass
-class DexsuiteFrankaLeapReorientEnvCfg_PLAY(
+class DexsuiteFrankaLeapCleanTableEnvCfg_PLAY(
     FrankaLeapMixinCfg, DexsuiteReorientEnvCfg_PLAY
 ):
-    pass
-
-
-@configclass
-class DexsuiteFrankaLeapLiftEnvCfg(FrankaLeapMixinCfg, DexsuiteLiftEnvCfg):
-    pass
-
-
-@configclass
-class DexsuiteFrankaLeapLiftEnvCfg_PLAY(FrankaLeapMixinCfg, DexsuiteLiftEnvCfg_PLAY):
     pass

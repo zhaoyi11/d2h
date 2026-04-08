@@ -38,8 +38,8 @@ class SceneCfg(InteractiveSceneCfg):
     object = RigidObjectCfg(
         prim_path="{ENV_REGEX_NS}/Object",
         spawn=sim_utils.UsdFileCfg(
-            usd_path=Path(__file__).parents[2] / "assets/symdex/drill.usd",
-            scale=(1.5, 1.5, 1.5),
+            usd_path=str(Path(__file__).resolve().parents[2] / "assets/symdex/drill.usd"),
+            scale=(1.0, 1.0, 1.0),
             rigid_props=sim_utils.RigidBodyPropertiesCfg(
                 solver_position_iteration_count=4,
                 solver_velocity_iteration_count=0,
@@ -55,8 +55,8 @@ class SceneCfg(InteractiveSceneCfg):
     receptive_object = RigidObjectCfg(
         prim_path="{ENV_REGEX_NS}/ReceptiveObject",
         spawn=sim_utils.UsdFileCfg(
-            usd_path=Path(__file__).parents[2] / "assets/symdex/cube_with_hold.usd",
-            scale=(1.5, 1.5, 1.5),
+            usd_path=str(Path(__file__).resolve().parents[2] / "assets/symdex/cube_with_hole.usd"),
+            scale=(1.0, 1.0, 1.0),
             rigid_props=sim_utils.RigidBodyPropertiesCfg(
                 solver_position_iteration_count=4,
                 solver_velocity_iteration_count=0,
@@ -604,22 +604,13 @@ class FrankaLeapMixinCfg:
 
 
 @configclass
-class DexsuiteFrankaLeapReorientEnvCfg(FrankaLeapMixinCfg, DexsuiteReorientEnvCfg):
+class DexsuiteFrankaLeapThreadingEnvCfg(FrankaLeapMixinCfg, DexsuiteReorientEnvCfg):
     pass
 
 
 @configclass
-class DexsuiteFrankaLeapReorientEnvCfg_PLAY(
+class DexsuiteFrankaLeapThreadingEnvCfg_PLAY(
     FrankaLeapMixinCfg, DexsuiteReorientEnvCfg_PLAY
 ):
     pass
 
-
-@configclass
-class DexsuiteFrankaLeapLiftEnvCfg(FrankaLeapMixinCfg, DexsuiteLiftEnvCfg):
-    pass
-
-
-@configclass
-class DexsuiteFrankaLeapLiftEnvCfg_PLAY(FrankaLeapMixinCfg, DexsuiteLiftEnvCfg_PLAY):
-    pass

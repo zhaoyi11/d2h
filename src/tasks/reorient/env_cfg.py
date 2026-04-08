@@ -35,14 +35,13 @@ from isaaclab.markers.config import FRAME_MARKER_CFG
 
 import src.tasks.common.mdps as mdp
 import src.tasks.reorient.mdps as task_mdp
+import src.tasks.reorient.curriculum as task_curriculum
 from src.assets.franka_leap_hand.leap import LEAP_HAND_CFG
-
-# from src.tasks.reorient.utils.grasp_init import GraspInitData, load_grasp_init
-
 
 ##
 # Scene definition
 ##
+UWLAB_CLOUD_ASSETS_DIR = "https://huggingface.co/datasets/UW-Lab/uwlab-assets/resolve/main"
 
 
 def _get_visdex_usd_paths() -> list[str]:
@@ -61,17 +60,6 @@ def _get_visdex_usd_paths() -> list[str]:
         raise ValueError(f"No visdex USD assets found in: {usd_root}")
     return usd_paths
 
-
-def _get_usd_paths_from_grasp_data(grasp_path: str) -> list[str]:
-    """Extract sorted unique USD asset paths from a grasp data .npy file."""
-    data = np.load(grasp_path, allow_pickle=True).item()
-    raw_paths = data.get("object_asset_paths")
-    if raw_paths is None:
-        raise ValueError(f"grasp data at {grasp_path} has no 'object_asset_paths'")
-    unique_paths = sorted(set(np.asarray(raw_paths).flat))
-    return [str(p) for p in unique_paths]
-
-
 @configclass
 class InHandObjectSceneCfg(InteractiveSceneCfg):
     """Configuration for a scene with an object and a dexterous hand."""
@@ -79,11 +67,31 @@ class InHandObjectSceneCfg(InteractiveSceneCfg):
     # robots
     robot: ArticulationCfg = LEAP_HAND_CFG.replace(prim_path="{ENV_REGEX_NS}/Robot")
 
-    # object
+    # # object
+    # object: RigidObjectCfg = RigidObjectCfg(
+    #     prim_path="{ENV_REGEX_NS}/Object",
+    #     spawn=sim_utils.UsdFileCfg(
+    #         usd_path=f"{UWLAB_CLOUD_ASSETS_DIR}/Props/Custom/Peg/peg.usd",
+    #         scale=(1.5, 1.5, 1.5),
+    #         rigid_props=sim_utils.RigidBodyPropertiesCfg(
+    #             solver_position_iteration_count=4,
+    #             solver_velocity_iteration_count=0,
+    #             disable_gravity=False,
+    #             kinematic_enabled=False,
+    #         ),
+    #         collision_props=sim_utils.CollisionPropertiesCfg(collision_enabled=True),
+    #         mass_props=sim_utils.MassPropertiesCfg(mass=0.2),
+    #     ),
+    #     # 12 cm above the hand 
+    #     init_state=RigidObjectCfg.InitialStateCfg(pos=(0.0, -0.08, 0.12), rot=(1.0, 0.0, 0.0, 0.0)),
+    # )
+
+    # all visdex objects
     object: RigidObjectCfg = RigidObjectCfg(
         prim_path="{ENV_REGEX_NS}/Object",
         spawn=sim_utils.MultiUsdFileCfg(
             usd_path=_get_visdex_usd_paths(),
+            # random_choice=True,
             random_choice=False,
             articulation_props=sim_utils.ArticulationRootPropertiesCfg(
                 articulation_enabled=False,
@@ -97,14 +105,16 @@ class InHandObjectSceneCfg(InteractiveSceneCfg):
             mass_props=sim_utils.MassPropertiesCfg(mass=0.2),
             scale=(0.8, 0.8, 0.8),
         ),
+        # 12 cm above the hand
         init_state=RigidObjectCfg.InitialStateCfg(
-            pos=(0.0, -0.03, 0.62), rot=(1.0, 0.0, 0.0, 0.0)
+            pos=(0.0, -0.08, 0.12), rot=(1.0, 0.0, 0.0, 0.0)
         ),
     )
+
     # plane
     plane = AssetBaseCfg(
         prim_path="/World/GroundPlane",
-        init_state=AssetBaseCfg.InitialStateCfg(),
+        init_state=AssetBaseCfg.InitialStateCfg(pos=(0.0, 0.0, -0.5)),
         spawn=sim_utils.GroundPlaneCfg(),
         collision_group=-1,
     )
@@ -126,7 +136,7 @@ class CommandsCfg:
 
     object_pose = task_mdp.InHandReOrientationCommandCfg(
         asset_name="object",
-        random_range=0.3,
+        random_range=0.5, # TODO: tune this with curriculum later.
         init_pos_offset=(0.0, 0.0, 0.0),
         update_goal_on_success=True,
         orientation_success_threshold=0.3,
@@ -144,16 +154,16 @@ class ActionsCfg:
     joint_pos = mdp.EMAJointPositionToLimitsActionCfg(
         asset_name="robot",
         joint_names=[".*"],
-        alpha=0.95,
+        # alpha=0.95
+        alpha=0.5, # TODO: can I add this to curriculum?
         rescale_to_limits=True,
     )
 
     # joint_pos = mdp.RelativeJointPositionActionCfg(
-    #   asset_name="robot",
-    #    joint_names=[".*"],
-    #    # debug_vis=True,
+    #    asset_name="robot",
+    #    joint_names=["a_.*"],
     #    use_zero_offset=False,
-    #    scale=0.3,
+    # #    scale=0.3,
     # )
 
     # joint_pos = mdp.EMACumulativeRelativeJointPositionActionCfg(
@@ -190,7 +200,7 @@ class ObservationsCfg:
             },
         )
 
-        # fingertip contact (net force)
+        # fingertip contact
         fingertip_contact_force_b = ObsTerm(
             func=mdp.fingers_contact_force_b,
             params={
@@ -205,13 +215,19 @@ class ObservationsCfg:
 
         # -- object terms
         object_pos = ObsTerm(
-            func=mdp.root_pos_w,
+            func=mdp.object_pos_b,
             noise=Gnoise(std=0.002),
-            params={"asset_cfg": SceneEntityCfg("object")},
+            params={
+                "robot_cfg": SceneEntityCfg("robot"),
+                "object_cfg": SceneEntityCfg("object"),
+            },
         )
         object_quat = ObsTerm(
-            func=mdp.root_quat_w,
-            params={"asset_cfg": SceneEntityCfg("object"), "make_quat_unique": False},
+            func=mdp.object_quat_b,
+            params={
+                "robot_cfg": SceneEntityCfg("robot"),
+                "object_cfg": SceneEntityCfg("object"),
+            },
         )
         object_lin_vel = ObsTerm(
             func=mdp.root_lin_vel_w,
@@ -225,16 +241,20 @@ class ObservationsCfg:
             params={"asset_cfg": SceneEntityCfg("object")},
         )
 
-        # -- command terms
-        goal_pose = ObsTerm(
-            func=mdp.generated_commands, params={"command_name": "object_pose"}
+        # -- gravity in robot frame (needed for orientation-dependent grasp strategy)
+        gravity_dir = ObsTerm(
+            func=task_mdp.gravity_dir_b,
+            params={"base_asset_cfg": SceneEntityCfg("robot")},
         )
+
+        # -- command terms
         goal_quat_diff = ObsTerm(
             func=mdp.goal_quat_diff,
             params={
                 "asset_cfg": SceneEntityCfg("object"),
                 "command_name": "object_pose",
                 "make_quat_unique": False,
+                "robot_cfg": SceneEntityCfg("robot"),
             },
         )
 
@@ -345,69 +365,72 @@ class EventCfg:
         },
     )
 
-    # randomize_hand_object_default_pose = EventTerm(
-    #     func=task_mdp.randomize_hand_object_default_pose,
-    #     mode="startup",
-    #     params={
-    #         "base_asset_cfg": SceneEntityCfg("robot", body_names="base"),
-    #         "object_asset_cfg": SceneEntityCfg("object"),
-    #         "roll_range": (-torch.pi, torch.pi),
-    #         "pitch_range": (-torch.pi, torch.pi),
-    #         "yaw_range": (-torch.pi, torch.pi),
-    #     },
-    # )
+    randomize_hand_object_default_pose = EventTerm(
+        func=task_mdp.randomize_hand_object_default_pose,
+        mode="startup",
+        params={
+            "base_asset_cfg": SceneEntityCfg("robot", body_names="base"),
+            "object_asset_cfg": SceneEntityCfg("object"),
+            "roll_range": (-torch.pi, -torch.pi),
+            # "pitch_range": (0.0, 0.0),
+            # "yaw_range": (0.0, 0.0),
+            "pitch_range": (-torch.pi, torch.pi),
+            "yaw_range": (-torch.pi, torch.pi),
+        },
+    )
 
     # reset
-    # reset_object = EventTerm(
-    #     func=mdp.reset_root_state_uniform,
-    #     mode="reset",
-    #     params={
-    #         # "pose_range": {"x": [-0.01, 0.01], "y": [-0.01, 0.01], # TODO: disable this for now. later can change this when generating grasp data.
-    #         "pose_range": {
-    #             "x": [0.0, 0.0],
-    #             "y": [0.0, 0.0],
-    #             #  "z": [-0.01, 0.01]
-    #             "z": [0.0, 0.0],
-    #         },
-    #         "velocity_range": {},
-    #         "asset_cfg": SceneEntityCfg("object", body_names=".*"),
-    #     },
-    # )
+    reset_object = EventTerm(
+        func=mdp.reset_root_state_uniform,
+        mode="reset",
+        params={
+            # "pose_range": {"x": [-0.01, 0.01], "y": [-0.01, 0.01], # TODO: disable this for now. later can change this when generating grasp data.
+            "pose_range": {
+                "x": [-0.01, 0.01],
+                "y": [-0.01, 0.01],
+                "z": [-0.01, 0.01],
+                "roll": [-3.14, 3.14],
+                "pitch": [-3.14, 3.14],
+                "yaw": [-3.14, 3.14],
+            },
+            "velocity_range": {},
+            "asset_cfg": SceneEntityCfg("object", body_names=".*"),
+        },
+    )
 
-    # reset_robot_joints = EventTerm(
-    #     func=task_mdp.reset_joints_within_limits_range,
-    #     mode="reset",
-    #     params={
-    #         # "position_range": {".*": [0.2, 0.2]},
-    #         "position_range": {".*": [0.0, 0.0]},
-    #         "velocity_range": {".*": [0.0, 0.0]},
-    #         "use_default_offset": True,
-    #         "operation": "scale",
-    #     },
-    # )
+    reset_robot_joints = EventTerm(
+        func=task_mdp.reset_joints_within_limits_range,
+        mode="reset",
+        params={
+            # "position_range": {".*": [0.2, 0.2]},
+            "position_range": {".*": [0.0, 0.0]},
+            "velocity_range": {".*": [0.0, 0.0]},
+            "use_default_offset": True,
+            "operation": "scale",
+        },
+    )
 
-    load_grasp: EventTerm | None = None
-
-    # reset gravity to zero and then set it to -9.81 m/s^2 in
-    reset_gravity = EventTerm(
+    # set gravity to zero, then handle by curriculum later.
+    variable_gravity = EventTerm(
         func=mdp.randomize_physics_scene_gravity,
         mode="reset",
         params={
-            "gravity_distribution_params": ([0.0, 0.0, 0.0], [0.0, 0.0, 0.0]),
+            "gravity_distribution_params": ([0.0, 0.0, -1.0], [0.0, 0.0, -1.0]),
             "operation": "abs",
         },
     )
 
-    # TODO: add this later.
-    # variable_gravity = EventTerm(
-    #     func=mdp.randomize_physics_scene_gravity,
-    #     mode="interval",
-    #     interval_range_s=(0.8, 1.2),
-    #     params={
-    #         "gravity_distribution_params": ([0.0, 0.0, -1.0], [0.0, 0.0, -1.0]),
-    #         "operation": "abs",
-    #     },
-    # )
+    # Fires every step per-env; must be declared AFTER variable_gravity so the
+    # event manager applies it after gravity has been updated.
+    gravity_compensation_assist = EventTerm(
+        func=task_mdp.apply_gravity_compensation_assist,
+        mode="interval",
+        interval_range_s=(0.0, 0.0),
+        params={
+            "asset_cfg": SceneEntityCfg("object"),
+            "contact_threshold": 1.0,
+        },
+    )
 
 
 @configclass
@@ -431,6 +454,7 @@ class RewardsCfg:
             "object_cfg": SceneEntityCfg("object"),
             "rot_eps": 0.1,
             "command_name": "object_pose",
+            "need_contact": True,
         },
     )
 
@@ -439,21 +463,21 @@ class RewardsCfg:
         weight=1.0,
     )
 
-    # TODO: add contact ralated info later.
-    fingertip_contact = RewTerm(
-        func=task_mdp.fingertip_object_contacts,
-        weight=0.1,
-        params={
-            "contact_sensor_names": [
-                "thumb_tip_object_s",
-                "index_tip_object_s",
-                "middle_tip_object_s",
-                "ring_tip_object_s",
-            ],
-        },
-    )
+    # # TODO: add contact ralated info later.
+    # fingertip_contact = RewTerm(
+    #     func=task_mdp.fingertip_object_contacts,
+    #     weight=3,
+    #     params={
+    #         "contact_sensor_names": [
+    #             "thumb_tip_object_s",
+    #             "index_tip_object_s",
+    #             "middle_tip_object_s",
+    #             "ring_tip_object_s",
+    #         ],
+    #     },
+    # )
 
-    success_bonus = RewTerm(
+    success = RewTerm(
         func=task_mdp.success_bonus,
         weight=250.0,
         params={"object_cfg": SceneEntityCfg("object"), "command_name": "object_pose"},
@@ -465,28 +489,31 @@ class RewardsCfg:
     action_l2 = RewTerm(func=mdp.action_l2, weight=-0.0001)
     action_rate_l2 = RewTerm(func=mdp.action_rate_l2, weight=-0.01)
 
+    # abnormal robot
+    abnormal_robot = RewTerm(func=mdp.abnormal_robot_state, weight=-10.0)
+
     # object_away_penalty = RewTerm(
     #     func=task_mdp.object_away_from_robot,
-    #     weight=-5.0,
+    #     weight=-1,
     #     params={"threshold": 0.3},
     # )
 
-    object_away_penalty = RewTerm(func=mdp.is_terminated_term, weight=-2.0, params={"term_keys": "object_out_of_reach"})
 
 @configclass
 class TerminationsCfg:
     """Termination terms for the MDP."""
-    pass
 
     time_out = DoneTerm(func=mdp.time_out, time_out=True)
 
     max_consecutive_success = DoneTerm(
         func=task_mdp.max_consecutive_success,
-        params={"num_success": 30, "command_name": "object_pose"},
+        params={"num_success": 100, "command_name": "object_pose"},
     )
 
+    abnormal_robot = DoneTerm(func=mdp.abnormal_robot_state)
+
     object_out_of_reach = DoneTerm(
-        func=task_mdp.object_away_from_robot, params={"threshold": 0.3}
+        func=task_mdp.object_away_from_robot, params={"threshold": 0.2}
     )
 
 
@@ -519,27 +546,27 @@ class InHandObjectEnvCfg(ManagerBasedRLEnvCfg):
     # Basic settings
     observations: ObservationsCfg = ObservationsCfg()
     actions: ActionsCfg = ActionsCfg()
-    commands: CommandsCfg = CommandsCfg() # TODO: check the order, this previously after the action, before reward.
+    commands: CommandsCfg = CommandsCfg()
     # MDP settings
     rewards: RewardsCfg = RewardsCfg()
     terminations: TerminationsCfg = TerminationsCfg()
     events: EventCfg = EventCfg()
-    # curriculum: task_mdp.CurriculumCfg | None = task_mdp.CurriculumCfg()
+    # curriculum: task_curriculum.CurriculumCfg | None = task_curriculum.CurriculumCfg()
 
     def __post_init__(self):
         """Post initialization."""
         # general settings
         self.decimation = 4  # 25 Hz
-        self.episode_length_s = 20  # 20 seconds
+        self.episode_length_s = 15  # 15 seconds
         # simulation settings
         self.sim.dt = 1.0 / 120.0
         self.sim.render_interval = self.decimation
         # change viewer settings
         self.viewer.eye = (2.0, 2.0, 2.0)
-        if self.curriculum is not None:
-            self.curriculum.adr.params["rot_tol"] = (
-                self.commands.object_pose.orientation_success_threshold
-            )
+        # if self.curriculum is not None:
+        #     self.curriculum.adr.params["rot_tol"] = (
+        #         self.rewards.success.params["rot_std"] / 2
+        #     )
 
 
 ##
@@ -547,58 +574,11 @@ class InHandObjectEnvCfg(ManagerBasedRLEnvCfg):
 ##
 # from src.assets.leap_hand.leap import LEAP_HAND_CFG
 
-# TODO: move this to config (initial rotation of the wrist)
-# Fixed rotation to apply to initial wrist/object poses.
-# Quaternion format is (w, x, y, z).
-
-# _BASE_ROT_WXYZ = (0.0, 0.7071067811865476, 0.0, 0.7071067811865476)  # face up
-# _BASE_ROT_WXYZ = (0.7071067811865476, 0.0, 0.7071067811865476, 0.0)  # face downward
 _BASE_ROT_WXYZ = (1.0, 0.0, 0.0, 0.0)  # face +y axis
-
-
-def _quat_mul_wxyz(
-    q1: tuple[float, float, float, float], q2: tuple[float, float, float, float]
-) -> tuple[float, float, float, float]:
-    """Quaternion multiply (wxyz): q = q1 * q2."""
-    w1, x1, y1, z1 = q1
-    w2, x2, y2, z2 = q2
-    return (
-        w1 * w2 - x1 * x2 - y1 * y2 - z1 * z2,
-        w1 * x2 + x1 * w2 + y1 * z2 - z1 * y2,
-        w1 * y2 - x1 * z2 + y1 * w2 + z1 * x2,
-        w1 * z2 + x1 * y2 - y1 * x2 + z1 * w2,
-    )
-
-
-def _rotate_pos_by_quat_wxyz(
-    q: tuple[float, float, float, float], pos: tuple[float, float, float]
-) -> tuple[float, float, float]:
-    """Rotate a position vector by a unit quaternion (w, x, y, z).
-
-    Uses the formula: p' = q * p * q_inv, implemented as:
-        p' = p + 2 * cross(q_xyz, cross(q_xyz, p) + w * p)
-    """
-    w, qx, qy, qz = q
-    px, py, pz = pos
-    # t = 2 * cross(q_xyz, p)
-    tx = 2.0 * (qy * pz - qz * py)
-    ty = 2.0 * (qz * px - qx * pz)
-    tz = 2.0 * (qx * py - qy * px)
-    return (
-        px + w * tx + (qy * tz - qz * ty),
-        py + w * ty + (qz * tx - qx * tz),
-        pz + w * tz + (qx * ty - qy * tx),
-    )
-
-
-# from isaaclab_assets.robots import ALLEGRO_HAND_CFG
 
 
 @configclass
 class LeapObjectEnvCfg(InHandObjectEnvCfg):
-    object_urdf_path: str | None = None
-    grasp_path: str | None = None
-    object_scale_override: float | None = None
 
     def __post_init__(self):
         # post init of parent
@@ -606,31 +586,6 @@ class LeapObjectEnvCfg(InHandObjectEnvCfg):
 
         # switch robot to leap hand
         self.scene.robot = LEAP_HAND_CFG.replace(prim_path="{ENV_REGEX_NS}/Robot")
-
-        # override object USD paths from grasp data when available
-        if self.grasp_path is not None:
-            grasp_usd_paths = _get_usd_paths_from_grasp_data(self.grasp_path)
-            self.scene.object = RigidObjectCfg(
-                prim_path="{ENV_REGEX_NS}/Object",
-                spawn=sim_utils.MultiUsdFileCfg(
-                    usd_path=grasp_usd_paths,
-                    random_choice=False,
-                    articulation_props=sim_utils.ArticulationRootPropertiesCfg(
-                        articulation_enabled=False,
-                    ),
-                    rigid_props=sim_utils.RigidBodyPropertiesCfg(
-                        solver_position_iteration_count=16,
-                        solver_velocity_iteration_count=0,
-                        disable_gravity=False,
-                    ),
-                    collision_props=sim_utils.CollisionPropertiesCfg(collision_enabled=True),
-                    mass_props=sim_utils.MassPropertiesCfg(mass=0.2),
-                    scale=(0.8, 0.8, 0.8),
-                ),
-                init_state=RigidObjectCfg.InitialStateCfg(
-                    pos=(0.0, -0.03, 0.62), rot=(1.0, 0.0, 0.0, 0.0)
-                ),
-            )
 
         # attach transform sensors to fingertip links for contact-based rewards/observations
         self.scene.fingertip_transforms = FrameTransformerCfg(
@@ -653,7 +608,7 @@ class LeapObjectEnvCfg(InHandObjectEnvCfg):
                     offset=OffsetCfg(pos=(0.0, -0.03, 0.015)),
                 ),
             ],
-            debug_vis=True,
+            debug_vis=False,
             visualizer_cfg=FRAME_MARKER_CFG.replace(
                 prim_path="/Visuals/FrameTransformer",
                 markers={
@@ -667,7 +622,6 @@ class LeapObjectEnvCfg(InHandObjectEnvCfg):
             ),
         )
 
-        # TODO: change the urdf obj, the current urdf file can't be filtered properly.
         # attach contact sensors to fingertip links for contact-based rewards/observations
         # Note: use net force here, all forces are considered.
         fingertip_prim_paths = {
@@ -680,69 +634,14 @@ class LeapObjectEnvCfg(InHandObjectEnvCfg):
             setattr(
                 self.scene,
                 sensor_name,
-                ContactSensorCfg(
+                ContactSensorCfg( 
                     prim_path=prim_path,
                     filter_prim_paths_expr=[
+                        # "{ENV_REGEX_NS}/Object",  # TODO: check this, in case itcan't filter the object properly now.
                         "{ENV_REGEX_NS}/Object/baseLink",
                     ],
                     update_period=0.0,
                     history_length=6,
-                    debug_vis=True,
+                    debug_vis=False,
                 ),
             )
-        # TODO: check the object load more carefully. looks some objects have penetration issues.
-        # Initial robot and object state
-        self.events.load_grasp = EventTerm(
-            func=task_mdp.load_grasp,
-            mode="reset",
-            params={
-                "robot_asset_cfg": SceneEntityCfg("robot"),
-                "object_asset_cfg": SceneEntityCfg("object", body_names=".*"),
-                "grasp_path": self.grasp_path,
-            },
-        )
-
-        # 
-
-
-
-@configclass
-class LeapObjectEnvCfg_PLAY(LeapObjectEnvCfg):
-    def __post_init__(self):
-        # post init of parent
-        super().__post_init__()
-        # make a smaller scene for play
-        self.scene.num_envs = 50
-        # disable randomization for play
-        self.observations.policy.enable_corruption = False
-        # remove termination due to timeouts
-        self.terminations.time_out = None
-
-
-##
-# Environment configuration with no velocity observations.
-##
-
-
-@configclass
-class LeapObjectNoVelObsEnvCfg(LeapObjectEnvCfg):
-    def __post_init__(self):
-        # post init of parent
-        super().__post_init__()
-
-        # switch observation group to no velocity group
-        self.observations.policy = ObservationsCfg.NoVelocityKinematicObsGroupCfg()
-
-
-@configclass
-class LeapObjectNoVelObsEnvCfg_PLAY(LeapObjectNoVelObsEnvCfg):
-    def __post_init__(self):
-        # post init of parent
-        super().__post_init__()
-        # make a smaller scene for play
-        self.scene.num_envs = 50
-        # disable randomization for play
-        self.observations.policy.enable_corruption = False
-        # remove termination due to timeouts
-        self.terminations.time_out = None
-

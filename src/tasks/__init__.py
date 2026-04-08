@@ -14,47 +14,7 @@ gym.register(
     },
 )
 
-# Grasp Environments
-gym.register(
-    id="Grasp-v0",
-    entry_point="isaaclab.envs:ManagerBasedRLEnv",
-    disable_env_checker=True,
-    kwargs={
-        "env_cfg_entry_point": f"{__name__}.grasp.env_cfg:LeapObjectEnvCfg",
-        "rsl_rl_cfg_entry_point": "src.tasks.grasp.rsl_rl_ppo_cfg:LeapObjectRslRlPpoCfg",
-    },
-)
-gym.register(
-    id="GraspCollect-v0",
-    entry_point="isaaclab.envs:ManagerBasedRLEnv",
-    disable_env_checker=True,
-    kwargs={
-        "env_cfg_entry_point": f"{__name__}.grasp.env_cfg:LeapObjectCollectGraspEnvCfg",
-        "rsl_rl_cfg_entry_point": "src.tasks.grasp.rsl_rl_ppo_cfg:LeapObjectRslRlPpoCfg",
-    },
-)
-
-gym.register(
-    id="GraspReplay-v0",
-    entry_point="isaaclab.envs:ManagerBasedRLEnv",
-    disable_env_checker=True,
-    kwargs={
-        "env_cfg_entry_point": f"{__name__}.grasp.env_cfg:LeapObjectReplayEnvCfg",
-        "rsl_rl_cfg_entry_point": "src.tasks.grasp.rsl_rl_ppo_cfg:LeapObjectRslRlPpoCfg",
-    },
-)
-
-gym.register(
-    id="TestGraspGravity-v0",
-    entry_point="isaaclab.envs:ManagerBasedRLEnv",
-    disable_env_checker=True,
-    kwargs={
-        "env_cfg_entry_point": f"{__name__}.test_grasp_gravity.env_cfg:LeapObjectEnvCfg",
-        "rsl_rl_cfg_entry_point": "src.tasks.test_grasp_gravity.rsl_rl_ppo_cfg:LeapObjectRslRlPpoCfg",
-    },
-)
-
-# Pick Lift / AnyRotate Environment
+# Pick AnyRotate Environment
 gym.register(
     id="Pick_AnyRotate-v0",
     entry_point="isaaclab.envs:ManagerBasedRLEnv",
@@ -95,7 +55,7 @@ gym.register(
     },
 )
 
-## Pick Insert Environment
+# Pick Insert Environment
 gym.register(
     id="Pick_Insert-v0",
     entry_point="isaaclab.envs:ManagerBasedRLEnv",
@@ -106,7 +66,7 @@ gym.register(
     },
 )
 
-## Pick Screw Environment
+# Pick Screw Environment
 gym.register(
     id="Pick_Screw-v0",
     entry_point="isaaclab.envs:ManagerBasedRLEnv",
@@ -114,5 +74,38 @@ gym.register(
     kwargs={
         "env_cfg_entry_point": f"{__name__}.pick_screw.env_cfg:DexsuiteFrankaLeapScrewEnvCfg",
         "rsl_rl_cfg_entry_point": "src.tasks.pick_screw.rsl_rl_ppo_cfg:PickScrewRslRlPpoCfg",
+    },
+)
+
+# Clean Table Environment
+gym.register(
+    id="Clean_Table-v0",
+    entry_point="isaaclab.envs:ManagerBasedRLEnv",
+    disable_env_checker=True,
+    kwargs={
+        "env_cfg_entry_point": f"{__name__}.clean_table.env_cfg:DexsuiteFrankaLeapCleanTableEnvCfg",
+        "rsl_rl_cfg_entry_point": "src.tasks.clean_table.rsl_rl_ppo_cfg:CleanTableRslRlPpoCfg",
+    },
+)
+
+# Cupcake on Plate Environment
+gym.register(
+    id="Cupcake_on_Plate-v0",
+    entry_point="isaaclab.envs:ManagerBasedRLEnv",
+    disable_env_checker=True,
+    kwargs={
+        "env_cfg_entry_point": f"{__name__}.cupcake_on_plate.env_cfg:DexsuiteFrankaLeapCupcakeOnPlateEnvCfg",
+        "rsl_rl_cfg_entry_point": "src.tasks.cupcake_on_plate.rsl_rl_ppo_cfg:CupcakeOnPlateRslRlPpoCfg",
+    },
+)
+
+# Threading Environment
+gym.register(
+    id="Threading-v0",
+    entry_point="isaaclab.envs:ManagerBasedRLEnv",
+    disable_env_checker=True,
+    kwargs={
+        "env_cfg_entry_point": f"{__name__}.threading.env_cfg:DexsuiteFrankaLeapThreadingEnvCfg",
+        "rsl_rl_cfg_entry_point": "src.tasks.threading.rsl_rl_ppo_cfg:ThreadingRslRlPpoCfg",
     },
 )
