@@ -1,6 +1,12 @@
 import gymnasium as gym
 from pathlib import Path
 
+# Patch IsaacLab-registered environments with flash_sac_cfg_entry_point.
+_allegro_spec = gym.spec("Isaac-Repose-Cube-Allegro-Direct-v0")
+_allegro_spec.kwargs["flash_sac_cfg_entry_point"] = (
+    "src.tasks.allegro_hand.flash_sac_cfg:AllegroHandFlashSacCfg"
+)
+
 # Register Gym environments.
 
 # Reorient Environment
@@ -11,6 +17,7 @@ gym.register(
     kwargs={
         "env_cfg_entry_point": f"{__name__}.reorient.env_cfg:LeapObjectEnvCfg",
         "rsl_rl_cfg_entry_point": "src.tasks.reorient.rsl_rl_ppo_cfg:LeapObjectRslRlPpoCfg",
+        "flash_sac_cfg_entry_point": "src.tasks.reorient.flash_sac_cfg:LeapObjectFlashSacCfg",
     },
 )
 
