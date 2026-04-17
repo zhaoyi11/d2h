@@ -80,7 +80,7 @@ class SceneCfg(InteractiveSceneCfg):
         init_state=RigidObjectCfg.InitialStateCfg(
             pos=[0.55, 0.1, 0.34],
             rot=[1.0, 0.0, 0.0, 0.0],
-        ),
+        ), 
     )
 
 
