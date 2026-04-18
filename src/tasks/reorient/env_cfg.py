@@ -136,7 +136,7 @@ class CommandsCfg:
 
     object_pose = task_mdp.InHandReOrientationCommandCfg(
         asset_name="object",
-        random_range=0.5, # TODO: tune this with curriculum later.
+        random_range=(0.3 * torch.pi, 0.5 * torch.pi),
         init_pos_offset=(0.0, 0.0, 0.0),
         update_goal_on_success=True,
         orientation_success_threshold=0.3,

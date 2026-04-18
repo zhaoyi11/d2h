@@ -129,31 +129,30 @@ class InHandReOrientationCommand(CommandTerm):
         )
         self.metrics["consecutive_success"] += successes.float()
 
+    def reset(self, env_ids: Sequence[int] | None = None) -> dict[str, float]:
+        idx: slice | Sequence[int] = slice(None) if env_ids is None else env_ids
+        self.pos_command_w[idx] = self.object.data.root_pos_w[idx] + self.init_pos_offset
+        self.pos_command_e[idx] = self.pos_command_w[idx] - self._env.scene.env_origins[idx]
+        self.quat_command_w[idx] = self.object.data.root_quat_w[idx]
+        return super().reset(env_ids)
+
     def _resample_command(self, env_ids: Sequence[int]):
-        # update position command from current object pose (set by load_grasp on reset)
-        self.pos_command_w[env_ids] = self.object.data.root_pos_w[env_ids] + self.init_pos_offset
-        self.pos_command_e[env_ids] = self.pos_command_w[env_ids] - self._env.scene.env_origins[env_ids]
+        n = len(env_ids)
+        min_rad, max_rad = self.random_range
+        # Haar-correct: p(θ) ∝ sin²(θ/2); CDF = θ/2 - sin(θ)/2
+        lo = 0.5 * (min_rad - _math.sin(min_rad))
+        hi = 0.5 * (max_rad - _math.sin(max_rad))
+        u = torch.rand((n,), device=self.device) * (hi - lo) + lo
+        theta = (12 * u).clamp(min=1e-8).pow(1 / 3)  # cubic-root init
+        f = 0.5 * (theta - torch.sin(theta)) - u
+        df = 0.5 * (1 - torch.cos(theta))
+        angle = (theta - f / df.clamp(min=1e-6)).clamp(min_rad, max_rad)
+        axis = torch.randn((n, 3), device=self.device)
+        axis = axis / axis.norm(dim=-1, keepdim=True).clamp(min=1e-8)
+        quat_delta = math_utils.quat_from_angle_axis(angle, axis)
 
-        # sample new orientation targets
-        r_range = self.random_range
-
-        rand_floats = 2.0 * torch.rand((len(env_ids), 3), device=self.device) - 1.0
-        quat_delta = math_utils.quat_mul(
-            math_utils.quat_from_angle_axis(
-                rand_floats[:, 0] * r_range * torch.pi, self._X_UNIT_VEC[env_ids]
-            ),
-            math_utils.quat_mul(
-                math_utils.quat_from_angle_axis(
-                    rand_floats[:, 1] * r_range * torch.pi, self._Y_UNIT_VEC[env_ids]
-                ),
-                math_utils.quat_from_angle_axis(
-                    rand_floats[:, 2] * r_range * torch.pi, self._Z_UNIT_VEC[env_ids]
-                ),
-            ),
-        )
-
-        # apply delta to the current object orientation (set by load_grasp on reset)
-        init_quat = self.object.data.root_quat_w[env_ids]
+        # apply delta to the current orientation
+        init_quat = self.quat_command_w[env_ids]
         quat = math_utils.quat_mul(init_quat, quat_delta)
 
         self.quat_command_w[env_ids] = (
@@ -222,8 +221,8 @@ class InHandReOrientationCommandCfg(CommandTermCfg):
     Please refer to the :class:`InHandReOrientationCommand` class for more details.
     """
 
-    random_range: float = 1.0  # TODO: tune this one, and set up a curriculum for the range (e.g., 0.1->0.25->0.5->1.0)
-    """Range for the random orientation."""
+    random_range: tuple[float, float] = (0.0, 1.0)
+    """Min/max geodesic angle in radians for goal orientation sampling."""
 
     class_type: type = InHandReOrientationCommand
     resampling_time_range: tuple[float, float] = (
