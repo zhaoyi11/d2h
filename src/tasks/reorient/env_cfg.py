@@ -371,9 +371,7 @@ class EventCfg:
         params={
             "base_asset_cfg": SceneEntityCfg("robot", body_names="base"),
             "object_asset_cfg": SceneEntityCfg("object"),
-            "roll_range": (-torch.pi, -torch.pi),
-            # "pitch_range": (0.0, 0.0),
-            # "yaw_range": (0.0, 0.0),
+            "roll_range": (-torch.pi, torch.pi),
             "pitch_range": (-torch.pi, torch.pi),
             "yaw_range": (-torch.pi, torch.pi),
         },
@@ -384,7 +382,6 @@ class EventCfg:
         func=mdp.reset_root_state_uniform,
         mode="reset",
         params={
-            # "pose_range": {"x": [-0.01, 0.01], "y": [-0.01, 0.01], # TODO: disable this for now. later can change this when generating grasp data.
             "pose_range": {
                 "x": [-0.01, 0.01],
                 "y": [-0.01, 0.01],
@@ -402,8 +399,7 @@ class EventCfg:
         func=task_mdp.reset_joints_within_limits_range,
         mode="reset",
         params={
-            # "position_range": {".*": [0.2, 0.2]},
-            "position_range": {".*": [0.0, 0.0]},
+            "position_range": {".*": [0.2, 0.2]},
             "velocity_range": {".*": [0.0, 0.0]},
             "use_default_offset": True,
             "operation": "scale",
@@ -429,6 +425,7 @@ class EventCfg:
         params={
             "asset_cfg": SceneEntityCfg("object"),
             "contact_threshold": 1.0,
+            "decay_ratio": 0.9
         },
     )
 
@@ -484,7 +481,8 @@ class RewardsCfg:
     )
 
     # penalties
-    joint_vel_l2 = RewTerm(func=mdp.joint_vel_l2, weight=-2.5e-5)
+    # joint_vel_l2 = RewTerm(func=mdp.joint_vel_l2, weight=-2.5e-5)
+    energy = RewTerm(func=task_mdp.joint_power, weight=-1e-5, params={"asset_cfg": SceneEntityCfg("robot")})
     # joint_pos_default_l2 = RewTerm(func=task_mdp.joint_pos_default_l2, weight=-1e-3)
     action_l2 = RewTerm(func=mdp.action_l2, weight=-0.0001)
     action_rate_l2 = RewTerm(func=mdp.action_rate_l2, weight=-0.01)
@@ -539,7 +537,7 @@ class InHandObjectEnvCfg(ManagerBasedRLEnvCfg):
         ),
         physx=PhysxCfg(
             bounce_threshold_velocity=0.2,
-            gpu_max_rigid_contact_count=2**20,
+            gpu_max_rigid_contact_count=2**23,
             gpu_max_rigid_patch_count=2**23,
         ),
     )

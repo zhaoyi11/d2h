@@ -456,6 +456,15 @@ def joint_pos_default_l2(
     return torch.sum(torch.square(joint_error), dim=1)
 
 
+def joint_power(
+    env: ManagerBasedRLEnv,
+    asset_cfg: SceneEntityCfg = SceneEntityCfg("robot"),
+) -> torch.Tensor:
+    """Penalize instantaneous mechanical power (sum of |torque * velocity|) to encourage energy-saving behavior."""
+    robot: Articulation = env.scene[asset_cfg.name]
+    return torch.sum(torch.abs(robot.data.applied_torque * robot.data.joint_vel), dim=1)
+
+
 # TODO: check the usage of contact force.
 def fingertip_object_contacts(
     env: ManagerBasedRLEnv, contact_sensor_names: list[str], threshold: float = 1e-3
