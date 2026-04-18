@@ -515,6 +515,162 @@ def fingertip_object_contacts(
 
 
 ###############################
+#### Good-Contact Metrics  ####
+###############################
+
+import math as _math
+
+_FINGERTIP_SENSOR_NAMES = [
+    "thumb_tip_object_s",
+    "index_tip_object_s",
+    "middle_tip_object_s",
+    "ring_tip_object_s",
+]
+
+
+def _compute_contact_metrics(
+    env: "ManagerBasedRLEnv",
+    contact_sensor_names: list[str],
+    fingertip_transforms_name: str,
+    force_threshold: float,
+    contact_pose_range_deg: float,
+) -> dict[str, torch.Tensor]:
+    """Shared layer: per-fingertip forces rotated into fingertip frame, theta/phi, contact masks.
+
+    Returns dict with keys:
+      in_contact   (num_envs, n_fingers) bool
+      force_mag    (num_envs, n_fingers) float
+      contact_pose (num_envs, n_fingers, 2) float  — [theta, phi] clamped to pose_limit
+    """
+    from isaaclab.utils.math import quat_apply_inverse
+
+    pose_limit = _math.radians(contact_pose_range_deg)
+    # (num_envs, n_fingers, 4) world-frame fingertip orientations as (w, x, y, z)
+    target_quat_w = env.scene.sensors[fingertip_transforms_name].data.target_quat_w
+
+    in_contact_list, force_mag_list, pose_list = [], [], []
+
+    for i, name in enumerate(contact_sensor_names):
+        sensor = env.scene.sensors[name]
+        fm = sensor.data.force_matrix_w
+
+        if fm is None or fm.numel() == 0:
+            zeros = torch.zeros(env.num_envs, device=env.device)
+            in_contact_list.append(zeros.bool())
+            force_mag_list.append(zeros)
+            pose_list.append(torch.zeros(env.num_envs, 2, device=env.device))
+            continue
+
+        F_world = torch.nan_to_num(fm, nan=0.0).sum(dim=(1, 2))        # (N, 3)
+        F_mag = torch.linalg.norm(F_world, dim=-1)                      # (N,)
+        in_contact = F_mag > force_threshold
+
+        # Rotate reaction force into fingertip frame.
+        # Frame convention: red (X) = object-to-finger (reaction direction),
+        # so theta=0, phi=0 at centered contact without negation.
+        F_tip = quat_apply_inverse(target_quat_w[:, i, :], F_world)  # (N, 3)
+        F_tip_mag = F_mag  # rotation preserves norm
+
+        # Spherical coordinates in fingertip frame: theta=0, phi=0 when
+        # reaction is along +X (red axis = fingertip outward normal).
+        theta = torch.where(
+            F_tip_mag < force_threshold,
+            torch.zeros_like(F_tip_mag),
+            torch.atan2(F_tip[:, 1], F_tip[:, 0]),
+        )
+        phi = torch.where(
+            F_tip_mag < force_threshold,
+            torch.zeros_like(F_tip_mag),
+            torch.acos(torch.clamp(F_tip[:, 2] / (F_tip_mag + 1e-8), -1.0, 1.0)) - torch.pi / 2,
+        )
+
+        pose = torch.clamp(torch.stack([theta, phi], dim=-1), -pose_limit, pose_limit)
+
+        in_contact_list.append(in_contact)
+        force_mag_list.append(F_mag)
+        pose_list.append(pose)
+
+    return {
+        "in_contact":   torch.stack(in_contact_list, dim=1),   # (N, n)
+        "force_mag":    torch.stack(force_mag_list, dim=1),     # (N, n)
+        "contact_pose": torch.stack(pose_list, dim=1),          # (N, n, 2)
+    }
+
+
+def good_contact_count(
+    env: "ManagerBasedRLEnv",
+    contact_sensor_names: list[str],
+    fingertip_transforms_name: str = "fingertip_transforms",
+    force_threshold: float = 0.25,
+    contact_pose_range_deg: float = 50.0,
+) -> torch.Tensor:
+    """Count fingertips whose contact force is above threshold AND within the angular pose limit."""
+    m = _compute_contact_metrics(
+        env, contact_sensor_names, fingertip_transforms_name, force_threshold, contact_pose_range_deg
+    )
+    good_pose = (torch.abs(m["contact_pose"]) < _math.radians(contact_pose_range_deg)).all(dim=-1)
+    return (m["in_contact"] & good_pose).float().sum(dim=-1)    # (N,)
+
+
+def good_contact_reward(
+    env: "ManagerBasedRLEnv",
+    contact_sensor_names: list[str],
+    fingertip_transforms_name: str = "fingertip_transforms",
+    force_threshold: float = 0.25,
+    contact_pose_range_deg: float = 50.0,
+    contact_scale: float = 1.0,
+    contact_temp: float = 1.0,
+) -> torch.Tensor:
+    """tanh-normalised good-contact reward: tanh(n_good / n_tips * scale / temp)."""
+    n_tips = float(len(contact_sensor_names))
+    n_good = good_contact_count(
+        env, contact_sensor_names, fingertip_transforms_name, force_threshold, contact_pose_range_deg
+    )
+    return torch.tanh(n_good / n_tips * contact_scale / contact_temp)
+
+
+def tip_contact_mask_obs(
+    env: "ManagerBasedRLEnv",
+    contact_sensor_names: list[str],
+    fingertip_transforms_name: str = "fingertip_transforms",
+    force_threshold: float = 0.25,
+) -> torch.Tensor:
+    """Per-fingertip binary contact mask, shape (num_envs, n_fingers)."""
+    m = _compute_contact_metrics(
+        env, contact_sensor_names, fingertip_transforms_name, force_threshold, 50.0
+    )
+    return m["in_contact"].float()                               # (N, n)
+
+
+def tip_contact_force_mag_obs(
+    env: "ManagerBasedRLEnv",
+    contact_sensor_names: list[str],
+    fingertip_transforms_name: str = "fingertip_transforms",
+    force_threshold: float = 0.25,
+) -> torch.Tensor:
+    """Per-fingertip contact force magnitudes, shape (num_envs, n_fingers)."""
+    m = _compute_contact_metrics(
+        env, contact_sensor_names, fingertip_transforms_name, force_threshold, 50.0
+    )
+    return m["force_mag"]                                        # (N, n)
+
+
+def tip_contact_pose_flat(
+    env: "ManagerBasedRLEnv",
+    contact_sensor_names: list[str],
+    fingertip_transforms_name: str = "fingertip_transforms",
+    force_threshold: float = 0.25,
+    contact_pose_range_deg: float = 50.0,
+) -> torch.Tensor:
+    """Per-fingertip (theta, phi) flattened; zeroed for non-contacting fingers. Shape (N, n*2)."""
+    m = _compute_contact_metrics(
+        env, contact_sensor_names, fingertip_transforms_name, force_threshold, contact_pose_range_deg
+    )
+    pose = m["contact_pose"] * m["in_contact"].unsqueeze(-1).float()
+    return pose.flatten(start_dim=1)                             # (N, n*2)
+
+
+###############################
 ###### Termination Term #######
 ###############################
 
@@ -895,13 +1051,13 @@ def contacts(env: ManagerBasedRLEnv, threshold: float, mode: Literal["opposite",
 
 
 class apply_gravity_compensation_assist(ManagerTermBase):
-    """Gravity-compensation assist that decays 10% per step when good contact is detected.
+    """Gravity-compensation assist that decays per step when good contact is detected.
 
-    _assist_scale starts at 1.0 each episode and is multiplied by 0.9 for each env
-    where contacts() returns True. It is decay-only (never increases mid-episode).
+    _assist_scale starts at 1.0 each episode and is multiplied by decay_ratio for each env
+    where good_contact_count >= min_good_contacts. It is decay-only (never increases mid-episode).
 
-    Good contact is defined by contacts(): thumb in contact AND at least one of
-    (index, middle, ring) in contact above contact_threshold.
+    Good contact requires both force magnitude > contact_threshold AND force direction within
+    contact_pose_range_deg of the fingertip normal (force-direction quality check).
     """
 
     def __init__(self, cfg: EventTermCfg, env: "ManagerBasedRLEnv"):
@@ -920,7 +1076,9 @@ class apply_gravity_compensation_assist(ManagerTermBase):
         env_ids: torch.Tensor | None,
         asset_cfg: SceneEntityCfg = SceneEntityCfg("object"),
         contact_threshold: float = 1.0,
-        decay_ratio: float = 0.95, # 0.95^120 (1s) ~ 0, so decay to 0 in 1s after resetting.
+        contact_pose_range_deg: float = 50.0,
+        min_good_contacts: int = 2,
+        decay_ratio: float = 0.95,  # 0.95^120 (1s) ~ 0, so decays to 0 in ~1s
     ) -> None:
         env_ids_t = _normalize_env_ids(env, env_ids)
         obj: RigidObject = env.scene[asset_cfg.name]
@@ -936,8 +1094,13 @@ class apply_gravity_compensation_assist(ManagerTermBase):
         masses = obj.root_physx_view.get_masses().to(env.device)  # (num_envs, 1)
         mass = masses[env_ids_t, 0]                               # (n,)
 
-        # Decay _assist_scale by 10% wherever contacts() reports good contact.
-        good_contact = contacts(env, contact_threshold, mode="opposite")           # (num_envs,) bool
+        # Decay wherever force-direction-quality good contact count >= min_good_contacts.
+        good_contact = (
+            good_contact_count(env, _FINGERTIP_SENSOR_NAMES,
+                               force_threshold=contact_threshold,
+                               contact_pose_range_deg=contact_pose_range_deg)
+            >= min_good_contacts
+        )                                                          # (num_envs,) bool
         self._assist_scale[env_ids_t] = torch.where(
             good_contact[env_ids_t],
             (self._assist_scale[env_ids_t] * decay_ratio).round(decimals=4),

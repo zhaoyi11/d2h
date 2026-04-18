@@ -200,7 +200,7 @@ class ObservationsCfg:
             },
         )
 
-        # fingertip contact
+        # fingertip contact — raw 3D forces in robot base frame (12 dims)
         fingertip_contact_force_b = ObsTerm(
             func=mdp.fingers_contact_force_b,
             params={
@@ -210,6 +210,49 @@ class ObservationsCfg:
                     "middle_tip_object_s",
                     "ring_tip_object_s",
                 ],
+            },
+        )
+
+        # binary contact mask per fingertip (4 dims)
+        contact_mask = ObsTerm(
+            func=task_mdp.tip_contact_mask_obs,
+            params={
+                "contact_sensor_names": [
+                    "thumb_tip_object_s",
+                    "index_tip_object_s",
+                    "middle_tip_object_s",
+                    "ring_tip_object_s",
+                ],
+                "force_threshold": 0.25,
+            },
+        )
+
+        # per-fingertip contact force magnitude (4 dims)
+        contact_force_mag = ObsTerm(
+            func=task_mdp.tip_contact_force_mag_obs,
+            params={
+                "contact_sensor_names": [
+                    "thumb_tip_object_s",
+                    "index_tip_object_s",
+                    "middle_tip_object_s",
+                    "ring_tip_object_s",
+                ],
+                "force_threshold": 0.25,
+            },
+        )
+
+        # per-fingertip contact pose (theta, phi) in fingertip frame, flattened (8 dims)
+        contact_pose = ObsTerm(
+            func=task_mdp.tip_contact_pose_flat,
+            params={
+                "contact_sensor_names": [
+                    "thumb_tip_object_s",
+                    "index_tip_object_s",
+                    "middle_tip_object_s",
+                    "ring_tip_object_s",
+                ],
+                "force_threshold": 0.25,
+                "contact_pose_range_deg": 45.0,
             },
         )
 
@@ -460,19 +503,22 @@ class RewardsCfg:
         weight=1.0,
     )
 
-    # # TODO: add contact ralated info later.
-    # fingertip_contact = RewTerm(
-    #     func=task_mdp.fingertip_object_contacts,
-    #     weight=3,
-    #     params={
-    #         "contact_sensor_names": [
-    #             "thumb_tip_object_s",
-    #             "index_tip_object_s",
-    #             "middle_tip_object_s",
-    #             "ring_tip_object_s",
-    #         ],
-    #     },
-    # )
+    good_contact = RewTerm(
+        func=task_mdp.good_contact_reward,
+        weight=1.5,
+        params={
+            "contact_sensor_names": [
+                "thumb_tip_object_s",
+                "index_tip_object_s",
+                "middle_tip_object_s",
+                "ring_tip_object_s",
+            ],
+            "force_threshold": 0.25,
+            "contact_pose_range_deg": 45.0,
+            "contact_scale": 1.0,
+            "contact_temp": 1.0,
+        },
+    )
 
     success = RewTerm(
         func=task_mdp.success_bonus,
@@ -606,7 +652,7 @@ class LeapObjectEnvCfg(InHandObjectEnvCfg):
                     offset=OffsetCfg(pos=(0.0, -0.03, 0.015)),
                 ),
             ],
-            debug_vis=False,
+            debug_vis=True,
             visualizer_cfg=FRAME_MARKER_CFG.replace(
                 prim_path="/Visuals/FrameTransformer",
                 markers={
