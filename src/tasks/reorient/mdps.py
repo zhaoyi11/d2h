@@ -139,6 +139,7 @@ class InHandReOrientationCommand(CommandTerm):
     def _resample_command(self, env_ids: Sequence[int]):
         n = len(env_ids)
         min_rad, max_rad = self.random_range
+        # approximaly uniformally sample from SO3 around the current command pose
         # Haar-correct: p(θ) ∝ sin²(θ/2); CDF = θ/2 - sin(θ)/2
         lo = 0.5 * (min_rad - _math.sin(min_rad))
         hi = 0.5 * (max_rad - _math.sin(max_rad))
@@ -374,6 +375,42 @@ def track_pos_l2(
     return pos_error
 
 
+def track_position(
+    env: ManagerBasedRLEnv,
+    command_name: str,
+    object_cfg: SceneEntityCfg = SceneEntityCfg("object"),
+    pos_scale: float = 2.0,
+    pos_temp: float = 0.5,
+    max_pos_error: float | None = None,
+    need_contact: bool = False,
+) -> torch.Tensor:
+    """Reward for tracking the object position with an exponential (Gaussian) kernel.
+
+    reward = exp(-||active_pos||_2^2 * pos_scale / pos_temp)
+
+    where active_pos = goal_pos_e - object_pos_e is the position error in the env frame.
+    If `max_pos_error` is provided, the reward is zeroed for envs whose position error
+    exceeds the threshold.
+    """
+    asset: RigidObject = env.scene[object_cfg.name]
+    command_term: InHandReOrientationCommand = env.command_manager.get_term(command_name)
+
+    goal_pos_e = command_term.command[:, 0:3]
+    object_pos_e = asset.data.root_pos_w - env.scene.env_origins
+    active_pos = goal_pos_e - object_pos_e
+
+    pos_error = torch.norm(active_pos, p=2, dim=-1)
+    reward = torch.exp(-(pos_error ** 2) * pos_scale / pos_temp)
+
+    if max_pos_error is not None:
+        reward = torch.where(pos_error <= max_pos_error, reward, torch.zeros_like(reward))
+
+    if need_contact:
+        reward = reward * contacts(env, 0.3, mode="any")
+
+    return reward
+
+
 def track_orientation_inv_l2(
     env: ManagerBasedRLEnv,
     command_name: str,
@@ -405,6 +442,41 @@ def track_orientation_inv_l2(
     if need_contact:
         value = value * contacts(env, 0.3, mode="any")
     return value
+
+
+def track_orientation(
+    env: ManagerBasedRLEnv,
+    command_name: str,
+    object_cfg: SceneEntityCfg = SceneEntityCfg("object"),
+    rot_scale: float = 5.0,
+    rot_temp: float = 1.0,
+    need_contact: bool = False,
+) -> torch.Tensor:
+    """Reward for tracking the object orientation with an exponential (Gaussian) kernel.
+
+    reward = exp(-||active_quat_vec||_2^2 * rot_scale / rot_temp)
+
+    where active_quat = goal_quat * conj(object_quat) is the relative rotation and
+    active_quat_vec is its vector (imaginary) part. For a rotation of angle theta,
+    ||active_quat_vec||_2 = |sin(theta/2)|, so the reward is 1 at alignment and decays
+    smoothly with orientation error.
+    """
+    asset: RigidObject = env.scene[object_cfg.name]
+    command_term: InHandReOrientationCommand = env.command_manager.get_term(command_name)
+
+    goal_quat_w = command_term.command[:, 3:7]
+    object_quat_w = asset.data.root_quat_w
+
+    active_quat = math_utils.quat_mul(goal_quat_w, math_utils.quat_conjugate(object_quat_w))
+    # isaaclab quaternions are wxyz; the vector part is components [1:4]
+    active_quat_vec = active_quat[..., 1:4]
+
+    reward = torch.exp(-torch.norm(active_quat_vec, p=2, dim=-1) ** 2 * rot_scale / rot_temp)
+
+    if need_contact:
+        reward = reward * contacts(env, 0.3, mode="any")
+
+    return reward
 
 
 def neg_fingertip_object_distance(

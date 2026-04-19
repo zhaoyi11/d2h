@@ -477,35 +477,38 @@ class EventCfg:
 class RewardsCfg:
     """Reward terms for the MDP."""
 
-    # # -- task
-    # track_pos_l2 = RewTerm(
-    #     func=task_mdp.track_pos_l2,
-    #     weight=-1.0,
-    #     params={
-    #         "object_cfg": SceneEntityCfg("object"),
-    #         "command_name": "object_pose",
-    #         "max_pos_error": 3.0,
-    #     },
-    # )
-    track_orientation_inv_l2 = RewTerm(
-        func=task_mdp.track_orientation_inv_l2,
-        weight=3.0,
+    track_position = RewTerm(
+        func=task_mdp.track_position,
+        weight=2.0,
         params={
             "object_cfg": SceneEntityCfg("object"),
-            "rot_eps": 0.1,
             "command_name": "object_pose",
+            "pos_scale": 2.0,
+            "pos_temp": 0.5,
+            "need_contact": True,
+        },
+    )
+
+    track_orientation = RewTerm(
+        func=task_mdp.track_orientation,
+        weight=5.0,
+        params={
+            "object_cfg": SceneEntityCfg("object"),
+            "command_name": "object_pose",
+            "rot_scale": 5.0,
+            "rot_temp": 1.0,
             "need_contact": True,
         },
     )
 
     fingertip_obj_dist = RewTerm(
         func=task_mdp.neg_fingertip_object_distance,
-        weight=1.0,
+        weight=0.5,
     )
 
     good_contact = RewTerm(
         func=task_mdp.good_contact_reward,
-        weight=1.5,
+        weight=1.0,
         params={
             "contact_sensor_names": [
                 "thumb_tip_object_s",
@@ -522,7 +525,7 @@ class RewardsCfg:
 
     success = RewTerm(
         func=task_mdp.success_bonus,
-        weight=250.0,
+        weight=200.0,
         params={"object_cfg": SceneEntityCfg("object"), "command_name": "object_pose"},
     )
 
@@ -530,7 +533,7 @@ class RewardsCfg:
     # joint_vel_l2 = RewTerm(func=mdp.joint_vel_l2, weight=-2.5e-5)
     energy = RewTerm(func=task_mdp.joint_power, weight=-1e-5, params={"asset_cfg": SceneEntityCfg("robot")})
     # joint_pos_default_l2 = RewTerm(func=task_mdp.joint_pos_default_l2, weight=-1e-3)
-    action_l2 = RewTerm(func=mdp.action_l2, weight=-0.0001)
+    action_l2 = RewTerm(func=mdp.action_l2, weight=-0.001)
     action_rate_l2 = RewTerm(func=mdp.action_rate_l2, weight=-0.01)
 
     # abnormal robot
@@ -652,7 +655,7 @@ class LeapObjectEnvCfg(InHandObjectEnvCfg):
                     offset=OffsetCfg(pos=(0.0, -0.03, 0.015)),
                 ),
             ],
-            debug_vis=True,
+            debug_vis=False,
             visualizer_cfg=FRAME_MARKER_CFG.replace(
                 prim_path="/Visuals/FrameTransformer",
                 markers={
