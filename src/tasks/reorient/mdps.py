@@ -1035,9 +1035,13 @@ class randomize_hand_object_default_pose(ManagerTermBase):
         else:
             self._base_body_id = 0 # default to the root body
 
-        self._roll_range = cfg.params.get("roll_range", (-torch.pi, torch.pi))
-        self._pitch_range = cfg.params.get("pitch_range", (-torch.pi, torch.pi))
-        self._yaw_range = cfg.params.get("yaw_range", (-torch.pi, torch.pi))
+        self.roll_range = cfg.params.get("roll_range", (-torch.pi, torch.pi))
+        self.pitch_range = cfg.params.get("pitch_range", (-torch.pi, torch.pi))
+        self.yaw_range = cfg.params.get("yaw_range", (-torch.pi, torch.pi))
+
+        # Store original unrotated default states so resets don't accumulate rotations.
+        self._orig_robot_default = self._robot.data.default_root_state.clone()
+        self._orig_object_default = self._object.data.default_root_state.clone()
 
     def __call__(
         self,
@@ -1052,9 +1056,9 @@ class randomize_hand_object_default_pose(ManagerTermBase):
         if env_ids is None or env_ids == slice(None):
             env_ids = torch.arange(env.num_envs, device=env.device)
 
-        roll_range = self._roll_range if roll_range is None else roll_range
-        pitch_range = self._pitch_range if pitch_range is None else pitch_range
-        yaw_range = self._yaw_range if yaw_range is None else yaw_range
+        roll_range = self.roll_range if roll_range is None else roll_range
+        pitch_range = self.pitch_range if pitch_range is None else pitch_range
+        yaw_range = self.yaw_range if yaw_range is None else yaw_range
 
         roll = torch.empty(len(env_ids), device=env.device).uniform_(*roll_range)
         pitch = torch.empty(len(env_ids), device=env.device).uniform_(*pitch_range)
@@ -1063,8 +1067,9 @@ class randomize_hand_object_default_pose(ManagerTermBase):
 
         env_origins = env.scene.env_origins[env_ids]
 
-        robot_states = self._robot.data.default_root_state[env_ids].clone()
-        object_states = self._object.data.default_root_state[env_ids].clone()
+        # Always rotate relative to the original unrotated defaults to avoid accumulation.
+        robot_states = self._orig_robot_default[env_ids].clone()
+        object_states = self._orig_object_default[env_ids].clone()
 
         # Rigid rotation around the robot root (env frame).
         # body_pos_w is unreliable at startup (not yet initialized), so we use
@@ -1118,7 +1123,7 @@ def contacts(env: ManagerBasedRLEnv, threshold: float, mode: Literal["opposite",
     middle_contact_mag = torch.norm(middle_contact, dim=-1)
     ring_contact_mag = torch.norm(ring_contact, dim=-1)
     if mode == "opposite":
-        good_contact_cond1 = (thumb_contact_mag > threshold) & (
+        contact_cond = (thumb_contact_mag > threshold) & (
             (index_contact_mag > threshold) | (middle_contact_mag > threshold) | (ring_contact_mag > threshold)
         )
     if mode == "any":
@@ -1128,8 +1133,8 @@ def contacts(env: ManagerBasedRLEnv, threshold: float, mode: Literal["opposite",
             middle_contact_mag > threshold,
             ring_contact_mag > threshold,
         ], dim=-1)  # (num_envs, 4)
-        good_contact_cond1 = finger_contacts.sum(dim=-1) >= 2
-    return good_contact_cond1
+        contact_cond = finger_contacts.sum(dim=-1) >= 2
+    return contact_cond
 
 
 class apply_gravity_compensation_assist(ManagerTermBase):
@@ -1168,6 +1173,7 @@ class apply_gravity_compensation_assist(ManagerTermBase):
         # Current physics gravity — live from PhysX after variable_gravity applied.
         physics_sim_view = sim_utils.SimulationContext.instance().physics_sim_view
         grav_raw = physics_sim_view.get_gravity()
+
         gravity_vec = torch.tensor(
             [grav_raw[0], grav_raw[1], grav_raw[2]], device=env.device, dtype=torch.float32
         )
@@ -1177,14 +1183,15 @@ class apply_gravity_compensation_assist(ManagerTermBase):
         mass = masses[env_ids_t, 0]                               # (n,)
 
         # Decay wherever force-direction-quality good contact count >= min_good_contacts.
-        good_contact = (
-            good_contact_count(env, _FINGERTIP_SENSOR_NAMES,
-                               force_threshold=contact_threshold,
-                               contact_pose_range_deg=contact_pose_range_deg)
-            >= min_good_contacts
-        )                                                          # (num_envs,) bool
+        # contact = (
+        #     good_contact_count(env, _FINGERTIP_SENSOR_NAMES,
+        #                        force_threshold=contact_threshold,
+        #                        contact_pose_range_deg=contact_pose_range_deg)
+        #     >= min_good_contacts
+        # )                                                          # (num_envs,) bool
+        contact = contacts(env, threshold=contact_threshold, mode='any')
         self._assist_scale[env_ids_t] = torch.where(
-            good_contact[env_ids_t],
+            contact[env_ids_t],
             (self._assist_scale[env_ids_t] * decay_ratio).round(decimals=4),
             self._assist_scale[env_ids_t],
         )

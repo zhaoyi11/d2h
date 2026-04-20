@@ -100,6 +100,7 @@ class DifficultyScheduler(ManagerTermBase):
         )
         pos_dist = torch.norm(pos_err, dim=1)
         rot_dist = torch.norm(rot_err, dim=1)
+
         promote = (
             (pos_dist < pos_tol) & (rot_dist < rot_tol)
             if rot_tol is not None
@@ -122,14 +123,180 @@ class DifficultyScheduler(ManagerTermBase):
         return self.difficulty_frac
 
 
+##############
+## ConfigClass
+##############
 @configclass
 class CurriculumCfg:
-    """Curriculum terms for the in-hand reorientation task."""
+    """Curriculum terms for the MDP."""
 
+    # adr stands for automatic/adaptive domain randomization
     adr = CurrTerm(
-        func=DifficultyScheduler,
-        params={"init_difficulty": 0, "min_difficulty": 0, "max_difficulty": 10},
+        func=DifficultyScheduler, params={"init_difficulty": 0, "min_difficulty": 0, "max_difficulty": 10}
     )
+
+    # # Observation noise terms
+    obj_point_cloud_unoise_min_adr = CurrTerm(
+        func=common_mdp.modify_term_cfg,
+        params={
+            "address": "observations.perception.object_point_cloud.noise.n_min",
+            "modify_fn": initial_final_interpolate_fn,
+            "modify_params": {"initial_value": 0.0, "final_value": -0.01, "difficulty_term_str": "adr"},
+        },
+    )
+
+    obj_point_cloud_unoise_max_adr = CurrTerm(
+        func=common_mdp.modify_term_cfg,
+        params={
+            "address": "observations.perception.object_point_cloud.noise.n_max",
+            "modify_fn": initial_final_interpolate_fn,
+            "modify_params": {"initial_value": 0.0, "final_value": 0.01, "difficulty_term_str": "adr"},
+        },
+    )
+
+    # # Environment event terms
+    # robot_physics_material_static_friction_adr = CurrTerm(
+    #     func=common_mdp.modify_term_cfg,
+    #     params={
+    #         "address": "events.robot_physics_material.params.static_friction_range",
+    #         "modify_fn": initial_final_interpolate_fn,
+    #         "modify_params": {
+    #             "initial_value": (1.0, 1.0),
+    #             "final_value": (0.7, 1.3),
+    #             "difficulty_term_str": "adr",
+    #         },
+    #     },
+    # )
+
+    # robot_physics_material_dynamic_friction_adr = CurrTerm(
+    #     func=common_mdp.modify_term_cfg,
+    #     params={
+    #         "address": "events.robot_physics_material.params.dynamic_friction_range",
+    #         "modify_fn": initial_final_interpolate_fn,
+    #         "modify_params": {
+    #             "initial_value": (1.0, 1.0),
+    #             "final_value": (0.7, 1.3),
+    #             "difficulty_term_str": "adr",
+    #         },
+    #     },
+    # )
+
+    # robot_scale_mass_adr = CurrTerm(
+    #     func=common_mdp.modify_term_cfg,
+    #     params={
+    #         "address": "events.robot_scale_mass.params.mass_distribution_params",
+    #         "modify_fn": initial_final_interpolate_fn,
+    #         "modify_params": {
+    #             "initial_value": (1.0, 1.0),
+    #             "final_value": (0.95, 1.05),
+    #             "difficulty_term_str": "adr",
+    #         },
+    #     },
+    # )
+
+    # robot_joint_stiffness_adr = CurrTerm(
+    #     func=common_mdp.modify_term_cfg,
+    #     params={
+    #         "address": "events.robot_joint_stiffness_and_damping.params.stiffness_distribution_params",
+    #         "modify_fn": initial_final_interpolate_fn,
+    #         "modify_params": {
+    #             "initial_value": (1.0, 1.0),
+    #             "final_value": (0.3, 3.0),
+    #             "difficulty_term_str": "adr",
+    #         },
+    #     },
+    # )
+
+    # robot_joint_damping_adr = CurrTerm(
+    #     func=common_mdp.modify_term_cfg,
+    #     params={
+    #         "address": "events.robot_joint_stiffness_and_damping.params.damping_distribution_params",
+    #         "modify_fn": initial_final_interpolate_fn,
+    #         "modify_params": {
+    #             "initial_value": (1.0, 1.0),
+    #             "final_value": (0.75, 1.5),
+    #             "difficulty_term_str": "adr",
+    #         },
+    #     },
+    # )
+
+    # object_physics_material_static_friction_adr = CurrTerm(
+    #     func=common_mdp.modify_term_cfg,
+    #     params={
+    #         "address": "events.object_physics_material.params.static_friction_range",
+    #         "modify_fn": initial_final_interpolate_fn,
+    #         "modify_params": {
+    #             "initial_value": (1.0, 1.0),
+    #             "final_value": (0.7, 1.3),
+    #             "difficulty_term_str": "adr",
+    #         },
+    #     },
+    # )
+
+    # object_physics_material_dynamic_friction_adr = CurrTerm(
+    #     func=common_mdp.modify_term_cfg,
+    #     params={
+    #         "address": "events.object_physics_material.params.dynamic_friction_range",
+    #         "modify_fn": initial_final_interpolate_fn,
+    #         "modify_params": {
+    #             "initial_value": (1.0, 1.0),
+    #             "final_value": (0.7, 1.3),
+    #             "difficulty_term_str": "adr",
+    #         },
+    #     },
+    # )
+
+    # object_scale_mass_adr = CurrTerm(
+    #     func=common_mdp.modify_term_cfg,
+    #     params={
+    #         "address": "events.object_scale_mass.params.mass_distribution_params",
+    #         "modify_fn": initial_final_interpolate_fn,
+    #         "modify_params": {
+    #             "initial_value": (1.0, 1.0),
+    #             "final_value": (0.4, 1.6),
+    #             "difficulty_term_str": "adr",
+    #         },
+    #     },
+    # )
+
+    # hand_object_pose_roll_adr = CurrTerm(
+    #     func=common_mdp.modify_term_cfg,
+    #     params={
+    #         "address": "events.randomize_hand_object_default_pose.params.roll_range",
+    #         "modify_fn": initial_final_interpolate_fn,
+    #         "modify_params": {
+    #             "initial_value": (0.0, 0.0),
+    #             "final_value": (-3.141592653589793, 3.141592653589793),
+    #             "difficulty_term_str": "adr",
+    #         },
+    #     },
+    # )
+
+    # hand_object_pose_pitch_adr = CurrTerm(
+    #     func=common_mdp.modify_term_cfg,
+    #     params={
+    #         "address": "events.randomize_hand_object_default_pose.params.pitch_range",
+    #         "modify_fn": initial_final_interpolate_fn,
+    #         "modify_params": {
+    #             "initial_value": (0.0, 0.0),
+    #             "final_value": (-3.141592653589793, 3.141592653589793),
+    #             "difficulty_term_str": "adr",
+    #         },
+    #     },
+    # )
+
+    # hand_object_pose_yaw_adr = CurrTerm(
+    #     func=common_mdp.modify_term_cfg,
+    #     params={
+    #         "address": "events.randomize_hand_object_default_pose.params.yaw_range",
+    #         "modify_fn": initial_final_interpolate_fn,
+    #         "modify_params": {
+    #             "initial_value": (0.0, 0.0),
+    #             "final_value": (-3.141592653589793, 3.141592653589793),
+    #             "difficulty_term_str": "adr",
+    #         },
+    #     },
+    # )
 
     gravity_adr = CurrTerm(
         func=common_mdp.modify_term_cfg,
