@@ -60,6 +60,7 @@ def _get_visdex_usd_paths() -> list[str]:
         raise ValueError(f"No visdex USD assets found in: {usd_root}")
     return usd_paths
 
+
 @configclass
 class InHandObjectSceneCfg(InteractiveSceneCfg):
     """Configuration for a scene with an object and a dexterous hand."""
@@ -143,6 +144,9 @@ class CommandsCfg:
         make_quat_unique=False,
         marker_pos_offset=(-0.2, -0.06, 0.08),
         debug_vis=True,
+        # also consider position success
+        use_position_success=True,
+        position_success_threshold=0.05,
     )
 
 

@@ -123,10 +123,9 @@ class InHandReOrientationCommand(CommandTerm):
         self.metrics["position_error"] = torch.norm(
             self.object.data.root_pos_w - self.pos_command_w, dim=1
         )
-        # -- compute the number of consecutive successes
-        successes = (
-            self.metrics["orientation_error"] < self.cfg.orientation_success_threshold
-        )
+        successes = self.metrics["orientation_error"] < self.cfg.orientation_success_threshold
+        if self.cfg.use_position_success:
+            successes = successes & (self.metrics["position_error"] < self.cfg.position_success_threshold)
         self.metrics["consecutive_success"] += successes.float()
 
     def reset(self, env_ids: Sequence[int] | None = None) -> dict[str, float]:
@@ -164,10 +163,9 @@ class InHandReOrientationCommand(CommandTerm):
         # update the command if goal is reached
         if self.cfg.update_goal_on_success:
             # compute the goal resets
-            goal_resets = (
-                self.metrics["orientation_error"]
-                < self.cfg.orientation_success_threshold
-            )
+            goal_resets = self.metrics["orientation_error"] < self.cfg.orientation_success_threshold
+            if self.cfg.use_position_success:
+                goal_resets = goal_resets & (self.metrics["position_error"] < self.cfg.position_success_threshold)
             goal_reset_ids = goal_resets.nonzero(as_tuple=False).squeeze(-1)
             # resample the goals
             self._resample(goal_reset_ids)
@@ -251,6 +249,12 @@ class InHandReOrientationCommandCfg(CommandTermCfg):
 
     orientation_success_threshold: float = MISSING
     """Threshold for the orientation error to consider the goal orientation to be reached."""
+
+    use_position_success: bool = False
+    """Whether to also require position error below threshold for success. Defaults to False."""
+
+    position_success_threshold: float = 0.05
+    """Threshold for the position error (m) when use_position_success is True."""
 
     update_goal_on_success: bool = MISSING
     """Whether to update the goal orientation when the goal orientation is reached."""
