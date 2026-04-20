@@ -139,7 +139,7 @@ class CommandsCfg:
         asset_name="object",
         random_range=(0.3 * torch.pi, 0.5 * torch.pi),
         init_pos_offset=(0.0, 0.0, 0.0),
-        update_goal_on_success=True,
+        resample_on="success",
         orientation_success_threshold=0.3,
         make_quat_unique=False,
         marker_pos_offset=(-0.2, -0.06, 0.08),

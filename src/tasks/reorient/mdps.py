@@ -161,7 +161,7 @@ class InHandReOrientationCommand(CommandTerm):
 
     def _update_command(self):
         # update the command if goal is reached
-        if self.cfg.update_goal_on_success:
+        if self.cfg.resample_on == "success":
             # compute the goal resets
             goal_resets = self.metrics["orientation_error"] < self.cfg.orientation_success_threshold
             if self.cfg.use_position_success:
@@ -169,6 +169,7 @@ class InHandReOrientationCommand(CommandTerm):
             goal_reset_ids = goal_resets.nonzero(as_tuple=False).squeeze(-1)
             # resample the goals
             self._resample(goal_reset_ids)
+        # "time" mode: base-class timer in compute() calls _resample() automatically
 
     def _set_debug_vis_impl(self, debug_vis: TYPE_CHECKING):
         # set visibility of markers
@@ -256,8 +257,14 @@ class InHandReOrientationCommandCfg(CommandTermCfg):
     position_success_threshold: float = 0.05
     """Threshold for the position error (m) when use_position_success is True."""
 
-    update_goal_on_success: bool = MISSING
-    """Whether to update the goal orientation when the goal orientation is reached."""
+    resample_on: Literal["success", "time"] = "success"
+    """When to resample the goal command.
+
+    - ``"success"``: resample when the object reaches the goal (orientation error, and optionally
+      position error, fall below their respective thresholds).
+    - ``"time"``: resample on a timer; set :attr:`resampling_time_range` to the desired interval.
+      The base-class timer handles resampling automatically.
+    """
 
     marker_pos_offset: tuple[float, float, float] = (0.0, 0.0, 0.0)
     """Position offset of the marker from the object's desired position.
