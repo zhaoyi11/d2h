@@ -116,7 +116,7 @@ class DifficultyScheduler(ManagerTermBase):
             self.current_adr_difficulties[env_ids] + 1,
             demoted,
         ).clamp(min=min_difficulty, max=max_difficulty)
-        self.difficulty_frac = torch.mean(self.current_adr_difficulties).item() / max(
+        self.difficulty_frac = torch.median(self.current_adr_difficulties).item() / max(
             max_difficulty, 1
         )
         # print(f"Difficulty frac: {self.difficulty_frac}")

@@ -93,6 +93,7 @@ class InHandReOrientationCommand(CommandTerm):
         self.metrics["consecutive_success"] = torch.zeros(
             self.num_envs, device=self.device
         )
+        self._goal_succeeded = torch.zeros(self.num_envs, dtype=torch.bool, device=self.device)
         self.random_range = cfg.random_range
 
     def __str__(self) -> str:
@@ -126,7 +127,11 @@ class InHandReOrientationCommand(CommandTerm):
         successes = self.metrics["orientation_error"] < self.cfg.orientation_success_threshold
         if self.cfg.use_position_success:
             successes = successes & (self.metrics["position_error"] < self.cfg.position_success_threshold)
-        self.metrics["consecutive_success"] += successes.float()
+        # only count success once per goal command
+        new_success = successes & ~self._goal_succeeded
+        self.metrics["consecutive_success"] += new_success.float()
+        # used for consecutive_success, only record one success per goal command.
+        self._goal_succeeded |= successes
 
     def reset(self, env_ids: Sequence[int] | None = None) -> dict[str, float]:
         idx: slice | Sequence[int] = slice(None) if env_ids is None else env_ids
@@ -136,6 +141,7 @@ class InHandReOrientationCommand(CommandTerm):
         return super().reset(env_ids)
 
     def _resample_command(self, env_ids: Sequence[int]):
+        self._goal_succeeded[env_ids] = False
         n = len(env_ids)
         min_rad, max_rad = self.random_range
         # approximaly uniformally sample from SO3 around the current command pose
@@ -151,8 +157,10 @@ class InHandReOrientationCommand(CommandTerm):
         axis = axis / axis.norm(dim=-1, keepdim=True).clamp(min=1e-8)
         quat_delta = math_utils.quat_from_angle_axis(angle, axis)
 
-        # apply delta to the current orientation
-        init_quat = self.quat_command_w[env_ids]
+        # apply delta to the current object orientation so new goals stay within
+        # random_range of the actual object state (not the previous command, which
+        # may be unachieved in time-based resampling).
+        init_quat = self.object.data.root_quat_w[env_ids]
         quat = math_utils.quat_mul(init_quat, quat_delta)
 
         self.quat_command_w[env_ids] = (
@@ -483,6 +491,35 @@ def track_orientation(
     active_quat_vec = active_quat[..., 1:4]
 
     reward = torch.exp(-torch.norm(active_quat_vec, p=2, dim=-1) ** 2 * rot_scale / rot_temp)
+
+    if need_contact:
+        reward = reward * contacts(env, 0.3, mode="any")
+
+    return reward
+
+
+def track_orientation_exp(
+    env: ManagerBasedRLEnv,
+    command_name: str,
+    object_cfg: SceneEntityCfg = SceneEntityCfg("object"),
+    rot_scale: float = 1.0,
+    rot_temp: float = 1.0,
+    need_contact: bool = False,
+) -> torch.Tensor:
+    """Reward for tracking object orientation using exp kernel on geodesic angle.
+
+    reward = exp(-dtheta^2 * rot_scale / rot_temp)
+
+    where dtheta is the geodesic angle error in radians from quat_error_magnitude.
+    Unlike track_orientation which uses sin^2(theta/2), this uses theta^2 directly,
+    giving stronger gradients for large misalignments.
+    """
+    asset: RigidObject = env.scene[object_cfg.name]
+    command_term: InHandReOrientationCommand = env.command_manager.get_term(command_name)
+
+    goal_quat_w = command_term.command[:, 3:7]
+    dtheta = math_utils.quat_error_magnitude(asset.data.root_quat_w, goal_quat_w)
+    reward = torch.exp(-dtheta * rot_scale / rot_temp)
 
     if need_contact:
         reward = reward * contacts(env, 0.3, mode="any")

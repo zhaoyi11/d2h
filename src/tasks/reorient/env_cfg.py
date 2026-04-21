@@ -139,15 +139,16 @@ class CommandsCfg:
         asset_name="object",
         random_range=(0.3 * torch.pi, 0.5 * torch.pi),
         init_pos_offset=(0.0, 0.0, 0.0),
-        resample_on="success",
-        # resample_on="time",
-        # resampling_time_range=(3.0, 5.0),
+        # resample_on="success",
+        resample_on="time",
+        resampling_time_range=(3.0, 5.0),
         orientation_success_threshold=0.3,
         make_quat_unique=False,
         marker_pos_offset=(-0.2, -0.06, 0.08),
         debug_vis=True,
         # also consider position success
         use_position_success=True,
+        # position_success_threshold=0.05,
         position_success_threshold=0.1,
     )
 
@@ -460,7 +461,7 @@ class EventCfg:
         func=mdp.randomize_physics_scene_gravity,
         mode="reset",
         params={
-            "gravity_distribution_params": ([0.0, 0.0, 0.0], [0.0, 0.0, 0.0]),
+            "gravity_distribution_params": ([0.0, 0.0, -1.0], [0.0, 0.0, -1.0]),
             "operation": "abs",
         },
     )
@@ -473,8 +474,10 @@ class EventCfg:
         interval_range_s=(0.0, 0.0),
         params={
             "asset_cfg": SceneEntityCfg("object"),
-            "contact_threshold": 0.5,
-            "decay_ratio": 0.8
+            # "contact_threshold": 0.5,
+            # "decay_ratio": 0.8
+            "contact_threshold": 1.0,
+            "decay_ratio": 0.9,
         },
     )
 
@@ -507,6 +510,29 @@ class RewardsCfg:
         },
     )
 
+    # track_orientation = RewTerm(
+    #     func=task_mdp.track_orientation_exp,
+    #     weight=5.0,
+    #     params={
+    #         "object_cfg": SceneEntityCfg("object"),
+    #         "command_name": "object_pose",
+    #         "rot_scale": 2.0,
+    #         "rot_temp": 1.0,
+    #         "need_contact": True,
+    #     }
+    # )
+
+    # track_orientation = RewTerm(
+    #     func=task_mdp.track_orientation_inv_l2,
+    #     weight=1.0,
+    #     params={
+    #         "object_cfg": SceneEntityCfg("object"),
+    #         "rot_eps": 0.1,
+    #         "command_name": "object_pose",
+    #         "need_contact": True
+    #     }
+    # )
+
     fingertip_obj_dist = RewTerm(
         func=task_mdp.neg_fingertip_object_distance,
         weight=0.5,
@@ -531,7 +557,7 @@ class RewardsCfg:
 
     success = RewTerm(
         func=task_mdp.success_bonus,
-        weight=200.0,
+        weight=20.0,
         params={"object_cfg": SceneEntityCfg("object"), "command_name": "object_pose"},
     )
 
@@ -604,7 +630,7 @@ class InHandObjectEnvCfg(ManagerBasedRLEnvCfg):
     rewards: RewardsCfg = RewardsCfg()
     terminations: TerminationsCfg = TerminationsCfg()
     events: EventCfg = EventCfg()
-    curriculum: CurriculumCfg = CurriculumCfg()
+    # curriculum: CurriculumCfg = CurriculumCfg()
 
     def __post_init__(self):
         """Post initialization."""
@@ -616,10 +642,10 @@ class InHandObjectEnvCfg(ManagerBasedRLEnvCfg):
         self.sim.render_interval = self.decimation
         # change viewer settings
         self.viewer.eye = (2.0, 2.0, 2.0)
-        if self.curriculum is not None:
-            # TODO: modify it with success curriculum. way too large......
-            self.curriculum.adr.params["rot_tol"] = 2.
-            self.curriculum.adr.params["pos_tol"] = 0.2
+        # if self.curriculum is not None:
+        #     # TODO: modify it with success curriculum. way too large......
+        #     self.curriculum.adr.params["rot_tol"] = 2.
+        #     self.curriculum.adr.params["pos_tol"] = 0.2
 
 
 ##
