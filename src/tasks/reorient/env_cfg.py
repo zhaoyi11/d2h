@@ -68,49 +68,49 @@ class InHandObjectSceneCfg(InteractiveSceneCfg):
     # robots
     robot: ArticulationCfg = LEAP_HAND_CFG.replace(prim_path="{ENV_REGEX_NS}/Robot")
 
-    # # object
-    # object: RigidObjectCfg = RigidObjectCfg(
-    #     prim_path="{ENV_REGEX_NS}/Object",
-    #     spawn=sim_utils.UsdFileCfg(
-    #         usd_path=f"{UWLAB_CLOUD_ASSETS_DIR}/Props/Custom/Peg/peg.usd",
-    #         scale=(1.5, 1.5, 1.5),
-    #         rigid_props=sim_utils.RigidBodyPropertiesCfg(
-    #             solver_position_iteration_count=4,
-    #             solver_velocity_iteration_count=0,
-    #             disable_gravity=False,
-    #             kinematic_enabled=False,
-    #         ),
-    #         collision_props=sim_utils.CollisionPropertiesCfg(collision_enabled=True),
-    #         mass_props=sim_utils.MassPropertiesCfg(mass=0.2),
-    #     ),
-    #     # 12 cm above the hand 
-    #     init_state=RigidObjectCfg.InitialStateCfg(pos=(0.0, -0.08, 0.12), rot=(1.0, 0.0, 0.0, 0.0)),
-    # )
-
-    # all visdex objects
+    # object
     object: RigidObjectCfg = RigidObjectCfg(
         prim_path="{ENV_REGEX_NS}/Object",
-        spawn=sim_utils.MultiUsdFileCfg(
-            usd_path=_get_visdex_usd_paths(),
-            # random_choice=True,
-            random_choice=False,
-            articulation_props=sim_utils.ArticulationRootPropertiesCfg(
-                articulation_enabled=False,
-            ),
+        spawn=sim_utils.UsdFileCfg(
+            usd_path=f"{UWLAB_CLOUD_ASSETS_DIR}/Props/Custom/Peg/peg.usd",
+            scale=(1.5, 1.5, 1.5),
             rigid_props=sim_utils.RigidBodyPropertiesCfg(
-                solver_position_iteration_count=16,
+                solver_position_iteration_count=4,
                 solver_velocity_iteration_count=0,
                 disable_gravity=False,
+                kinematic_enabled=False,
             ),
             collision_props=sim_utils.CollisionPropertiesCfg(collision_enabled=True),
             mass_props=sim_utils.MassPropertiesCfg(mass=0.2),
-            scale=(0.8, 0.8, 0.8),
         ),
-        # 12 cm above the hand
-        init_state=RigidObjectCfg.InitialStateCfg(
-            pos=(0.0, -0.08, 0.12), rot=(1.0, 0.0, 0.0, 0.0)
-        ),
+        # 12 cm above the hand 
+        init_state=RigidObjectCfg.InitialStateCfg(pos=(0.0, -0.08, 0.12), rot=(1.0, 0.0, 0.0, 0.0)),
     )
+
+    # # all visdex objects
+    # object: RigidObjectCfg = RigidObjectCfg(
+    #     prim_path="{ENV_REGEX_NS}/Object",
+    #     spawn=sim_utils.MultiUsdFileCfg(
+    #         usd_path=_get_visdex_usd_paths(),
+    #         # random_choice=True,
+    #         random_choice=False,
+    #         articulation_props=sim_utils.ArticulationRootPropertiesCfg(
+    #             articulation_enabled=False,
+    #         ),
+    #         rigid_props=sim_utils.RigidBodyPropertiesCfg(
+    #             solver_position_iteration_count=16,
+    #             solver_velocity_iteration_count=0,
+    #             disable_gravity=False,
+    #         ),
+    #         collision_props=sim_utils.CollisionPropertiesCfg(collision_enabled=True),
+    #         mass_props=sim_utils.MassPropertiesCfg(mass=0.2),
+    #         scale=(0.8, 0.8, 0.8),
+    #     ),
+    #     # 12 cm above the hand
+    #     init_state=RigidObjectCfg.InitialStateCfg(
+    #         pos=(0.0, -0.08, 0.12), rot=(1.0, 0.0, 0.0, 0.0)
+    #     ),
+    # )
 
     # plane
     plane = AssetBaseCfg(
@@ -345,9 +345,41 @@ class ObservationsCfg:
             self.flatten_history_dim = True
             self.history_length = 5
 
+    @configclass
+    class RNDObsGroupCfg(ObsGroup):
+        """Compact state observation used as input to the RND target and predictor networks.
+
+        Captures joint configuration (16) + object position in robot frame (3) +
+        object quaternion (4) = 23 dims total. No noise — RND's state_normalization handles that.
+        """
+
+        joint_pos = ObsTerm(func=mdp.joint_pos_limit_normalized)
+        joint_vel = ObsTerm(func=mdp.joint_vel_rel)
+        object_pos = ObsTerm(
+            func=mdp.object_pos_b,
+            params={"robot_cfg": SceneEntityCfg("robot"), "object_cfg": SceneEntityCfg("object")},
+        )
+        object_quat = ObsTerm(
+            func=mdp.object_quat_b,
+            params={"robot_cfg": SceneEntityCfg("robot"), "object_cfg": SceneEntityCfg("object")},
+        )
+        object_lin_vel = ObsTerm(
+            func=mdp.root_lin_vel_w,
+            params={"asset_cfg": SceneEntityCfg("object")},
+        )
+        object_ang_vel = ObsTerm(
+            func=mdp.root_ang_vel_w,
+            params={"asset_cfg": SceneEntityCfg("object")},
+        )
+
+        def __post_init__(self):
+            self.enable_corruption = False
+            self.concatenate_terms = True
+
     # observation groups
     policy: KinematicObsGroupCfg = KinematicObsGroupCfg()
     perception: PerceptionObsCfg = PerceptionObsCfg()
+    rnd: RNDObsGroupCfg = RNDObsGroupCfg()
 
 
 @configclass
@@ -418,9 +450,9 @@ class EventCfg:
         params={
             "base_asset_cfg": SceneEntityCfg("robot", body_names="base"),
             "object_asset_cfg": SceneEntityCfg("object"),
-            "roll_range": (-torch.pi, torch.pi),
-            "pitch_range": (-torch.pi, torch.pi),
-            "yaw_range": (-torch.pi, torch.pi),
+            "roll_range": (-torch.pi, -torch.pi),
+            "pitch_range": (-torch.pi, -torch.pi),
+            "yaw_range": (-torch.pi, -torch.pi),
         },
     )
 
@@ -454,56 +486,56 @@ class EventCfg:
     )
 
     # set gravity to zero, then handle by curriculum later.
-    variable_gravity = EventTerm(
-        func=mdp.randomize_physics_scene_gravity,
-        mode="reset",
-        params={
-            "gravity_distribution_params": ([0.0, 0.0, -1.0], [0.0, 0.0, -1.0]),
-            "operation": "abs",
-        },
-    )
+    # variable_gravity = EventTerm(
+    #     func=mdp.randomize_physics_scene_gravity,
+    #     mode="reset",
+    #     params={
+    #         "gravity_distribution_params": ([0.0, 0.0, -1.0], [0.0, 0.0, -1.0]),
+    #         "operation": "abs",
+    #     },
+    # )
 
     # Fires every step per-env; must be declared AFTER variable_gravity so the
     # event manager applies it after gravity has been updated.
-    gravity_compensation_assist = EventTerm(
-        func=task_mdp.apply_gravity_compensation_assist,
-        mode="interval",
-        interval_range_s=(0.0, 0.0),
-        params={
-            "asset_cfg": SceneEntityCfg("object"),
-            "contact_threshold": 1.0,
-            "decay_ratio": 0.9
-        },
-    )
+    # gravity_compensation_assist = EventTerm(
+    #     func=task_mdp.apply_gravity_compensation_assist,
+    #     mode="interval",
+    #     interval_range_s=(0.0, 0.0),
+    #     params={
+    #         "asset_cfg": SceneEntityCfg("object"),
+    #         "contact_threshold": 1.0,
+    #         "decay_ratio": 0.9
+    #     },
+    # )
 
 
 @configclass
 class RewardsCfg:
     """Reward terms for the MDP."""
 
-    track_position = RewTerm(
-        func=task_mdp.track_position,
-        weight=2.0,
-        params={
-            "object_cfg": SceneEntityCfg("object"),
-            "command_name": "object_pose",
-            "pos_scale": 2.0,
-            "pos_temp": 0.5,
-            "need_contact": True,
-        },
-    )
+    # track_position = RewTerm(
+    #     func=task_mdp.track_position,
+    #     weight=2.0,
+    #     params={
+    #         "object_cfg": SceneEntityCfg("object"),
+    #         "command_name": "object_pose",
+    #         "pos_scale": 2.0,
+    #         "pos_temp": 0.5,
+    #         "need_contact": True,
+    #     },
+    # )
 
-    track_orientation = RewTerm(
-        func=task_mdp.track_orientation,
-        weight=5.0,
-        params={
-            "object_cfg": SceneEntityCfg("object"),
-            "command_name": "object_pose",
-            "rot_scale": 5.0,
-            "rot_temp": 1.0,
-            "need_contact": True,
-        },
-    )
+    # track_orientation = RewTerm(
+    #     func=task_mdp.track_orientation,
+    #     weight=5.0,
+    #     params={
+    #         "object_cfg": SceneEntityCfg("object"),
+    #         "command_name": "object_pose",
+    #         "rot_scale": 5.0,
+    #         "rot_temp": 1.0,
+    #         "need_contact": True,
+    #     },
+    # )
 
     fingertip_obj_dist = RewTerm(
         func=task_mdp.neg_fingertip_object_distance,
@@ -527,11 +559,11 @@ class RewardsCfg:
         },
     )
 
-    success = RewTerm(
-        func=task_mdp.success_bonus,
-        weight=200.0,
-        params={"object_cfg": SceneEntityCfg("object"), "command_name": "object_pose"},
-    )
+    # success = RewTerm(
+    #     func=task_mdp.success_bonus,
+    #     weight=200.0,
+    #     params={"object_cfg": SceneEntityCfg("object"), "command_name": "object_pose"},
+    # )
 
     # penalties
     # joint_vel_l2 = RewTerm(func=mdp.joint_vel_l2, weight=-2.5e-5)
