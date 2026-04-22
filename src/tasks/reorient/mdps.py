@@ -94,6 +94,8 @@ class InHandReOrientationCommand(CommandTerm):
             self.num_envs, device=self.device
         )
         self._goal_succeeded = torch.zeros(self.num_envs, dtype=torch.bool, device=self.device)
+        self._hold_counter = torch.zeros(self.num_envs, dtype=torch.long, device=self.device)
+        self._new_success_this_step = torch.zeros(self.num_envs, dtype=torch.bool, device=self.device)
         self.random_range = cfg.random_range
 
     def __str__(self) -> str:
@@ -129,6 +131,7 @@ class InHandReOrientationCommand(CommandTerm):
             successes = successes & (self.metrics["position_error"] < self.cfg.position_success_threshold)
         # only count success once per goal command
         new_success = successes & ~self._goal_succeeded
+        self._new_success_this_step = new_success  # saved before _goal_succeeded update for _update_command
         self.metrics["consecutive_success"] += new_success.float()
         # used for consecutive_success, only record one success per goal command.
         self._goal_succeeded |= successes
@@ -138,10 +141,12 @@ class InHandReOrientationCommand(CommandTerm):
         self.pos_command_w[idx] = self.object.data.root_pos_w[idx] + self.init_pos_offset
         self.pos_command_e[idx] = self.pos_command_w[idx] - self._env.scene.env_origins[idx]
         self.quat_command_w[idx] = self.object.data.root_quat_w[idx]
+        self._hold_counter[idx] = 0
         return super().reset(env_ids)
 
     def _resample_command(self, env_ids: Sequence[int]):
         self._goal_succeeded[env_ids] = False
+        self._hold_counter[env_ids] = 0
         n = len(env_ids)
         min_rad, max_rad = self.random_range
         # approximaly uniformally sample from SO3 around the current command pose
@@ -168,15 +173,37 @@ class InHandReOrientationCommand(CommandTerm):
         )
 
     def _update_command(self):
-        # update the command if goal is reached
         if self.cfg.resample_on == "success":
-            # compute the goal resets
-            goal_resets = self.metrics["orientation_error"] < self.cfg.orientation_success_threshold
+            successes = self.metrics["orientation_error"] < self.cfg.orientation_success_threshold
             if self.cfg.use_position_success:
-                goal_resets = goal_resets & (self.metrics["position_error"] < self.cfg.position_success_threshold)
-            goal_reset_ids = goal_resets.nonzero(as_tuple=False).squeeze(-1)
-            # resample the goals
-            self._resample(goal_reset_ids)
+                successes = successes & (
+                    self.metrics["position_error"] < self.cfg.position_success_threshold
+                )
+
+            hold_steps = self.cfg.hold_steps_on_success
+            prev_holding = self._hold_counter > 0
+
+            # Decrement hold counters for envs currently in hold phase
+            self._hold_counter[prev_holding] -= 1
+
+            # Envs whose hold just expired → resample now
+            hold_done = prev_holding & (self._hold_counter == 0)
+
+            if hold_steps > 0:
+                # _new_success_this_step was captured in _update_metrics() before _goal_succeeded
+                # was updated — this is the only reliable way to detect the first-success edge,
+                # since _goal_succeeded is already True by the time _update_command() runs.
+                new_first_success = self._new_success_this_step & ~prev_holding
+                self._hold_counter[new_first_success] = hold_steps
+                # all other successes (post-reset stale case, or goal lost/regained) → immediate resample
+                immediate_resample = successes & ~prev_holding & ~new_first_success
+            else:
+                # hold_steps == 0: original behavior — immediate resample on any success
+                immediate_resample = successes & ~prev_holding
+
+            resample_ids = (hold_done | immediate_resample).nonzero(as_tuple=False).squeeze(-1)
+            if len(resample_ids) > 0:
+                self._resample(resample_ids)
         # "time" mode: base-class timer in compute() calls _resample() automatically
 
     def _set_debug_vis_impl(self, debug_vis: TYPE_CHECKING):
@@ -264,6 +291,10 @@ class InHandReOrientationCommandCfg(CommandTermCfg):
 
     position_success_threshold: float = 0.05
     """Threshold for the position error (m) when use_position_success is True."""
+
+    hold_steps_on_success: int = 0
+    """Number of timesteps to hold at the goal after first success before resampling.
+    0 (default) = immediate resample on success (original behavior)."""
 
     resample_on: Literal["success", "time"] = "success"
     """When to resample the goal command.
