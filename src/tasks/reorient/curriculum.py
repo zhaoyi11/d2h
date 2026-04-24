@@ -9,12 +9,10 @@ from collections.abc import Sequence
 from typing import TYPE_CHECKING
 
 import torch
-from isaaclab.assets import RigidObject
 from isaaclab.envs import mdp as env_mdp
 from isaaclab.managers import CurriculumTermCfg as CurrTerm
-from isaaclab.managers import ManagerTermBase, SceneEntityCfg
+from isaaclab.managers import ManagerTermBase
 from isaaclab.utils import configclass
-from isaaclab.utils.math import compute_pose_error
 
 import src.tasks.common.mdps as common_mdp
 
@@ -60,7 +58,7 @@ def _recurse(iv_elem, fv_elem, data_elem, frac):
 
 
 class DifficultyScheduler(ManagerTermBase):
-    """Adjust per-environment difficulty from pose-tracking success."""
+    """Adjust per-environment difficulty from consecutive task success."""
 
     def __init__(self, cfg, env):
         super().__init__(cfg, env)
@@ -80,32 +78,16 @@ class DifficultyScheduler(ManagerTermBase):
         self,
         env: ManagerBasedRLEnv,
         env_ids: Sequence[int],
-        object_cfg: SceneEntityCfg = SceneEntityCfg("object"),
-        pos_tol: float = 0.1,
-        rot_tol: float | None = None,
+        num_success: int,
+        command_name: str = "object_pose",
         init_difficulty: int = 0,
         min_difficulty: int = 0,
         max_difficulty: int = 10,
         promotion_only: bool = False,
     ):
-        object_asset: RigidObject = env.scene[object_cfg.name]
-        command = env.command_manager.get_command("object_pose")
-        desired_pos_w = command[env_ids, :3] + env.scene.env_origins[env_ids]
-        desired_quat_w = command[env_ids, 3:7]
-        pos_err, rot_err = compute_pose_error(
-            desired_pos_w,
-            desired_quat_w,
-            object_asset.data.root_pos_w[env_ids],
-            object_asset.data.root_quat_w[env_ids],
-        )
-        pos_dist = torch.norm(pos_err, dim=1)
-        rot_dist = torch.norm(rot_err, dim=1)
-
-        promote = (
-            (pos_dist < pos_tol) & (rot_dist < rot_tol)
-            if rot_tol is not None
-            else pos_dist < pos_tol
-        )
+        command_term = env.command_manager.get_term(command_name)
+        consecutive_success = command_term.metrics["consecutive_success"][env_ids]
+        promote = consecutive_success >= num_success
         demoted = (
             self.current_adr_difficulties[env_ids]
             if promotion_only
@@ -119,7 +101,7 @@ class DifficultyScheduler(ManagerTermBase):
         self.difficulty_frac = torch.median(self.current_adr_difficulties).item() / max(
             max_difficulty, 1
         )
-        # print(f"Difficulty frac: {self.difficulty_frac}")
+        print(f"Difficulty frac: {self.difficulty_frac}")
         return self.difficulty_frac
 
 

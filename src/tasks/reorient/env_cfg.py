@@ -137,7 +137,7 @@ class CommandsCfg:
 
     object_pose = task_mdp.InHandReOrientationCommandCfg(
         asset_name="object",
-        random_range=(0.3 * torch.pi, 0.5 * torch.pi),
+        random_range=(0.3 * torch.pi, 0.5 * torch.pi), #TODO: curriculum
         init_pos_offset=(0.0, 0.0, 0.0),
         resample_on="success",
         hold_steps_on_success=20,
@@ -163,7 +163,7 @@ class ActionsCfg:
         asset_name="robot",
         joint_names=[".*"],
         # alpha=0.95
-        alpha=0.5, # TODO: can I add this to curriculum?
+        alpha=0.5,  # TODO: can I add this to curriculum?
         rescale_to_limits=True,
     )
 
@@ -418,13 +418,14 @@ class EventCfg:
 
     randomize_hand_object_default_pose = EventTerm(
         func=task_mdp.randomize_hand_object_default_pose,
-        mode="startup",
+        mode="reset", # TODO: check whether to change back to startup.
         params={
             "base_asset_cfg": SceneEntityCfg("robot", body_names="base"),
             "object_asset_cfg": SceneEntityCfg("object"),
-            "roll_range": (-torch.pi, torch.pi),
-            "pitch_range": (-torch.pi, torch.pi),
-            "yaw_range": (-torch.pi, torch.pi),
+            # TODO: curriculum
+            "roll_range": (0.0, 0.0),
+            "pitch_range": (0.0, 0.0),
+            "yaw_range": (0.0, 0.0),
         },
     )
 
@@ -433,13 +434,17 @@ class EventCfg:
         func=mdp.reset_root_state_uniform,
         mode="reset",
         params={
+            # TODO: curriculum
             "pose_range": {
-                "x": [-0.01, 0.01],
-                "y": [-0.01, 0.01],
-                "z": [-0.01, 0.01],
-                "roll": [-3.14, 3.14],
-                "pitch": [-3.14, 3.14],
-                "yaw": [-3.14, 3.14],
+                # "x": [-0.01, 0.01],
+                # "y": [-0.01, 0.01],
+                # "z": [-0.01, 0.01],
+                "x": [-0.0, 0.0],
+                "y": [-0.0, 0.0],
+                "z": [-0.0, 0.0],
+                "roll": [0.0, 0.0],
+                "pitch": [0.0, 0.0],
+                "yaw": [0.0, 0.0],
             },
             "velocity_range": {},
             "asset_cfg": SceneEntityCfg("object", body_names=".*"),
@@ -462,7 +467,9 @@ class EventCfg:
         func=mdp.randomize_physics_scene_gravity,
         mode="reset",
         params={
+            # TODO: curriculum
             "gravity_distribution_params": ([0.0, 0.0, -1.0], [0.0, 0.0, -1.0]),
+            # "gravity_distribution_params": ([0.0, 0.0, -9.8], [0.0, 0.0, -9.8]),
             "operation": "abs",
         },
     )
@@ -478,7 +485,7 @@ class EventCfg:
             # "contact_threshold": 0.5,
             # "decay_ratio": 0.8
             "contact_threshold": 1.0,
-            "decay_ratio": 0.9,
+            "decay_ratio": 1.0,
         },
     )
 
@@ -631,7 +638,7 @@ class InHandObjectEnvCfg(ManagerBasedRLEnvCfg):
     rewards: RewardsCfg = RewardsCfg()
     terminations: TerminationsCfg = TerminationsCfg()
     events: EventCfg = EventCfg()
-    # curriculum: CurriculumCfg = CurriculumCfg()
+    curriculum: CurriculumCfg = CurriculumCfg()
 
     def __post_init__(self):
         """Post initialization."""
@@ -643,10 +650,8 @@ class InHandObjectEnvCfg(ManagerBasedRLEnvCfg):
         self.sim.render_interval = self.decimation
         # change viewer settings
         self.viewer.eye = (2.0, 2.0, 2.0)
-        # if self.curriculum is not None:
-        #     # TODO: modify it with success curriculum. way too large......
-        #     self.curriculum.adr.params["rot_tol"] = 2.
-        #     self.curriculum.adr.params["pos_tol"] = 0.2
+        if self.curriculum is not None:
+            self.curriculum.adr.params["num_success"] = 3
 
 
 ##
@@ -725,4 +730,3 @@ class LeapObjectEnvCfg(InHandObjectEnvCfg):
                     debug_vis=False,
                 ),
             )
-

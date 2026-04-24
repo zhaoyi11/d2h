@@ -1245,7 +1245,7 @@ class apply_gravity_compensation_assist(ManagerTermBase):
         gravity_vec = torch.tensor(
             [grav_raw[0], grav_raw[1], grav_raw[2]], device=env.device, dtype=torch.float32
         )
-
+        print("gravity", gravity_vec)
         # Actual per-env mass; get_masses() returns CPU tensor.
         masses = obj.root_physx_view.get_masses().to(env.device)  # (num_envs, 1)
         mass = masses[env_ids_t, 0]                               # (n,)
