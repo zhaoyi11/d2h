@@ -468,7 +468,7 @@ class EventCfg:
         mode="reset",
         params={
             # TODO: curriculum
-            "gravity_distribution_params": ([0.0, 0.0, -1.0], [0.0, 0.0, -1.0]),
+            "gravity_distribution_params": ([0.0, 0.0, 0.0], [0.0, 0.0, 0.0]),
             # "gravity_distribution_params": ([0.0, 0.0, -9.8], [0.0, 0.0, -9.8]),
             "operation": "abs",
         },
