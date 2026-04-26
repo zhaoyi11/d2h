@@ -1349,5 +1349,3 @@ class reset_joints_around_default(ManagerTermBase):
         joint_limits = self._asset.data.soft_joint_pos_limits[env_ids_t]
         joint_pos = torch.clamp(joint_pos, joint_limits[..., 0], joint_limits[..., 1])
         self._asset.write_joint_state_to_sim(joint_pos, joint_vel, env_ids=env_ids_t)
-
-

@@ -113,7 +113,7 @@ class CurriculumCfg:
 
     # adr stands for automatic/adaptive domain randomization
     adr = CurrTerm(
-        func=DifficultyScheduler, params={"init_difficulty": 0, "min_difficulty": 0, "max_difficulty": 10}
+        func=DifficultyScheduler, params={"init_difficulty": 0, "min_difficulty": 0, "max_difficulty": 10, "promotion_only": True}
     )
 
     # Observation noise terms
@@ -143,7 +143,7 @@ class CurriculumCfg:
             "modify_fn": initial_final_interpolate_fn,
             "modify_params": {
                 "initial_value": (0.0, 0.0),
-                "final_value": (-3.141592653589793, 3.141592653589793),
+                "final_value": (-torch.pi, torch.pi),
                 "difficulty_term_str": "adr",
             },
         },
@@ -156,7 +156,7 @@ class CurriculumCfg:
             "modify_fn": initial_final_interpolate_fn,
             "modify_params": {
                 "initial_value": (0.0, 0.0),
-                "final_value": (-3.141592653589793, 3.141592653589793),
+                "final_value": (-torch.pi, torch.pi),
                 "difficulty_term_str": "adr",
             },
         },
@@ -169,7 +169,7 @@ class CurriculumCfg:
             "modify_fn": initial_final_interpolate_fn,
             "modify_params": {
                 "initial_value": (0.0, 0.0),
-                "final_value": (-3.141592653589793, 3.141592653589793),
+                "final_value": (-torch.pi, torch.pi),
                 "difficulty_term_str": "adr",
             },
         },
@@ -222,7 +222,7 @@ class CurriculumCfg:
             "modify_fn": initial_final_interpolate_fn,
             "modify_params": {
                 "initial_value": (0.0, 0.0),
-                "final_value": (-3.14, 3.14),
+                "final_value": (-torch.pi, torch.pi),
                 "difficulty_term_str": "adr",
             },
         },
@@ -235,7 +235,7 @@ class CurriculumCfg:
             "modify_fn": initial_final_interpolate_fn,
             "modify_params": {
                 "initial_value": (0.0, 0.0),
-                "final_value": (-3.14, 3.14),
+                "final_value": (-torch.pi, torch.pi),
                 "difficulty_term_str": "adr",
             },
         },
@@ -248,21 +248,47 @@ class CurriculumCfg:
             "modify_fn": initial_final_interpolate_fn,
             "modify_params": {
                 "initial_value": (0.0, 0.0),
-                "final_value": (-3.14, 3.14),
+                "final_value": (-torch.pi, torch.pi),
                 "difficulty_term_str": "adr",
             },
         },
     )
 
     # Command range
-    command_random_range_adr = CurrTerm(
+    # command_random_range_adr = CurrTerm(
+    #     func=common_mdp.modify_term_cfg,
+    #     params={
+    #         "address": "commands.object_pose.random_range",
+    #         "modify_fn": initial_final_interpolate_fn,
+    #         "modify_params": {
+    #             "initial_value": (0.3 * torch.pi, 0.5 * torch.pi),
+    #             "final_value": (0.3 * torch.pi, torch.pi),
+    #             "difficulty_term_str": "adr",
+    #         },
+    #     },
+    # )
+
+    command_orientation_success_threshold_adr = CurrTerm(
         func=common_mdp.modify_term_cfg,
         params={
-            "address": "commands.object_pose.random_range",
+            "address": "commands.object_pose.orientation_success_threshold",
             "modify_fn": initial_final_interpolate_fn,
             "modify_params": {
-                "initial_value": (0.3 * torch.pi, 0.3 * torch.pi),
-                "final_value": (0.3 * torch.pi, 0.5 * torch.pi),
+                "initial_value": 0.3,
+                "final_value": 0.1,
+                "difficulty_term_str": "adr",
+            },
+        },
+    )
+
+    command_position_success_threshold_adr = CurrTerm(
+        func=common_mdp.modify_term_cfg,
+        params={
+            "address": "commands.object_pose.position_success_threshold",
+            "modify_fn": initial_final_interpolate_fn,
+            "modify_params": {
+                "initial_value": 0.1,
+                "final_value": 0.05,
                 "difficulty_term_str": "adr",
             },
         },

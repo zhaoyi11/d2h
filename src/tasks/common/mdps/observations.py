@@ -344,3 +344,33 @@ def goal_quat_diff(
     quat = math_utils.quat_mul(asset_quat, math_utils.quat_conjugate(goal_quat))
     # make sure the quaternion real-part is always positive
     return math_utils.quat_unique(quat) if make_quat_unique else quat
+
+
+def goal_pos_diff(
+    env: ManagerBasedRLEnv,
+    asset_cfg: SceneEntityCfg,
+    command_name: str,
+    robot_cfg: SceneEntityCfg | None = None,
+) -> torch.Tensor:
+    """Position from the goal to the asset's current position."""
+    asset: RigidObject = env.scene[asset_cfg.name]
+    command_term: InHandReOrientationCommand = env.command_manager.get_term(
+        command_name
+    )
+
+    goal_pos_w = command_term.command[:, 0:3] + env.scene.env_origins
+    asset_pos_w = asset.data.root_pos_w
+
+    if robot_cfg is not None:
+        robot: Articulation = env.scene[robot_cfg.name]
+        asset_pos = quat_apply_inverse(
+            robot.data.root_quat_w, asset_pos_w - robot.data.root_pos_w
+        )
+        goal_pos = quat_apply_inverse(
+            robot.data.root_quat_w, goal_pos_w - robot.data.root_pos_w
+        )
+    else:
+        asset_pos = asset_pos_w
+        goal_pos = goal_pos_w
+
+    return asset_pos - goal_pos

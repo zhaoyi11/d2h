@@ -43,6 +43,7 @@ from src.assets.franka_leap_hand.leap import LEAP_HAND_CFG
 ##
 UWLAB_CLOUD_ASSETS_DIR = "https://huggingface.co/datasets/UW-Lab/uwlab-assets/resolve/main"
 
+OBJ_CONTACT_SENSOR_FILTER_PRIM_PATHS_EXPR = "{ENV_REGEX_NS}/Object/baseLink"
 
 def _get_visdex_usd_paths() -> list[str]:
     """Return sorted visdex USD asset paths bundled with this repo."""
@@ -137,20 +138,17 @@ class CommandsCfg:
 
     object_pose = task_mdp.InHandReOrientationCommandCfg(
         asset_name="object",
-        random_range=(0.3 * torch.pi, 0.5 * torch.pi), #TODO: curriculum
+        random_range=(0.3 * torch.pi, 0.5 * torch.pi),  # will increase to (0.3\pi, 0.5\pi) with curriculum
         init_pos_offset=(0.0, 0.0, 0.0),
-        resample_on="success",
-        hold_steps_on_success=20,
-        # resample_on="time",
-        resampling_time_range=(3.0, 5.0),
-        orientation_success_threshold=0.3,
+        resample_on="success",  # can be ["success", "time"]
+        hold_steps_on_success=20,  # timestep count to update goal once success
+        resampling_time_range=(3.0, 5.0),  # if resample based on time, the sample time range.
+        orientation_success_threshold=0.3,  # reduce to 0.2 with curriculum
         make_quat_unique=False,
         marker_pos_offset=(-0.2, -0.06, 0.08),
         debug_vis=True,
-        # also consider position success
-        use_position_success=True,
-        # position_success_threshold=0.05,
-        position_success_threshold=0.1,
+        use_position_success=True,  # also consider position success
+        position_success_threshold=0.1,  # reduce to 0.05 with curriculum
     )
 
 
@@ -166,19 +164,6 @@ class ActionsCfg:
         alpha=0.5,  # TODO: can I add this to curriculum?
         rescale_to_limits=True,
     )
-
-    # joint_pos = mdp.RelativeJointPositionActionCfg(
-    #    asset_name="robot",
-    #    joint_names=["a_.*"],
-    #    use_zero_offset=False,
-    # #    scale=0.3,
-    # )
-
-    # joint_pos = mdp.EMACumulativeRelativeJointPositionActionCfg(
-    # asset_name="robot",
-    # joint_names=[".*"],
-    # alpha=0.95,
-    # )
 
 
 @configclass
@@ -250,6 +235,7 @@ class ObservationsCfg:
         )
 
         # per-fingertip contact pose (theta, phi) in fingertip frame, flattened (8 dims)
+        # TOOD: check this
         contact_pose = ObsTerm(
             func=task_mdp.tip_contact_pose_flat,
             params={
@@ -293,12 +279,21 @@ class ObservationsCfg:
         )
 
         # -- gravity in robot frame (needed for orientation-dependent grasp strategy)
+        # TODO: check this as well
         gravity_dir = ObsTerm(
             func=task_mdp.gravity_dir_b,
             params={"base_asset_cfg": SceneEntityCfg("robot")},
         )
 
         # -- command terms
+        goal_pos_diff = ObsTerm(
+            func=mdp.goal_pos_diff,
+            params={
+                "asset_cfg": SceneEntityCfg("object"),
+                "command_name": "object_pose",
+                "robot_cfg": SceneEntityCfg("robot"),
+            },
+        )
         goal_quat_diff = ObsTerm(
             func=mdp.goal_quat_diff,
             params={
@@ -386,8 +381,8 @@ class EventCfg:
         mode="startup",
         params={
             "asset_cfg": SceneEntityCfg("robot", joint_names=".*"),
-            "stiffness_distribution_params": (0.3, 3.0),  # default: 3.0
-            "damping_distribution_params": (0.75, 1.5),  # default: 0.1
+            "stiffness_distribution_params": (0.3, 3.0),  # default: 3.0, thus is range is [0.9, 9]
+            "damping_distribution_params": (0.75, 1.5),  # default: 0.1, thus the range is [0.075, 0.15]
             "operation": "scale",
             "distribution": "log_uniform",
         },
@@ -418,11 +413,11 @@ class EventCfg:
 
     randomize_hand_object_default_pose = EventTerm(
         func=task_mdp.randomize_hand_object_default_pose,
-        mode="reset", # TODO: check whether to change back to startup.
+        mode="reset",
         params={
             "base_asset_cfg": SceneEntityCfg("robot", body_names="base"),
             "object_asset_cfg": SceneEntityCfg("object"),
-            # TODO: curriculum
+            # The range will be changed with curriculum
             "roll_range": (0.0, 0.0),
             "pitch_range": (0.0, 0.0),
             "yaw_range": (0.0, 0.0),
@@ -434,11 +429,8 @@ class EventCfg:
         func=mdp.reset_root_state_uniform,
         mode="reset",
         params={
-            # TODO: curriculum
+            # the pose range with be changed with curriculum
             "pose_range": {
-                # "x": [-0.01, 0.01],
-                # "y": [-0.01, 0.01],
-                # "z": [-0.01, 0.01],
                 "x": [-0.0, 0.0],
                 "y": [-0.0, 0.0],
                 "z": [-0.0, 0.0],
@@ -467,9 +459,8 @@ class EventCfg:
         func=mdp.randomize_physics_scene_gravity,
         mode="reset",
         params={
-            # TODO: curriculum
+            # the gravity will be changed with curriculum
             "gravity_distribution_params": ([0.0, 0.0, 0.0], [0.0, 0.0, 0.0]),
-            # "gravity_distribution_params": ([0.0, 0.0, -9.8], [0.0, 0.0, -9.8]),
             "operation": "abs",
         },
     )
@@ -482,10 +473,8 @@ class EventCfg:
         interval_range_s=(0.0, 0.0),
         params={
             "asset_cfg": SceneEntityCfg("object"),
-            # "contact_threshold": 0.5,
-            # "decay_ratio": 0.8
             "contact_threshold": 1.0,
-            "decay_ratio": 1.0,
+            "decay_ratio": 0.9,
         },
     )
 
@@ -546,6 +535,7 @@ class RewardsCfg:
         weight=0.5,
     )
 
+    # todo: check good contact, the value doesn't look very good for now.
     good_contact = RewTerm(
         func=task_mdp.good_contact_reward,
         weight=1.0,
@@ -570,8 +560,8 @@ class RewardsCfg:
     )
 
     # penalties
-    # joint_vel_l2 = RewTerm(func=mdp.joint_vel_l2, weight=-2.5e-5)
     energy = RewTerm(func=task_mdp.joint_power, weight=-1e-5, params={"asset_cfg": SceneEntityCfg("robot")})
+    # todo; check this
     # joint_pos_default_l2 = RewTerm(func=task_mdp.joint_pos_default_l2, weight=-1e-3)
     action_l2 = RewTerm(func=mdp.action_l2, weight=-0.001)
     action_rate_l2 = RewTerm(func=mdp.action_rate_l2, weight=-0.01)
@@ -592,10 +582,10 @@ class TerminationsCfg:
 
     time_out = DoneTerm(func=mdp.time_out, time_out=True)
 
-    max_consecutive_success = DoneTerm(
-        func=task_mdp.max_consecutive_success,
-        params={"num_success": 100, "command_name": "object_pose"},
-    )
+    # max_consecutive_success = DoneTerm(
+    #     func=task_mdp.max_consecutive_success,
+    #     params={"num_success": 100, "command_name": "object_pose"},
+    # )
 
     abnormal_robot = DoneTerm(func=mdp.abnormal_robot_state)
 
@@ -652,14 +642,6 @@ class InHandObjectEnvCfg(ManagerBasedRLEnvCfg):
         self.viewer.eye = (2.0, 2.0, 2.0)
         if self.curriculum is not None:
             self.curriculum.adr.params["num_success"] = 3
-
-
-##
-# Pre-defined configs
-##
-# from src.assets.leap_hand.leap import LEAP_HAND_CFG
-
-_BASE_ROT_WXYZ = (1.0, 0.0, 0.0, 0.0)  # face +y axis
 
 
 @configclass
@@ -722,8 +704,7 @@ class LeapObjectEnvCfg(InHandObjectEnvCfg):
                 ContactSensorCfg( 
                     prim_path=prim_path,
                     filter_prim_paths_expr=[
-                        # "{ENV_REGEX_NS}/Object",  # TODO: check this, in case itcan't filter the object properly now.
-                        "{ENV_REGEX_NS}/Object/baseLink",
+                        OBJ_CONTACT_SENSOR_FILTER_PRIM_PATHS_EXPR
                     ],
                     update_period=0.0,
                     history_length=6,
