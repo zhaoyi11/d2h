@@ -98,9 +98,10 @@ class DifficultyScheduler(ManagerTermBase):
             self.current_adr_difficulties[env_ids] + 1,
             demoted,
         ).clamp(min=min_difficulty, max=max_difficulty)
-        self.difficulty_frac = torch.median(self.current_adr_difficulties).item() / max(
-            max_difficulty, 1
-        )
+        # self.difficulty_frac = torch.median(self.current_adr_difficulties).item() / max(
+        #     max_difficulty, 1
+        # )
+        self.difficulty_frac = torch.mean(self.current_adr_difficulties).item() / max(max_difficulty, 1)
         return self.difficulty_frac
 
 
@@ -275,7 +276,7 @@ class CurriculumCfg:
             "modify_fn": initial_final_interpolate_fn,
             "modify_params": {
                 "initial_value": 0.3,
-                "final_value": 0.1,
+                "final_value": 0.3, # todo: 0.1
                 "difficulty_term_str": "adr",
             },
         },
@@ -288,7 +289,7 @@ class CurriculumCfg:
             "modify_fn": initial_final_interpolate_fn,
             "modify_params": {
                 "initial_value": 0.1,
-                "final_value": 0.05,
+                "final_value": 0.1, # todo: 0.05
                 "difficulty_term_str": "adr",
             },
         },
