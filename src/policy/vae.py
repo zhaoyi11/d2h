@@ -25,8 +25,9 @@ class VAEConfig:
     action_dim: int
     past_length: int = 4
     future_length: int = 8
-    latent_dim: int = 32
-    hidden_dim: int = 256
+    latent_dim: int = 64
+    condition_dim: int = 256
+    hidden_dim: int = 512
 
     @property
     def context_dim(self) -> int:
@@ -35,10 +36,6 @@ class VAEConfig:
     @property
     def encoder_input_dim(self) -> int:
         return (self.past_length + self.future_length) * (self.state_dim + self.action_dim)
-
-    @property
-    def condition_dim(self) -> int:
-        return self.hidden_dim
 
     @property
     def target_length(self) -> int:
@@ -159,27 +156,34 @@ class ConditionalTrajectoryVAE(nn.Module):
         self.config = config
 
         self.encoder = nn.Sequential(
-            nn.Linear(config.encoder_input_dim, config.hidden_dim),
+            nn.Linear(config.encoder_input_dim, 1024),
+            nn.LayerNorm(1024),
             nn.ReLU(),
-            nn.Linear(config.hidden_dim, config.hidden_dim),
+            nn.Linear(1024, 512),
+            nn.LayerNorm(512),
+            nn.ReLU(),
+            nn.Linear(512, config.hidden_dim),
             nn.ReLU(),
         )
         self.mu = nn.Linear(config.hidden_dim, config.latent_dim)
         self.logvar = nn.Linear(config.hidden_dim, config.latent_dim)
 
         self.context_encoder = nn.Sequential(
-            nn.Linear(config.context_dim, config.hidden_dim),
+            nn.Linear(config.context_dim, 512),
+            nn.LayerNorm(512),
             nn.ReLU(),
-            nn.Linear(config.hidden_dim, config.condition_dim),
+            nn.Linear(512, config.condition_dim),
+            nn.LayerNorm(config.condition_dim),
             nn.ReLU(),
         )
 
         self.decoder = nn.Sequential(
-            nn.Linear(config.condition_dim + config.latent_dim, config.hidden_dim),
+            nn.Linear(config.condition_dim + config.latent_dim, 512),
+            nn.LayerNorm(512),
             nn.ReLU(),
-            nn.Linear(config.hidden_dim, config.hidden_dim),
+            nn.Linear(512, 512),
             nn.ReLU(),
-            nn.Linear(config.hidden_dim, config.target_length * config.action_dim),
+            nn.Linear(512, config.target_length * config.action_dim),
         )
 
     def encode(self, encoder_input: Tensor) -> tuple[Tensor, Tensor]:
@@ -219,8 +223,9 @@ def train_vae(
     output_dir: str | Path,
     past_length: int = 4,
     future_length: int = 8,
-    latent_dim: int = 32,
-    hidden_dim: int = 256,
+    latent_dim: int = 64,
+    condition_dim: int = 256,
+    hidden_dim: int = 512,
     batch_size: int = 64,
     epochs: int = 100,
     lr: float = 1e-3,
@@ -238,6 +243,7 @@ def train_vae(
         past_length=past_length,
         future_length=future_length,
         latent_dim=latent_dim,
+        condition_dim=condition_dim,
         hidden_dim=hidden_dim,
     )
 
@@ -254,6 +260,7 @@ def train_vae(
         "past_length": past_length,
         "future_length": future_length,
         "latent_dim": latent_dim,
+        "condition_dim": condition_dim,
         "hidden_dim": hidden_dim,
         "batch_size": batch_size,
         "epochs": epochs,
@@ -312,8 +319,9 @@ def _parse_args() -> argparse.Namespace:
     parser.add_argument("--output-dir", required=True, help="Directory to write config.json, model.pt, and logs.")
     parser.add_argument("--past-length", type=int, default=4)
     parser.add_argument("--future-length", type=int, default=8)
-    parser.add_argument("--latent-dim", type=int, default=32)
-    parser.add_argument("--hidden-dim", type=int, default=256)
+    parser.add_argument("--latent-dim", type=int, default=64)
+    parser.add_argument("--condition-dim", type=int, default=256)
+    parser.add_argument("--hidden-dim", type=int, default=512)
     parser.add_argument("--batch-size", type=int, default=64)
     parser.add_argument("--epochs", type=int, default=100)
     parser.add_argument("--lr", type=float, default=1e-3)
@@ -331,6 +339,7 @@ def main() -> None:
         past_length=args.past_length,
         future_length=args.future_length,
         latent_dim=args.latent_dim,
+        condition_dim=args.condition_dim,
         hidden_dim=args.hidden_dim,
         batch_size=args.batch_size,
         epochs=args.epochs,

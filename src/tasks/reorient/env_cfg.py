@@ -286,14 +286,14 @@ class ObservationsCfg:
         )
 
         # -- command terms
-        # goal_pos_diff = ObsTerm(
-        #     func=mdp.goal_pos_diff,
-        #     params={
-        #         "asset_cfg": SceneEntityCfg("object"),
-        #         "command_name": "object_pose",
-        #         "robot_cfg": SceneEntityCfg("robot"),
-        #     },
-        # )
+        goal_pos_diff = ObsTerm(
+            func=mdp.goal_pos_diff,
+            params={
+                "asset_cfg": SceneEntityCfg("object"),
+                "command_name": "object_pose",
+                "robot_cfg": SceneEntityCfg("robot"),
+            },
+        )
         goal_quat_diff = ObsTerm(
             func=mdp.goal_quat_diff,
             params={
@@ -332,7 +332,7 @@ class ObservationsCfg:
     class PerceptionObsCfg(ObsGroup):
         object_point_cloud = ObsTerm(
             func=mdp.object_point_cloud_b,
-            noise=Unoise(n_min=-0.0, n_max=0.0),
+            noise=Unoise(n_min=-0.01, n_max=0.01),
             clip=(-2.0, 2.0),  # clamp between -2 m to 2 m
             params={"num_points": 64, "flatten": True},
         )
