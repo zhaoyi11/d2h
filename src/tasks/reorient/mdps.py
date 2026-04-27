@@ -30,6 +30,7 @@ if TYPE_CHECKING:
 ###### Command Term #######
 ###########################
 
+
 # THIS IS DIFFERENT FROM THE OFFICIAL ONE AS THE ORIENTATION IS RESAMPLED AROUND THE CURRENT OBJECT POSE, NOT THE DEFAULT POSE.
 class InHandReOrientationCommand(CommandTerm):
     """Command term that generates 3D pose commands for in-hand manipulation task.
