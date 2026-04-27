@@ -23,21 +23,26 @@ STATE_KEYS = ("observation.policy", "observation.perception")
 class VAEConfig:
     state_dim: int
     action_dim: int
-    chunk_length: int = 16
+    past_length: int = 4
+    future_length: int = 8
     latent_dim: int = 32
     hidden_dim: int = 256
 
     @property
+    def context_dim(self) -> int:
+        return self.past_length * (self.state_dim + self.action_dim)
+
+    @property
     def encoder_input_dim(self) -> int:
-        return self.chunk_length * (self.state_dim + self.action_dim)
+        return (self.past_length + self.future_length) * (self.state_dim + self.action_dim)
 
     @property
     def condition_dim(self) -> int:
-        return (2 * self.state_dim) + self.action_dim
+        return self.hidden_dim
 
     @property
     def target_length(self) -> int:
-        return self.chunk_length - 1
+        return self.future_length
 
 
 class TrajectoryChunkDataset(Dataset):
@@ -46,17 +51,22 @@ class TrajectoryChunkDataset(Dataset):
     def __init__(
         self,
         dataset_dir: str | Path,
-        chunk_length: int = 16,
+        past_length: int = 4,
+        future_length: int = 8,
         state_keys: tuple[str, ...] = STATE_KEYS,
         seed: int | None = None,
     ) -> None:
         self.dataset_dir = Path(dataset_dir).expanduser()
-        self.chunk_length = int(chunk_length)
+        self.past_length = int(past_length)
+        self.future_length = int(future_length)
+        self.required_length = self.past_length + self.future_length
         self.state_keys = tuple(state_keys)
         self._rng = np.random.default_rng(seed)
 
-        if self.chunk_length < 2:
-            raise ValueError("chunk_length must be at least 2")
+        if self.past_length < 1:
+            raise ValueError("past_length must be at least 1")
+        if self.future_length < 1:
+            raise ValueError("future_length must be at least 1")
         if not self.dataset_dir.exists():
             raise FileNotFoundError(f"Dataset directory not found: {self.dataset_dir}")
 
@@ -77,18 +87,18 @@ class TrajectoryChunkDataset(Dataset):
                         raise KeyError(f"{episode_path} is missing required array {key!r}")
 
                 length = int(episode["action"].shape[0])
-                if length < self.chunk_length:
+                if length < self.required_length:
                     print(
-                        f"[WARN] Skipping {episode_path}: length {length} < chunk_length {self.chunk_length}",
+                        f"[WARN] Skipping {episode_path}: length {length} < required_length {self.required_length}",
                         file=sys.stderr,
                     )
                     continue
 
                 states = self._states_from_episode(episode)
                 actions = self._actions_from_episode(episode)
-                if states.shape[0] < length + 1:
+                if states.shape[0] < length:
                     raise ValueError(
-                        f"{episode_path} has {states.shape[0]} states for {length} actions; expected at least {length + 1}"
+                        f"{episode_path} has {states.shape[0]} states for {length} actions; expected at least {length}"
                     )
 
                 if self.state_dim is None:
@@ -101,7 +111,7 @@ class TrajectoryChunkDataset(Dataset):
 
         if not self._episodes:
             raise RuntimeError(
-                f"No eligible episodes found in {self.dataset_dir} for chunk_length {self.chunk_length}"
+                f"No eligible episodes found in {self.dataset_dir} for required_length {self.required_length}"
             )
 
         assert self.state_dim is not None
@@ -112,21 +122,21 @@ class TrajectoryChunkDataset(Dataset):
 
     def __getitem__(self, idx: int) -> dict[str, Tensor]:
         episode_path, length = self._episodes[idx]
-        max_start = length - self.chunk_length
+        max_start = length - self.required_length
         start = int(self._rng.integers(0, max_start + 1)) if max_start > 0 else 0
-        end = start + self.chunk_length
+        end = start + self.required_length
 
         with np.load(episode_path) as episode:
             states = self._states_from_episode(episode)[start:end]
             actions = self._actions_from_episode(episode)[start:end]
 
         encoder_input = np.concatenate([states, actions], axis=-1).reshape(-1)
-        condition = np.concatenate([states[0], actions[0], states[1]], axis=-1)
-        target_actions = actions[1:]
+        context = np.concatenate([states[: self.past_length], actions[: self.past_length]], axis=-1).reshape(-1)
+        target_actions = actions[self.past_length :]
 
         return {
             "encoder_input": torch.from_numpy(encoder_input.astype(np.float32, copy=False)),
-            "condition": torch.from_numpy(condition.astype(np.float32, copy=False)),
+            "context": torch.from_numpy(context.astype(np.float32, copy=False)),
             "target_actions": torch.from_numpy(target_actions.astype(np.float32, copy=False)),
         }
 
@@ -157,6 +167,13 @@ class ConditionalTrajectoryVAE(nn.Module):
         self.mu = nn.Linear(config.hidden_dim, config.latent_dim)
         self.logvar = nn.Linear(config.hidden_dim, config.latent_dim)
 
+        self.context_encoder = nn.Sequential(
+            nn.Linear(config.context_dim, config.hidden_dim),
+            nn.ReLU(),
+            nn.Linear(config.hidden_dim, config.condition_dim),
+            nn.ReLU(),
+        )
+
         self.decoder = nn.Sequential(
             nn.Linear(config.condition_dim + config.latent_dim, config.hidden_dim),
             nn.ReLU(),
@@ -179,9 +196,10 @@ class ConditionalTrajectoryVAE(nn.Module):
         flat = self.decoder(torch.cat([condition, z], dim=-1))
         return flat.reshape(-1, self.config.target_length, self.config.action_dim)
 
-    def forward(self, encoder_input: Tensor, condition: Tensor) -> dict[str, Tensor]:
+    def forward(self, encoder_input: Tensor, context: Tensor) -> dict[str, Tensor]:
         mu, logvar = self.encode(encoder_input)
         z = self.reparameterize(mu, logvar)
+        condition = self.context_encoder(context)
         reconstruction = self.decode(condition, z)
         return {"reconstruction": reconstruction, "mu": mu, "logvar": logvar, "z": z}
 
@@ -199,7 +217,8 @@ def _move_batch(batch: dict[str, Tensor], device: torch.device) -> dict[str, Ten
 def train_vae(
     dataset_dir: str | Path,
     output_dir: str | Path,
-    chunk_length: int = 16,
+    past_length: int = 4,
+    future_length: int = 8,
     latent_dim: int = 32,
     hidden_dim: int = 256,
     batch_size: int = 64,
@@ -212,11 +231,12 @@ def train_vae(
     torch.manual_seed(seed)
     np.random.seed(seed)
 
-    dataset = TrajectoryChunkDataset(dataset_dir, chunk_length=chunk_length, seed=seed)
+    dataset = TrajectoryChunkDataset(dataset_dir, past_length=past_length, future_length=future_length, seed=seed)
     config = VAEConfig(
         state_dim=int(dataset.state_dim),
         action_dim=int(dataset.action_dim),
-        chunk_length=chunk_length,
+        past_length=past_length,
+        future_length=future_length,
         latent_dim=latent_dim,
         hidden_dim=hidden_dim,
     )
@@ -231,7 +251,8 @@ def train_vae(
 
     train_args = {
         "dataset_dir": str(Path(dataset_dir).expanduser()),
-        "chunk_length": chunk_length,
+        "past_length": past_length,
+        "future_length": future_length,
         "latent_dim": latent_dim,
         "hidden_dim": hidden_dim,
         "batch_size": batch_size,
@@ -256,7 +277,7 @@ def train_vae(
 
             for batch in loader:
                 batch = _move_batch(batch, torch_device)
-                output = model(batch["encoder_input"], batch["condition"])
+                output = model(batch["encoder_input"], batch["context"])
                 loss, metrics = model.loss(output, batch["target_actions"], beta=beta)
 
                 optimizer.zero_grad(set_to_none=True)
@@ -289,7 +310,8 @@ def _parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(description="Train a conditional trajectory VAE from collected episodes.")
     parser.add_argument("--dataset-dir", required=True, help="Directory containing metadata.json and episode .npz files.")
     parser.add_argument("--output-dir", required=True, help="Directory to write config.json, model.pt, and logs.")
-    parser.add_argument("--chunk-length", type=int, default=16)
+    parser.add_argument("--past-length", type=int, default=4)
+    parser.add_argument("--future-length", type=int, default=8)
     parser.add_argument("--latent-dim", type=int, default=32)
     parser.add_argument("--hidden-dim", type=int, default=256)
     parser.add_argument("--batch-size", type=int, default=64)
@@ -306,7 +328,8 @@ def main() -> None:
     train_vae(
         dataset_dir=args.dataset_dir,
         output_dir=args.output_dir,
-        chunk_length=args.chunk_length,
+        past_length=args.past_length,
+        future_length=args.future_length,
         latent_dim=args.latent_dim,
         hidden_dim=args.hidden_dim,
         batch_size=args.batch_size,
