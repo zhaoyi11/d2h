@@ -136,124 +136,124 @@ class CurriculumCfg:
         },
     )
 
-    # Wrist poses
-    hand_object_pose_roll_adr = CurrTerm(
-        func=common_mdp.modify_term_cfg,
-        params={
-            "address": "events.randomize_hand_object_default_pose.params.roll_range",
-            "modify_fn": initial_final_interpolate_fn,
-            "modify_params": {
-                "initial_value": (0.0, 0.0),
-                "final_value": (-torch.pi, torch.pi),
-                "difficulty_term_str": "adr",
-            },
-        },
-    )
+    # # Wrist poses
+    # hand_object_pose_roll_adr = CurrTerm(
+    #     func=common_mdp.modify_term_cfg,
+    #     params={
+    #         "address": "events.randomize_hand_object_default_pose.params.roll_range",
+    #         "modify_fn": initial_final_interpolate_fn,
+    #         "modify_params": {
+    #             "initial_value": (0.0, 0.0),
+    #             "final_value": (-torch.pi, torch.pi),
+    #             "difficulty_term_str": "adr",
+    #         },
+    #     },
+    # )
 
-    hand_object_pose_pitch_adr = CurrTerm(
-        func=common_mdp.modify_term_cfg,
-        params={
-            "address": "events.randomize_hand_object_default_pose.params.pitch_range",
-            "modify_fn": initial_final_interpolate_fn,
-            "modify_params": {
-                "initial_value": (0.0, 0.0),
-                "final_value": (-torch.pi, torch.pi),
-                "difficulty_term_str": "adr",
-            },
-        },
-    )
+    # hand_object_pose_pitch_adr = CurrTerm(
+    #     func=common_mdp.modify_term_cfg,
+    #     params={
+    #         "address": "events.randomize_hand_object_default_pose.params.pitch_range",
+    #         "modify_fn": initial_final_interpolate_fn,
+    #         "modify_params": {
+    #             "initial_value": (0.0, 0.0),
+    #             "final_value": (-torch.pi, torch.pi),
+    #             "difficulty_term_str": "adr",
+    #         },
+    #     },
+    # )
 
-    hand_object_pose_yaw_adr = CurrTerm(
-        func=common_mdp.modify_term_cfg,
-        params={
-            "address": "events.randomize_hand_object_default_pose.params.yaw_range",
-            "modify_fn": initial_final_interpolate_fn,
-            "modify_params": {
-                "initial_value": (0.0, 0.0),
-                "final_value": (-torch.pi, torch.pi),
-                "difficulty_term_str": "adr",
-            },
-        },
-    )
+    # hand_object_pose_yaw_adr = CurrTerm(
+    #     func=common_mdp.modify_term_cfg,
+    #     params={
+    #         "address": "events.randomize_hand_object_default_pose.params.yaw_range",
+    #         "modify_fn": initial_final_interpolate_fn,
+    #         "modify_params": {
+    #             "initial_value": (0.0, 0.0),
+    #             "final_value": (-torch.pi, torch.pi),
+    #             "difficulty_term_str": "adr",
+    #         },
+    #     },
+    # )
 
-    # Objct poses
-    reset_object_x_adr = CurrTerm(
-        func=common_mdp.modify_term_cfg,
-        params={
-            "address": "events.reset_object.params.pose_range.x",
-            "modify_fn": initial_final_interpolate_fn,
-            "modify_params": {
-                "initial_value": (0.0, 0.0),
-                "final_value": (-0.01, 0.01),
-                "difficulty_term_str": "adr",
-            },
-        },
-    )
+    # # Objct poses
+    # reset_object_x_adr = CurrTerm(
+    #     func=common_mdp.modify_term_cfg,
+    #     params={
+    #         "address": "events.reset_object.params.pose_range.x",
+    #         "modify_fn": initial_final_interpolate_fn,
+    #         "modify_params": {
+    #             "initial_value": (0.0, 0.0),
+    #             "final_value": (-0.01, 0.01),
+    #             "difficulty_term_str": "adr",
+    #         },
+    #     },
+    # )
 
-    reset_object_y_adr = CurrTerm(
-        func=common_mdp.modify_term_cfg,
-        params={
-            "address": "events.reset_object.params.pose_range.y",
-            "modify_fn": initial_final_interpolate_fn,
-            "modify_params": {
-                "initial_value": (0.0, 0.0),
-                "final_value": (-0.01, 0.01),
-                "difficulty_term_str": "adr",
-            },
-        },
-    )
+    # reset_object_y_adr = CurrTerm(
+    #     func=common_mdp.modify_term_cfg,
+    #     params={
+    #         "address": "events.reset_object.params.pose_range.y",
+    #         "modify_fn": initial_final_interpolate_fn,
+    #         "modify_params": {
+    #             "initial_value": (0.0, 0.0),
+    #             "final_value": (-0.01, 0.01),
+    #             "difficulty_term_str": "adr",
+    #         },
+    #     },
+    # )
 
-    reset_object_z_adr = CurrTerm(
-        func=common_mdp.modify_term_cfg,
-        params={
-            "address": "events.reset_object.params.pose_range.z",
-            "modify_fn": initial_final_interpolate_fn,
-            "modify_params": {
-                "initial_value": (0.0, 0.0),
-                "final_value": (-0.01, 0.01),
-                "difficulty_term_str": "adr",
-            },
-        },
-    )
+    # reset_object_z_adr = CurrTerm(
+    #     func=common_mdp.modify_term_cfg,
+    #     params={
+    #         "address": "events.reset_object.params.pose_range.z",
+    #         "modify_fn": initial_final_interpolate_fn,
+    #         "modify_params": {
+    #             "initial_value": (0.0, 0.0),
+    #             "final_value": (-0.01, 0.01),
+    #             "difficulty_term_str": "adr",
+    #         },
+    #     },
+    # )
 
-    reset_object_roll_adr = CurrTerm(
-        func=common_mdp.modify_term_cfg,
-        params={
-            "address": "events.reset_object.params.pose_range.roll",
-            "modify_fn": initial_final_interpolate_fn,
-            "modify_params": {
-                "initial_value": (0.0, 0.0),
-                "final_value": (-torch.pi, torch.pi),
-                "difficulty_term_str": "adr",
-            },
-        },
-    )
+    # reset_object_roll_adr = CurrTerm(
+    #     func=common_mdp.modify_term_cfg,
+    #     params={
+    #         "address": "events.reset_object.params.pose_range.roll",
+    #         "modify_fn": initial_final_interpolate_fn,
+    #         "modify_params": {
+    #             "initial_value": (0.0, 0.0),
+    #             "final_value": (-torch.pi, torch.pi),
+    #             "difficulty_term_str": "adr",
+    #         },
+    #     },
+    # )
 
-    reset_object_pitch_adr = CurrTerm(
-        func=common_mdp.modify_term_cfg,
-        params={
-            "address": "events.reset_object.params.pose_range.pitch",
-            "modify_fn": initial_final_interpolate_fn,
-            "modify_params": {
-                "initial_value": (0.0, 0.0),
-                "final_value": (-torch.pi, torch.pi),
-                "difficulty_term_str": "adr",
-            },
-        },
-    )
+    # reset_object_pitch_adr = CurrTerm(
+    #     func=common_mdp.modify_term_cfg,
+    #     params={
+    #         "address": "events.reset_object.params.pose_range.pitch",
+    #         "modify_fn": initial_final_interpolate_fn,
+    #         "modify_params": {
+    #             "initial_value": (0.0, 0.0),
+    #             "final_value": (-torch.pi, torch.pi),
+    #             "difficulty_term_str": "adr",
+    #         },
+    #     },
+    # )
 
-    reset_object_yaw_adr = CurrTerm(
-        func=common_mdp.modify_term_cfg,
-        params={
-            "address": "events.reset_object.params.pose_range.yaw",
-            "modify_fn": initial_final_interpolate_fn,
-            "modify_params": {
-                "initial_value": (0.0, 0.0),
-                "final_value": (-torch.pi, torch.pi),
-                "difficulty_term_str": "adr",
-            },
-        },
-    )
+    # reset_object_yaw_adr = CurrTerm(
+    #     func=common_mdp.modify_term_cfg,
+    #     params={
+    #         "address": "events.reset_object.params.pose_range.yaw",
+    #         "modify_fn": initial_final_interpolate_fn,
+    #         "modify_params": {
+    #             "initial_value": (0.0, 0.0),
+    #             "final_value": (-torch.pi, torch.pi),
+    #             "difficulty_term_str": "adr",
+    #         },
+    #     },
+    # )
 
     # Command range
     # command_random_range_adr = CurrTerm(
@@ -276,7 +276,7 @@ class CurriculumCfg:
             "modify_fn": initial_final_interpolate_fn,
             "modify_params": {
                 "initial_value": 0.3,
-                "final_value": 0.3, # todo: 0.1
+                "final_value": 0.3,  # todo: 0.1
                 "difficulty_term_str": "adr",
             },
         },
@@ -289,7 +289,7 @@ class CurriculumCfg:
             "modify_fn": initial_final_interpolate_fn,
             "modify_params": {
                 "initial_value": 0.1,
-                "final_value": 0.1, # todo: 0.05
+                "final_value": 0.1,  # todo: 0.05
                 "difficulty_term_str": "adr",
             },
         },

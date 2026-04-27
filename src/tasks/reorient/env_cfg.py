@@ -286,14 +286,14 @@ class ObservationsCfg:
         )
 
         # -- command terms
-        goal_pos_diff = ObsTerm(
-            func=mdp.goal_pos_diff,
-            params={
-                "asset_cfg": SceneEntityCfg("object"),
-                "command_name": "object_pose",
-                "robot_cfg": SceneEntityCfg("robot"),
-            },
-        )
+        # goal_pos_diff = ObsTerm(
+        #     func=mdp.goal_pos_diff,
+        #     params={
+        #         "asset_cfg": SceneEntityCfg("object"),
+        #         "command_name": "object_pose",
+        #         "robot_cfg": SceneEntityCfg("robot"),
+        #     },
+        # )
         goal_quat_diff = ObsTerm(
             func=mdp.goal_quat_diff,
             params={
