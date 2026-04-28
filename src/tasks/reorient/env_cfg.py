@@ -440,23 +440,16 @@ class EventCfg:
     # reset
     reset_object = EventTerm(
         func=mdp.reset_root_state_uniform,
-        # mode="reset",
-        mode="startup",
+        mode="reset",
         params={
             # the pose range with be changed with curriculum
             "pose_range": {
-                # "x": [-0.0, 0.0],
-                # "y": [-0.0, 0.0],
-                # "z": [-0.0, 0.0],
-                # "roll": [0.0, 0.0],
-                # "pitch": [0.0, 0.0],
-                # "yaw": [0.0, 0.0],
-                "x": [-0.01, 0.01],
-                "y": [-0.01, 0.01],
-                "z": [-0.01, 0.01],
-                "roll": [-torch.pi, torch.pi],
-                "pitch": [-torch.pi, torch.pi],
-                "yaw": [-torch.pi, torch.pi],
+                "x": [-0.0, 0.0],
+                "y": [-0.0, 0.0],
+                "z": [-0.0, 0.0],
+                "roll": [0.0, 0.0],
+                "pitch": [0.0, 0.0],
+                "yaw": [0.0, 0.0],
             },
             "velocity_range": {},
             "asset_cfg": SceneEntityCfg("object", body_names=".*"),

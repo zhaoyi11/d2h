@@ -51,6 +51,7 @@ class TrajectoryChunkDataset(Dataset):
         past_length: int = 4,
         future_length: int = 8,
         state_keys: tuple[str, ...] = STATE_KEYS,
+        min_chunks: int | None = None,
         seed: int | None = None,
     ) -> None:
         self.dataset_dir = Path(dataset_dir).expanduser()
@@ -58,12 +59,15 @@ class TrajectoryChunkDataset(Dataset):
         self.future_length = int(future_length)
         self.required_length = self.past_length + self.future_length
         self.state_keys = tuple(state_keys)
+        self.min_chunks = None if min_chunks is None else int(min_chunks)
         self._rng = np.random.default_rng(seed)
 
         if self.past_length < 1:
             raise ValueError("past_length must be at least 1")
         if self.future_length < 1:
             raise ValueError("future_length must be at least 1")
+        if self.min_chunks is not None and self.min_chunks < 1:
+            raise ValueError("min_chunks must be at least 1")
         if not self.dataset_dir.exists():
             raise FileNotFoundError(f"Dataset directory not found: {self.dataset_dir}")
 
@@ -74,6 +78,7 @@ class TrajectoryChunkDataset(Dataset):
                 self.metadata = json.load(f)
 
         self._episodes: list[tuple[Path, int]] = []
+        self._episode_indices: list[int] = []
         self.state_dim: int | None = None
         self.action_dim: int | None = None
 
@@ -113,12 +118,16 @@ class TrajectoryChunkDataset(Dataset):
 
         assert self.state_dim is not None
         assert self.action_dim is not None
+        target_chunks = (
+            len(self._episodes) if self.min_chunks is None else max(len(self._episodes), self.min_chunks)
+        )
+        self._episode_indices = [i % len(self._episodes) for i in range(target_chunks)]
 
     def __len__(self) -> int:
-        return len(self._episodes)
+        return len(self._episode_indices)
 
     def __getitem__(self, idx: int) -> dict[str, Tensor]:
-        episode_path, length = self._episodes[idx]
+        episode_path, length = self._episodes[self._episode_indices[idx]]
         max_start = length - self.required_length
         start = int(self._rng.integers(0, max_start + 1)) if max_start > 0 else 0
         end = start + self.required_length
@@ -236,7 +245,13 @@ def train_vae(
     torch.manual_seed(seed)
     np.random.seed(seed)
 
-    dataset = TrajectoryChunkDataset(dataset_dir, past_length=past_length, future_length=future_length, seed=seed)
+    dataset = TrajectoryChunkDataset(
+        dataset_dir,
+        past_length=past_length,
+        future_length=future_length,
+        min_chunks=batch_size,
+        seed=seed,
+    )
     config = VAEConfig(
         state_dim=int(dataset.state_dim),
         action_dim=int(dataset.action_dim),
@@ -284,6 +299,7 @@ def train_vae(
 
             for batch in loader:
                 batch = _move_batch(batch, torch_device)
+                import ipdb; ipdb.set_trace()
                 output = model(batch["encoder_input"], batch["context"])
                 loss, metrics = model.loss(output, batch["target_actions"], beta=beta)
 
