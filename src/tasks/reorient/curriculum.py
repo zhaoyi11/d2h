@@ -148,7 +148,7 @@ class CurriculumCfg:
         params={
             "address": "observations.policy.fingertip_lin_vel.noise.std",
             "modify_fn": initial_final_interpolate_fn,
-            "modify_params": {"initial_value": 0.0, "final_value": 0.01, "difficulty_term_str": "adr"},
+            "modify_params": {"initial_value": 0.0, "final_value": 0.005, "difficulty_term_str": "adr"},
         },
     )
 
@@ -157,7 +157,7 @@ class CurriculumCfg:
         params={
             "address": "observations.policy.fingertip_ang_vel.noise.std",
             "modify_fn": initial_final_interpolate_fn,
-            "modify_params": {"initial_value": 0.0, "final_value": 0.01, "difficulty_term_str": "adr"},
+            "modify_params": {"initial_value": 0.0, "final_value": 0.005, "difficulty_term_str": "adr"},
         },
     )
 
@@ -166,7 +166,7 @@ class CurriculumCfg:
         params={
             "address": "observations.policy.fingertip_contact_force_b.noise.std",
             "modify_fn": initial_final_interpolate_fn,
-            "modify_params": {"initial_value": 0.0, "final_value": 0.05, "difficulty_term_str": "adr"},
+            "modify_params": {"initial_value": 0.0, "final_value": 0.01, "difficulty_term_str": "adr"},
         },
     )
 
@@ -175,7 +175,7 @@ class CurriculumCfg:
         params={
             "address": "observations.policy.contact_force_mag.noise.std",
             "modify_fn": initial_final_interpolate_fn,
-            "modify_params": {"initial_value": 0.0, "final_value": 0.05, "difficulty_term_str": "adr"},
+            "modify_params": {"initial_value": 0.0, "final_value": 0.01, "difficulty_term_str": "adr"},
         },
     )
 
