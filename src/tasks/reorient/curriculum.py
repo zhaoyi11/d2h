@@ -115,234 +115,234 @@ class CurriculumCfg:
         func=DifficultyScheduler, params={"init_difficulty": 0, "min_difficulty": 0, "max_difficulty": 10}
     )
 
-    # policy observation noise terms
-    joint_pos_gnoise_std_adr = CurrTerm(
-        func=common_mdp.modify_term_cfg,
-        params={
-            "address": "observations.policy.joint_pos.noise.std",
-            "modify_fn": initial_final_interpolate_fn,
-            "modify_params": {"initial_value": 0.0, "final_value": 0.005, "difficulty_term_str": "adr"},
-        },
-    )
+    # # policy observation noise terms
+    # joint_pos_gnoise_std_adr = CurrTerm(
+    #     func=common_mdp.modify_term_cfg,
+    #     params={
+    #         "address": "observations.policy.joint_pos.noise.std",
+    #         "modify_fn": initial_final_interpolate_fn,
+    #         "modify_params": {"initial_value": 0.0, "final_value": 0.005, "difficulty_term_str": "adr"},
+    #     },
+    # )
 
-    joint_vel_gnoise_std_adr = CurrTerm(
-        func=common_mdp.modify_term_cfg,
-        params={
-            "address": "observations.policy.joint_vel.noise.std",
-            "modify_fn": initial_final_interpolate_fn,
-            "modify_params": {"initial_value": 0.0, "final_value": 0.01, "difficulty_term_str": "adr"},
-        },
-    )
+    # joint_vel_gnoise_std_adr = CurrTerm(
+    #     func=common_mdp.modify_term_cfg,
+    #     params={
+    #         "address": "observations.policy.joint_vel.noise.std",
+    #         "modify_fn": initial_final_interpolate_fn,
+    #         "modify_params": {"initial_value": 0.0, "final_value": 0.005, "difficulty_term_str": "adr"},
+    #     },
+    # )
 
-    fingertip_pos_gnoise_std_adr = CurrTerm(
-        func=common_mdp.modify_term_cfg,
-        params={
-            "address": "observations.policy.fingertip_pos.noise.std",
-            "modify_fn": initial_final_interpolate_fn,
-            "modify_params": {"initial_value": 0.0, "final_value": 0.002, "difficulty_term_str": "adr"},
-        },
-    )
+    # fingertip_pos_gnoise_std_adr = CurrTerm(
+    #     func=common_mdp.modify_term_cfg,
+    #     params={
+    #         "address": "observations.policy.fingertip_pos.noise.std",
+    #         "modify_fn": initial_final_interpolate_fn,
+    #         "modify_params": {"initial_value": 0.0, "final_value": 0.002, "difficulty_term_str": "adr"},
+    #     },
+    # )
 
-    fingertip_lin_vel_gnoise_std_adr = CurrTerm(
-        func=common_mdp.modify_term_cfg,
-        params={
-            "address": "observations.policy.fingertip_lin_vel.noise.std",
-            "modify_fn": initial_final_interpolate_fn,
-            "modify_params": {"initial_value": 0.0, "final_value": 0.005, "difficulty_term_str": "adr"},
-        },
-    )
+    # fingertip_lin_vel_gnoise_std_adr = CurrTerm(
+    #     func=common_mdp.modify_term_cfg,
+    #     params={
+    #         "address": "observations.policy.fingertip_lin_vel.noise.std",
+    #         "modify_fn": initial_final_interpolate_fn,
+    #         "modify_params": {"initial_value": 0.0, "final_value": 0.005, "difficulty_term_str": "adr"},
+    #     },
+    # )
 
-    fingertip_ang_vel_gnoise_std_adr = CurrTerm(
-        func=common_mdp.modify_term_cfg,
-        params={
-            "address": "observations.policy.fingertip_ang_vel.noise.std",
-            "modify_fn": initial_final_interpolate_fn,
-            "modify_params": {"initial_value": 0.0, "final_value": 0.005, "difficulty_term_str": "adr"},
-        },
-    )
+    # fingertip_ang_vel_gnoise_std_adr = CurrTerm(
+    #     func=common_mdp.modify_term_cfg,
+    #     params={
+    #         "address": "observations.policy.fingertip_ang_vel.noise.std",
+    #         "modify_fn": initial_final_interpolate_fn,
+    #         "modify_params": {"initial_value": 0.0, "final_value": 0.005, "difficulty_term_str": "adr"},
+    #     },
+    # )
 
-    fingertip_contact_force_gnoise_std_adr = CurrTerm(
-        func=common_mdp.modify_term_cfg,
-        params={
-            "address": "observations.policy.fingertip_contact_force_b.noise.std",
-            "modify_fn": initial_final_interpolate_fn,
-            "modify_params": {"initial_value": 0.0, "final_value": 0.01, "difficulty_term_str": "adr"},
-        },
-    )
+    # fingertip_contact_force_gnoise_std_adr = CurrTerm(
+    #     func=common_mdp.modify_term_cfg,
+    #     params={
+    #         "address": "observations.policy.fingertip_contact_force_b.noise.std",
+    #         "modify_fn": initial_final_interpolate_fn,
+    #         "modify_params": {"initial_value": 0.0, "final_value": 0.01, "difficulty_term_str": "adr"},
+    #     },
+    # )
 
-    contact_force_mag_gnoise_std_adr = CurrTerm(
-        func=common_mdp.modify_term_cfg,
-        params={
-            "address": "observations.policy.contact_force_mag.noise.std",
-            "modify_fn": initial_final_interpolate_fn,
-            "modify_params": {"initial_value": 0.0, "final_value": 0.01, "difficulty_term_str": "adr"},
-        },
-    )
+    # contact_force_mag_gnoise_std_adr = CurrTerm(
+    #     func=common_mdp.modify_term_cfg,
+    #     params={
+    #         "address": "observations.policy.contact_force_mag.noise.std",
+    #         "modify_fn": initial_final_interpolate_fn,
+    #         "modify_params": {"initial_value": 0.0, "final_value": 0.01, "difficulty_term_str": "adr"},
+    #     },
+    # )
 
-    object_pos_gnoise_std_adr = CurrTerm(
-        func=common_mdp.modify_term_cfg,
-        params={
-            "address": "observations.policy.object_pos.noise.std",
-            "modify_fn": initial_final_interpolate_fn,
-            "modify_params": {"initial_value": 0.0, "final_value": 0.002, "difficulty_term_str": "adr"},
-        },
-    )
+    # object_pos_gnoise_std_adr = CurrTerm(
+    #     func=common_mdp.modify_term_cfg,
+    #     params={
+    #         "address": "observations.policy.object_pos.noise.std",
+    #         "modify_fn": initial_final_interpolate_fn,
+    #         "modify_params": {"initial_value": 0.0, "final_value": 0.002, "difficulty_term_str": "adr"},
+    #     },
+    # )
 
-    object_lin_vel_gnoise_std_adr = CurrTerm(
-        func=common_mdp.modify_term_cfg,
-        params={
-            "address": "observations.policy.object_lin_vel.noise.std",
-            "modify_fn": initial_final_interpolate_fn,
-            "modify_params": {"initial_value": 0.0, "final_value": 0.002, "difficulty_term_str": "adr"},
-        },
-    )
+    # object_lin_vel_gnoise_std_adr = CurrTerm(
+    #     func=common_mdp.modify_term_cfg,
+    #     params={
+    #         "address": "observations.policy.object_lin_vel.noise.std",
+    #         "modify_fn": initial_final_interpolate_fn,
+    #         "modify_params": {"initial_value": 0.0, "final_value": 0.002, "difficulty_term_str": "adr"},
+    #     },
+    # )
 
-    object_ang_vel_gnoise_std_adr = CurrTerm(
-        func=common_mdp.modify_term_cfg,
-        params={
-            "address": "observations.policy.object_ang_vel.noise.std",
-            "modify_fn": initial_final_interpolate_fn,
-            "modify_params": {"initial_value": 0.0, "final_value": 0.002, "difficulty_term_str": "adr"},
-        },
-    )
+    # object_ang_vel_gnoise_std_adr = CurrTerm(
+    #     func=common_mdp.modify_term_cfg,
+    #     params={
+    #         "address": "observations.policy.object_ang_vel.noise.std",
+    #         "modify_fn": initial_final_interpolate_fn,
+    #         "modify_params": {"initial_value": 0.0, "final_value": 0.002, "difficulty_term_str": "adr"},
+    #     },
+    # )
 
-    # perceptive observation noise terms
-    obj_point_cloud_unoise_min_adr = CurrTerm(
-        func=common_mdp.modify_term_cfg,
-        params={
-            "address": "observations.perception.object_point_cloud.noise.n_min",
-            "modify_fn": initial_final_interpolate_fn,
-            "modify_params": {"initial_value": 0.0, "final_value": -0.01, "difficulty_term_str": "adr"},
-        },
-    )
+    # # perceptive observation noise terms
+    # obj_point_cloud_unoise_min_adr = CurrTerm(
+    #     func=common_mdp.modify_term_cfg,
+    #     params={
+    #         "address": "observations.perception.object_point_cloud.noise.n_min",
+    #         "modify_fn": initial_final_interpolate_fn,
+    #         "modify_params": {"initial_value": 0.0, "final_value": -0.005, "difficulty_term_str": "adr"},
+    #     },
+    # )
 
-    obj_point_cloud_unoise_max_adr = CurrTerm(
-        func=common_mdp.modify_term_cfg,
-        params={
-            "address": "observations.perception.object_point_cloud.noise.n_max",
-            "modify_fn": initial_final_interpolate_fn,
-            "modify_params": {"initial_value": 0.0, "final_value": 0.01, "difficulty_term_str": "adr"},
-        },
-    )
+    # obj_point_cloud_unoise_max_adr = CurrTerm(
+    #     func=common_mdp.modify_term_cfg,
+    #     params={
+    #         "address": "observations.perception.object_point_cloud.noise.n_max",
+    #         "modify_fn": initial_final_interpolate_fn,
+    #         "modify_params": {"initial_value": 0.0, "final_value": 0.005, "difficulty_term_str": "adr"},
+    #     },
+    # )
 
-    # Wrist poses
-    hand_object_pose_roll_adr = CurrTerm(
-        func=common_mdp.modify_term_cfg,
-        params={
-            "address": "events.randomize_hand_object_default_pose.params.roll_range",
-            "modify_fn": initial_final_interpolate_fn,
-            "modify_params": {
-                "initial_value": (0.0, 0.0),
-                "final_value": (-torch.pi, torch.pi),
-                "difficulty_term_str": "adr",
-            },
-        },
-    )
+    # # Wrist poses
+    # hand_object_pose_roll_adr = CurrTerm(
+    #     func=common_mdp.modify_term_cfg,
+    #     params={
+    #         "address": "events.randomize_hand_object_default_pose.params.roll_range",
+    #         "modify_fn": initial_final_interpolate_fn,
+    #         "modify_params": {
+    #             "initial_value": (0.0, 0.0),
+    #             "final_value": (-torch.pi, torch.pi),
+    #             "difficulty_term_str": "adr",
+    #         },
+    #     },
+    # )
 
-    hand_object_pose_pitch_adr = CurrTerm(
-        func=common_mdp.modify_term_cfg,
-        params={
-            "address": "events.randomize_hand_object_default_pose.params.pitch_range",
-            "modify_fn": initial_final_interpolate_fn,
-            "modify_params": {
-                "initial_value": (0.0, 0.0),
-                "final_value": (-torch.pi, torch.pi),
-                "difficulty_term_str": "adr",
-            },
-        },
-    )
+    # hand_object_pose_pitch_adr = CurrTerm(
+    #     func=common_mdp.modify_term_cfg,
+    #     params={
+    #         "address": "events.randomize_hand_object_default_pose.params.pitch_range",
+    #         "modify_fn": initial_final_interpolate_fn,
+    #         "modify_params": {
+    #             "initial_value": (0.0, 0.0),
+    #             "final_value": (-torch.pi, torch.pi),
+    #             "difficulty_term_str": "adr",
+    #         },
+    #     },
+    # )
 
-    hand_object_pose_yaw_adr = CurrTerm(
-        func=common_mdp.modify_term_cfg,
-        params={
-            "address": "events.randomize_hand_object_default_pose.params.yaw_range",
-            "modify_fn": initial_final_interpolate_fn,
-            "modify_params": {
-                "initial_value": (0.0, 0.0),
-                "final_value": (-torch.pi, torch.pi),
-                "difficulty_term_str": "adr",
-            },
-        },
-    )
+    # hand_object_pose_yaw_adr = CurrTerm(
+    #     func=common_mdp.modify_term_cfg,
+    #     params={
+    #         "address": "events.randomize_hand_object_default_pose.params.yaw_range",
+    #         "modify_fn": initial_final_interpolate_fn,
+    #         "modify_params": {
+    #             "initial_value": (0.0, 0.0),
+    #             "final_value": (-torch.pi, torch.pi),
+    #             "difficulty_term_str": "adr",
+    #         },
+    #     },
+    # )
 
-    # Objct poses
-    reset_object_x_adr = CurrTerm(
-        func=common_mdp.modify_term_cfg,
-        params={
-            "address": "events.reset_object.params.pose_range.x",
-            "modify_fn": initial_final_interpolate_fn,
-            "modify_params": {
-                "initial_value": (0.0, 0.0),
-                "final_value": (-0.01, 0.01),
-                "difficulty_term_str": "adr",
-            },
-        },
-    )
+    # # Objct poses
+    # reset_object_x_adr = CurrTerm(
+    #     func=common_mdp.modify_term_cfg,
+    #     params={
+    #         "address": "events.reset_object.params.pose_range.x",
+    #         "modify_fn": initial_final_interpolate_fn,
+    #         "modify_params": {
+    #             "initial_value": (0.0, 0.0),
+    #             "final_value": (-0.01, 0.01),
+    #             "difficulty_term_str": "adr",
+    #         },
+    #     },
+    # )
 
-    reset_object_y_adr = CurrTerm(
-        func=common_mdp.modify_term_cfg,
-        params={
-            "address": "events.reset_object.params.pose_range.y",
-            "modify_fn": initial_final_interpolate_fn,
-            "modify_params": {
-                "initial_value": (0.0, 0.0),
-                "final_value": (-0.01, 0.01),
-                "difficulty_term_str": "adr",
-            },
-        },
-    )
+    # reset_object_y_adr = CurrTerm(
+    #     func=common_mdp.modify_term_cfg,
+    #     params={
+    #         "address": "events.reset_object.params.pose_range.y",
+    #         "modify_fn": initial_final_interpolate_fn,
+    #         "modify_params": {
+    #             "initial_value": (0.0, 0.0),
+    #             "final_value": (-0.01, 0.01),
+    #             "difficulty_term_str": "adr",
+    #         },
+    #     },
+    # )
 
-    reset_object_z_adr = CurrTerm(
-        func=common_mdp.modify_term_cfg,
-        params={
-            "address": "events.reset_object.params.pose_range.z",
-            "modify_fn": initial_final_interpolate_fn,
-            "modify_params": {
-                "initial_value": (0.0, 0.0),
-                "final_value": (-0.01, 0.01),
-                "difficulty_term_str": "adr",
-            },
-        },
-    )
+    # reset_object_z_adr = CurrTerm(
+    #     func=common_mdp.modify_term_cfg,
+    #     params={
+    #         "address": "events.reset_object.params.pose_range.z",
+    #         "modify_fn": initial_final_interpolate_fn,
+    #         "modify_params": {
+    #             "initial_value": (0.0, 0.0),
+    #             "final_value": (-0.01, 0.01),
+    #             "difficulty_term_str": "adr",
+    #         },
+    #     },
+    # )
 
-    reset_object_roll_adr = CurrTerm(
-        func=common_mdp.modify_term_cfg,
-        params={
-            "address": "events.reset_object.params.pose_range.roll",
-            "modify_fn": initial_final_interpolate_fn,
-            "modify_params": {
-                "initial_value": (0.0, 0.0),
-                "final_value": (-torch.pi, torch.pi),
-                "difficulty_term_str": "adr",
-            },
-        },
-    )
+    # reset_object_roll_adr = CurrTerm(
+    #     func=common_mdp.modify_term_cfg,
+    #     params={
+    #         "address": "events.reset_object.params.pose_range.roll",
+    #         "modify_fn": initial_final_interpolate_fn,
+    #         "modify_params": {
+    #             "initial_value": (0.0, 0.0),
+    #             "final_value": (-torch.pi, torch.pi),
+    #             "difficulty_term_str": "adr",
+    #         },
+    #     },
+    # )
 
-    reset_object_pitch_adr = CurrTerm(
-        func=common_mdp.modify_term_cfg,
-        params={
-            "address": "events.reset_object.params.pose_range.pitch",
-            "modify_fn": initial_final_interpolate_fn,
-            "modify_params": {
-                "initial_value": (0.0, 0.0),
-                "final_value": (-torch.pi, torch.pi),
-                "difficulty_term_str": "adr",
-            },
-        },
-    )
+    # reset_object_pitch_adr = CurrTerm(
+    #     func=common_mdp.modify_term_cfg,
+    #     params={
+    #         "address": "events.reset_object.params.pose_range.pitch",
+    #         "modify_fn": initial_final_interpolate_fn,
+    #         "modify_params": {
+    #             "initial_value": (0.0, 0.0),
+    #             "final_value": (-torch.pi, torch.pi),
+    #             "difficulty_term_str": "adr",
+    #         },
+    #     },
+    # )
 
-    reset_object_yaw_adr = CurrTerm(
-        func=common_mdp.modify_term_cfg,
-        params={
-            "address": "events.reset_object.params.pose_range.yaw",
-            "modify_fn": initial_final_interpolate_fn,
-            "modify_params": {
-                "initial_value": (0.0, 0.0),
-                "final_value": (-torch.pi, torch.pi),
-                "difficulty_term_str": "adr",
-            },
-        },
-    )
+    # reset_object_yaw_adr = CurrTerm(
+    #     func=common_mdp.modify_term_cfg,
+    #     params={
+    #         "address": "events.reset_object.params.pose_range.yaw",
+    #         "modify_fn": initial_final_interpolate_fn,
+    #         "modify_params": {
+    #             "initial_value": (0.0, 0.0),
+    #             "final_value": (-torch.pi, torch.pi),
+    #             "difficulty_term_str": "adr",
+    #         },
+    #     },
+    # )
 
     # Command range
     # command_random_range_adr = CurrTerm(

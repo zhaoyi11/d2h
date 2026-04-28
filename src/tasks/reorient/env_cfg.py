@@ -180,14 +180,13 @@ class ObservationsCfg:
         # observation terms (order preserved)
         # -- robot terms
         joint_pos = ObsTerm(
-            func=mdp.joint_pos_limit_normalized, noise=Gnoise(std=0.0)
+            func=mdp.joint_pos_limit_normalized, noise=Unoise(n_min=0.0, n_max=0.002)
         )
-        joint_vel = ObsTerm(func=mdp.joint_vel_rel, scale=0.2, noise=Gnoise(std=0.0))
+        joint_vel = ObsTerm(func=mdp.joint_vel_rel, scale=0.2, noise=Gnoise(std=0.002))
 
         # fingertip pose in robot base frame
         fingertip_pos = ObsTerm(
             func=mdp.body_pos_b,
-            noise=Gnoise(std=0.0),
             params={
                 "body_asset_cfg": SceneEntityCfg("robot", body_names=".*fingertip.*"),
                 "base_asset_cfg": SceneEntityCfg("robot"),
@@ -202,7 +201,6 @@ class ObservationsCfg:
         )
         fingertip_lin_vel = ObsTerm(
             func=mdp.body_lin_vel_b,
-            noise=Gnoise(std=0.0),
             params={
                 "body_asset_cfg": SceneEntityCfg("robot", body_names=".*fingertip.*"),
                 "base_asset_cfg": SceneEntityCfg("robot"),
@@ -210,7 +208,6 @@ class ObservationsCfg:
         )
         fingertip_ang_vel = ObsTerm(
             func=mdp.body_ang_vel_b,
-            noise=Gnoise(std=0.0),
             params={
                 "body_asset_cfg": SceneEntityCfg("robot", body_names=".*fingertip.*"),
                 "base_asset_cfg": SceneEntityCfg("robot"),
@@ -220,7 +217,7 @@ class ObservationsCfg:
         # fingertip contact — raw 3D forces in robot base frame (12 dims)
         fingertip_contact_force_b = ObsTerm(
             func=mdp.fingers_contact_force_b,
-            noise=Gnoise(std=0.0),
+            noise=Gnoise(std=0.002),
             params={
                 "contact_sensor_names": [
                     "thumb_tip_object_s",
@@ -248,7 +245,6 @@ class ObservationsCfg:
         # per-fingertip contact force magnitude (4 dims)
         contact_force_mag = ObsTerm(
             func=task_mdp.tip_contact_force_mag_obs,
-            noise=Gnoise(std=0.0),
             clip=(0.0, 100.0),
             params={
                 "contact_sensor_names": [
@@ -280,7 +276,7 @@ class ObservationsCfg:
         # -- object terms
         object_pos = ObsTerm(
             func=mdp.object_pos_b,
-            noise=Gnoise(std=0.0),
+            noise=Gnoise(std=0.002),
             params={
                 "robot_cfg": SceneEntityCfg("robot"),
                 "object_cfg": SceneEntityCfg("object"),
@@ -295,13 +291,13 @@ class ObservationsCfg:
         )
         object_lin_vel = ObsTerm(
             func=mdp.root_lin_vel_w,
-            noise=Gnoise(std=0.0),
+            noise=Gnoise(std=0.002),
             params={"asset_cfg": SceneEntityCfg("object")},
         )
         object_ang_vel = ObsTerm(
             func=mdp.root_ang_vel_w,
             scale=0.2,
-            noise=Gnoise(std=0.0),
+            noise=Gnoise(std=0.002),
             params={"asset_cfg": SceneEntityCfg("object")},
         )
 
@@ -359,7 +355,7 @@ class ObservationsCfg:
     class PerceptionObsCfg(ObsGroup):
         object_point_cloud = ObsTerm(
             func=mdp.object_point_cloud_b,
-            noise=Unoise(n_min=0.0, n_max=0.0),
+            noise=Gnoise(std=0.002),
             clip=(-2.0, 2.0),  # clamp between -2 m to 2 m
             params={"num_points": 64, "flatten": True},
         )
@@ -416,6 +412,15 @@ class EventCfg:
     )
 
     # -- object
+    randomize_object_scale = EventTerm(
+        func=mdp.randomize_rigid_body_scale,
+        mode="prestartup",
+        params={
+            "scale_range": (0.9, 1.1),
+            "asset_cfg": SceneEntityCfg("object"),
+        },
+    )
+
     object_physics_material = EventTerm(
         func=mdp.randomize_rigid_body_material,
         mode="startup",
@@ -442,14 +447,13 @@ class EventCfg:
         func=mdp.reset_root_state_uniform,
         mode="reset",
         params={
-            # the pose range with be changed with curriculum
             "pose_range": {
-                "x": [-0.0, 0.0],
-                "y": [-0.0, 0.0],
-                "z": [-0.0, 0.0],
-                "roll": [0.0, 0.0],
-                "pitch": [0.0, 0.0],
-                "yaw": [0.0, 0.0],
+                "x": [-0.005, 0.005],
+                "y": [-0.005, 0.005],
+                "z": [-0.005, 0.005],
+                "roll": [-torch.pi, torch.pi],
+                "pitch": [-torch.pi, torch.pi],
+                "yaw": [-torch.pi, torch.pi],
             },
             "velocity_range": {},
             "asset_cfg": SceneEntityCfg("object", body_names=".*"),
@@ -462,10 +466,9 @@ class EventCfg:
         params={
             "base_asset_cfg": SceneEntityCfg("robot", body_names="base"),
             "object_asset_cfg": SceneEntityCfg("object"),
-            # The range will be changed with curriculum
-            "roll_range": (0.0, 0.0),
-            "pitch_range": (0.0, 0.0),
-            "yaw_range": (0.0, 0.0),
+            "roll_range": (-torch.pi, torch.pi),
+            "pitch_range": (-torch.pi, torch.pi),
+            "yaw_range": (-torch.pi, torch.pi),
         },
     )
 
