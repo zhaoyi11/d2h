@@ -134,28 +134,90 @@ def body_state_b(
     Returns:
         Tensor of shape ``(num_envs, num_bodies * 13)`` with per-body states expressed in the base root frame.
     """
+    body_pos_b, body_quat_b, body_lin_vel_b, body_ang_vel_b = _body_state_components_b(
+        env, body_asset_cfg, base_asset_cfg
+    )
+    out = torch.cat((body_pos_b, body_quat_b, body_lin_vel_b, body_ang_vel_b), dim=-1)
+    return out.reshape(env.num_envs, -1)
+
+
+def body_pos_b(
+    env: ManagerBasedRLEnv,
+    body_asset_cfg: SceneEntityCfg,
+    base_asset_cfg: SceneEntityCfg,
+) -> torch.Tensor:
+    """Body positions in the base asset's root frame."""
+    body_pos_b, _, _, _ = _body_state_components_b(env, body_asset_cfg, base_asset_cfg)
+    return body_pos_b.reshape(env.num_envs, -1)
+
+
+def body_quat_b(
+    env: ManagerBasedRLEnv,
+    body_asset_cfg: SceneEntityCfg,
+    base_asset_cfg: SceneEntityCfg,
+) -> torch.Tensor:
+    """Body orientations in the base asset's root frame.
+
+    Quaternions are returned in ``(w, x, y, z)`` order.
+    """
+    _, body_quat_b, _, _ = _body_state_components_b(env, body_asset_cfg, base_asset_cfg)
+    return body_quat_b.reshape(env.num_envs, -1)
+
+
+def body_lin_vel_b(
+    env: ManagerBasedRLEnv,
+    body_asset_cfg: SceneEntityCfg,
+    base_asset_cfg: SceneEntityCfg,
+) -> torch.Tensor:
+    """Body linear velocities in the base asset's root frame."""
+    _, _, body_lin_vel_b, _ = _body_state_components_b(
+        env, body_asset_cfg, base_asset_cfg
+    )
+    return body_lin_vel_b.reshape(env.num_envs, -1)
+
+
+def body_ang_vel_b(
+    env: ManagerBasedRLEnv,
+    body_asset_cfg: SceneEntityCfg,
+    base_asset_cfg: SceneEntityCfg,
+) -> torch.Tensor:
+    """Body angular velocities in the base asset's root frame."""
+    _, _, _, body_ang_vel_b = _body_state_components_b(
+        env, body_asset_cfg, base_asset_cfg
+    )
+    return body_ang_vel_b.reshape(env.num_envs, -1)
+
+
+def _body_state_components_b(
+    env: ManagerBasedRLEnv,
+    body_asset_cfg: SceneEntityCfg,
+    base_asset_cfg: SceneEntityCfg,
+) -> tuple[torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor]:
+    """Return base-frame body state components shaped ``(num_envs, num_bodies, dim)``."""
     body_asset: Articulation = env.scene[body_asset_cfg.name]
     base_asset: Articulation = env.scene[base_asset_cfg.name]
     # get world pose of bodies
-    body_pos_w = body_asset.data.body_pos_w[:, body_asset_cfg.body_ids].view(-1, 3)
-    body_quat_w = body_asset.data.body_quat_w[:, body_asset_cfg.body_ids].view(-1, 4)
-    body_lin_vel_w = body_asset.data.body_lin_vel_w[:, body_asset_cfg.body_ids].view(
-        -1, 3
+    body_pos_w = body_asset.data.body_pos_w[:, body_asset_cfg.body_ids].reshape(-1, 3)
+    body_quat_w = body_asset.data.body_quat_w[:, body_asset_cfg.body_ids].reshape(
+        -1, 4
     )
-    body_ang_vel_w = body_asset.data.body_ang_vel_w[:, body_asset_cfg.body_ids].view(
-        -1, 3
-    )
+    body_lin_vel_w = body_asset.data.body_lin_vel_w[
+        :, body_asset_cfg.body_ids
+    ].reshape(-1, 3)
+    body_ang_vel_w = body_asset.data.body_ang_vel_w[
+        :, body_asset_cfg.body_ids
+    ].reshape(-1, 3)
     num_bodies = int(body_pos_w.shape[0] / env.num_envs)
     # get world pose of base frame
     root_pos_w = (
         base_asset.data.root_link_pos_w.unsqueeze(1)
         .repeat_interleave(num_bodies, dim=1)
-        .view(-1, 3)
+        .reshape(-1, 3)
     )
     root_quat_w = (
         base_asset.data.root_link_quat_w.unsqueeze(1)
         .repeat_interleave(num_bodies, dim=1)
-        .view(-1, 4)
+        .reshape(-1, 4)
     )
     # transform from world body pose to local body pose
     body_pos_b, body_quat_b = subtract_frame_transforms(
@@ -163,9 +225,12 @@ def body_state_b(
     )
     body_lin_vel_b = quat_apply_inverse(root_quat_w, body_lin_vel_w)
     body_ang_vel_b = quat_apply_inverse(root_quat_w, body_ang_vel_w)
-    # concate and return
-    out = torch.cat((body_pos_b, body_quat_b, body_lin_vel_b, body_ang_vel_b), dim=1)
-    return out.view(env.num_envs, -1)
+    return (
+        body_pos_b.reshape(env.num_envs, num_bodies, 3),
+        body_quat_b.reshape(env.num_envs, num_bodies, 4),
+        body_lin_vel_b.reshape(env.num_envs, num_bodies, 3),
+        body_ang_vel_b.reshape(env.num_envs, num_bodies, 3),
+    )
 
 
 class object_point_cloud_b(ManagerTermBase):
