@@ -437,24 +437,11 @@ class EventCfg:
             "operation": "scale",
         },
     )
-
-    randomize_hand_object_default_pose = EventTerm(
-        func=task_mdp.randomize_hand_object_default_pose,
-        mode="reset",
-        params={
-            "base_asset_cfg": SceneEntityCfg("robot", body_names="base"),
-            "object_asset_cfg": SceneEntityCfg("object"),
-            # The range will be changed with curriculum
-            "roll_range": (0.0, 0.0),
-            "pitch_range": (0.0, 0.0),
-            "yaw_range": (0.0, 0.0),
-        },
-    )
-
     # reset
     reset_object = EventTerm(
         func=mdp.reset_root_state_uniform,
-        mode="reset",
+        # mode="reset",
+        mode="startup",
         params={
             # the pose range with be changed with curriculum
             "pose_range": {
@@ -473,6 +460,19 @@ class EventCfg:
             },
             "velocity_range": {},
             "asset_cfg": SceneEntityCfg("object", body_names=".*"),
+        },
+    )
+
+    randomize_hand_object_default_pose = EventTerm(
+        func=task_mdp.randomize_hand_object_default_pose,
+        mode="reset",
+        params={
+            "base_asset_cfg": SceneEntityCfg("robot", body_names="base"),
+            "object_asset_cfg": SceneEntityCfg("object"),
+            # The range will be changed with curriculum
+            "roll_range": (0.0, 0.0),
+            "pitch_range": (0.0, 0.0),
+            "yaw_range": (0.0, 0.0),
         },
     )
 
