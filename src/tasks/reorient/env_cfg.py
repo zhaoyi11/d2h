@@ -455,9 +455,13 @@ class EventCfg:
         params={
             "base_asset_cfg": SceneEntityCfg("robot", body_names="base"),
             "object_asset_cfg": SceneEntityCfg("object"),
-            "roll_range": (-0.3 * torch.pi, 0.3 * torch.pi),
-            "pitch_range": (-0.3 * torch.pi, 0.3 * torch.pi),
-            "yaw_range": (-0.3 * torch.pi, 0.3 * torch.pi),
+            "roll_range": (0.0, 0.0),
+            "pitch_range": (0.0, 0.0),
+            "yaw_range": (0.0, 0.0),
+            # "roll_range": (-0.3 * torch.pi, 0.3 * torch.pi),
+            # "pitch_range": (-0.3 * torch.pi, 0.3 * torch.pi),
+            # "yaw_range": (-0.3 * torch.pi, 0.3 * torch.pi),
+
         },
     )
 
@@ -466,12 +470,18 @@ class EventCfg:
         mode="reset",
         params={
             "pose_range": {
-                "x": [-0.005, 0.005],
-                "y": [-0.005, 0.005],
-                "z": [-0.005, 0.005],
-                "roll": [-0.3 * torch.pi, 0.3 * torch.pi],
-                "pitch": [-0.3 * torch.pi, 0.3 * torch.pi],
-                "yaw": [-0.3 * torch.pi, 0.3 * torch.pi],
+                # "x": [-0.005, 0.005],
+                # "y": [-0.005, 0.005],
+                # "z": [-0.005, 0.005],
+                # "roll": [-0.3 * torch.pi, 0.3 * torch.pi],
+                # "pitch": [-0.3 * torch.pi, 0.3 * torch.pi],
+                # "yaw": [-0.3 * torch.pi, 0.3 * torch.pi],
+                "x": [0.0, 0.0],
+                "y": [0.0, 0.0],
+                "z": [0.0, 0.0],
+                "roll": [0.0, 0.0],
+                "pitch": [0.0, 0.0],
+                "yaw": [0.0, 0.0],
             },
             "velocity_range": {},
             "asset_cfg": SceneEntityCfg("object", body_names=".*"),
@@ -495,7 +505,7 @@ class EventCfg:
         mode="reset",
         params={
             # the gravity will be changed with curriculum
-            "gravity_distribution_params": ([0.0, 0.0, 0.0], [0.0, 0.0, 0.0]),
+            "gravity_distribution_params": ([0.0, 0.0, -1.0], [0.0, 0.0, -1.0]),
             "operation": "abs",
         },
     )
@@ -676,7 +686,7 @@ class InHandObjectEnvCfg(ManagerBasedRLEnvCfg):
         # change viewer settings
         self.viewer.eye = (2.0, 2.0, 2.0)
         if self.curriculum is not None:
-            self.curriculum.adr.params["num_success"] = 3
+            self.curriculum.adr.params["num_success"] = 5
 
 
 @configclass
