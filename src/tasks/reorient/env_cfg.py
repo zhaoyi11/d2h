@@ -443,6 +443,18 @@ class EventCfg:
         },
     )
     # reset
+    randomize_hand_object_default_pose = EventTerm(
+        func=task_mdp.randomize_hand_object_default_pose,
+        mode="reset",
+        params={
+            "base_asset_cfg": SceneEntityCfg("robot", body_names="base"),
+            "object_asset_cfg": SceneEntityCfg("object"),
+            "roll_range": (-torch.pi, torch.pi),
+            "pitch_range": (-torch.pi, torch.pi),
+            "yaw_range": (-torch.pi, torch.pi),
+        },
+    )
+
     reset_object = EventTerm(
         func=mdp.reset_root_state_uniform,
         mode="reset",
@@ -457,18 +469,6 @@ class EventCfg:
             },
             "velocity_range": {},
             "asset_cfg": SceneEntityCfg("object", body_names=".*"),
-        },
-    )
-
-    randomize_hand_object_default_pose = EventTerm(
-        func=task_mdp.randomize_hand_object_default_pose,
-        mode="reset",
-        params={
-            "base_asset_cfg": SceneEntityCfg("robot", body_names="base"),
-            "object_asset_cfg": SceneEntityCfg("object"),
-            "roll_range": (-torch.pi, torch.pi),
-            "pitch_range": (-torch.pi, torch.pi),
-            "yaw_range": (-torch.pi, torch.pi),
         },
     )
 
