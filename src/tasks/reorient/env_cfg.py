@@ -449,9 +449,9 @@ class EventCfg:
         params={
             "base_asset_cfg": SceneEntityCfg("robot", body_names="base"),
             "object_asset_cfg": SceneEntityCfg("object"),
-            "roll_range": (-torch.pi, torch.pi),
-            "pitch_range": (-torch.pi, torch.pi),
-            "yaw_range": (-torch.pi, torch.pi),
+            "roll_range": (-0.3 * torch.pi, 0.3 * torch.pi),
+            "pitch_range": (-0.3 * torch.pi, 0.3 * torch.pi),
+            "yaw_range": (-0.3 * torch.pi, 0.3 * torch.pi),
         },
     )
 
@@ -463,9 +463,9 @@ class EventCfg:
                 "x": [-0.005, 0.005],
                 "y": [-0.005, 0.005],
                 "z": [-0.005, 0.005],
-                "roll": [-torch.pi, torch.pi],
-                "pitch": [-torch.pi, torch.pi],
-                "yaw": [-torch.pi, torch.pi],
+                "roll": [-0.3 * torch.pi, 0.3 * torch.pi],
+                "pitch": [-0.3 * torch.pi, 0.3 * torch.pi],
+                "yaw": [-0.3 * torch.pi, 0.3 * torch.pi],
             },
             "velocity_range": {},
             "asset_cfg": SceneEntityCfg("object", body_names=".*"),
