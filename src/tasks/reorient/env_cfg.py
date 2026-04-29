@@ -290,15 +290,21 @@ class ObservationsCfg:
             },
         )
         object_lin_vel = ObsTerm(
-            func=mdp.root_lin_vel_w,
+            func=task_mdp.object_lin_vel_robot_b,
             noise=Gnoise(std=0.002),
-            params={"asset_cfg": SceneEntityCfg("object")},
+            params={
+                "robot_cfg": SceneEntityCfg("robot"),
+                "object_cfg": SceneEntityCfg("object"),
+            },
         )
         object_ang_vel = ObsTerm(
-            func=mdp.root_ang_vel_w,
+            func=task_mdp.object_ang_vel_robot_b,
             scale=0.2,
             noise=Gnoise(std=0.002),
-            params={"asset_cfg": SceneEntityCfg("object")},
+            params={
+                "robot_cfg": SceneEntityCfg("robot"),
+                "object_cfg": SceneEntityCfg("object"),
+            },
         )
 
         # -- gravity in robot frame (needed for orientation-dependent grasp strategy)

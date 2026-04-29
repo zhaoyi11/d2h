@@ -597,6 +597,30 @@ def gravity_dir_b(
     return math_utils.quat_apply_inverse(robot.data.root_quat_w, gravity_w)
 
 
+def object_lin_vel_robot_b(
+    env: ManagerBasedRLEnv,
+    robot_cfg: SceneEntityCfg = SceneEntityCfg("robot"),
+    object_cfg: SceneEntityCfg = SceneEntityCfg("object"),
+) -> torch.Tensor:
+    """Object root linear velocity relative to the robot root, expressed in robot frame."""
+    robot: Articulation = env.scene[robot_cfg.name]
+    obj: RigidObject = env.scene[object_cfg.name]
+    rel_vel_w = obj.data.root_lin_vel_w - robot.data.root_lin_vel_w
+    return math_utils.quat_apply_inverse(robot.data.root_quat_w, rel_vel_w)
+
+
+def object_ang_vel_robot_b(
+    env: ManagerBasedRLEnv,
+    robot_cfg: SceneEntityCfg = SceneEntityCfg("robot"),
+    object_cfg: SceneEntityCfg = SceneEntityCfg("object"),
+) -> torch.Tensor:
+    """Object root angular velocity relative to the robot root, expressed in robot frame."""
+    robot: Articulation = env.scene[robot_cfg.name]
+    obj: RigidObject = env.scene[object_cfg.name]
+    rel_ang_vel_w = obj.data.root_ang_vel_w - robot.data.root_ang_vel_w
+    return math_utils.quat_apply_inverse(robot.data.root_quat_w, rel_ang_vel_w)
+
+
 def joint_pos_default_l2(
     env: ManagerBasedRLEnv,
     asset_cfg: SceneEntityCfg = SceneEntityCfg("robot"),
