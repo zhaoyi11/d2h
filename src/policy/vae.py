@@ -212,6 +212,7 @@ class ConditionalTrajectoryVAE(nn.Module):
     def forward(self, encoder_input: Tensor, context: Tensor) -> dict[str, Tensor]:
         mu, logvar = self.encode(encoder_input)
         z = self.reparameterize(mu, logvar)
+        print("latent space std", z.std(dim=-1).mean().item(), 'latent mean', z.mean(dim=-1).mean().item())
         condition = self.context_encoder(context)
         reconstruction = self.decode(condition, z)
         return {"reconstruction": reconstruction, "mu": mu, "logvar": logvar, "z": z}
@@ -299,7 +300,7 @@ def train_vae(
 
             for batch in loader:
                 batch = _move_batch(batch, torch_device)
-                import ipdb; ipdb.set_trace()
+                # import ipdb; ipdb.set_trace()
                 output = model(batch["encoder_input"], batch["context"])
                 loss, metrics = model.loss(output, batch["target_actions"], beta=beta)
 
