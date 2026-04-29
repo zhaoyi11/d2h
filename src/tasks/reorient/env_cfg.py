@@ -104,7 +104,7 @@ class InHandObjectSceneCfg(InteractiveSceneCfg):
                 disable_gravity=False,
             ),
             collision_props=sim_utils.CollisionPropertiesCfg(collision_enabled=True),
-            mass_props=sim_utils.MassPropertiesCfg(mass=0.2),
+            mass_props=sim_utils.MassPropertiesCfg(mass=0.1),
             scale=(0.8, 0.8, 0.8),
         ),
         # 12 cm above the hand

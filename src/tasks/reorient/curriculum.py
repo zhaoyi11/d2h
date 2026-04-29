@@ -391,7 +391,7 @@ class CurriculumCfg:
             "address": "events.variable_gravity.params.gravity_distribution_params",
             "modify_fn": initial_final_interpolate_fn,
             "modify_params": {
-                "initial_value": ((0.0, 0.0, 0.0), (0.0, 0.0, 0.0)),
+                "initial_value": ((0.0, 0.0, -3.0), (0.0, 0.0, -3.0)),
                 "final_value": ((0.0, 0.0, -9.81), (0.0, 0.0, -9.81)),
                 "difficulty_term_str": "adr",
             },

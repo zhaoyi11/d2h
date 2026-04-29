@@ -229,6 +229,7 @@ class EpisodeWriter:
         Returns the number of episodes flushed (== number of envs whose
         ``done`` flag is True on this call).
         """
+        # TODO: check actor output range. the current one looks very high.
         dones = terminated.astype(bool) | truncated.astype(bool)
         flushed = 0
         for i in range(self._num_envs):
@@ -616,7 +617,6 @@ def main(
                     actions = policy_nn.act_inference(obs)
                 else:
                     actions = policy(obs)
-
                 new_obs, rew, dones, _infos = env.step(actions)
                 truncated_t = env.unwrapped.termination_manager.time_outs.clone().bool()
                 terminated_t = dones.bool() & ~truncated_t
