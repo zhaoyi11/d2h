@@ -29,8 +29,8 @@ from abc import ABC, abstractmethod
 import torch
 import torch.nn as nn
 import torch.nn.functional as F  # noqa: N812
-from diffusers.schedulers.scheduling_ddim import DDIMScheduler
-from diffusers.schedulers.scheduling_ddpm import DDPMScheduler
+# from diffusers.schedulers.scheduling_ddim import DDIMScheduler
+# from diffusers.schedulers.scheduling_ddpm import DDPMScheduler
 from torch import Tensor
 
 
@@ -74,88 +74,88 @@ class BaseObjective(ABC):
         pass
 
 
-class DiffusionObjective(BaseObjective):
-    """Standard diffusion (DDPM/DDIM) objective implementation.
+# class DiffusionObjective(BaseObjective):
+#     """Standard diffusion (DDPM/DDIM) objective implementation.
 
-    Contains the noise scheduler, training loss, and conditional sampling.
-    """
+#     Contains the noise scheduler, training loss, and conditional sampling.
+#     """
 
-    def __init__(self, config, action_dim: int, horizon: int, do_mask_loss_for_padding: bool = False):
-        super().__init__(config, action_dim, horizon)
-        self.do_mask_loss_for_padding = do_mask_loss_for_padding
+#     def __init__(self, config, action_dim: int, horizon: int, do_mask_loss_for_padding: bool = False):
+#         super().__init__(config, action_dim, horizon)
+#         self.do_mask_loss_for_padding = do_mask_loss_for_padding
 
-        # Build noise scheduler
-        scheduler_kwargs = {
-            "num_train_timesteps": config.num_train_timesteps,
-            "beta_start": config.beta_start,
-            "beta_end": config.beta_end,
-            "beta_schedule": config.beta_schedule,
-            "prediction_type": config.prediction_type,
-        }
+#         # Build noise scheduler
+#         scheduler_kwargs = {
+#             "num_train_timesteps": config.num_train_timesteps,
+#             "beta_start": config.beta_start,
+#             "beta_end": config.beta_end,
+#             "beta_schedule": config.beta_schedule,
+#             "prediction_type": config.prediction_type,
+#         }
 
-        if config.noise_scheduler_type == "DDPM":
-            self.noise_scheduler: DDPMScheduler | DDIMScheduler = DDPMScheduler(**scheduler_kwargs)
-        elif config.noise_scheduler_type == "DDIM":
-            self.noise_scheduler = DDIMScheduler(**scheduler_kwargs)
-        else:
-            raise ValueError(f"Unsupported noise scheduler type {config.noise_scheduler_type}")
+#         if config.noise_scheduler_type == "DDPM":
+#             self.noise_scheduler: DDPMScheduler | DDIMScheduler = DDPMScheduler(**scheduler_kwargs)
+#         elif config.noise_scheduler_type == "DDIM":
+#             self.noise_scheduler = DDIMScheduler(**scheduler_kwargs)
+#         else:
+#             raise ValueError(f"Unsupported noise scheduler type {config.noise_scheduler_type}")
 
-        # Inference steps default to training steps if not provided
-        self.num_inference_steps = (
-            config.num_inference_steps
-            if getattr(config, "num_inference_steps", None) is not None
-            else self.noise_scheduler.config.num_train_timesteps
-        )
+#         # Inference steps default to training steps if not provided
+#         self.num_inference_steps = (
+#             config.num_inference_steps
+#             if getattr(config, "num_inference_steps", None) is not None
+#             else self.noise_scheduler.config.num_train_timesteps
+#         )
 
-    def compute_loss(self, model: nn.Module, batch: dict[str, Tensor], conditioning_vec: Tensor) -> Tensor:
-        clean_actions = batch["action"]
-        noise = torch.randn_like(clean_actions)
-        timesteps = torch.randint(
-            low=0,
-            high=self.noise_scheduler.config.num_train_timesteps,
-            size=(clean_actions.shape[0],),
-            device=clean_actions.device,
-        ).long()
-        noisy_actions = self.noise_scheduler.add_noise(clean_actions, noise, timesteps)
+#     def compute_loss(self, model: nn.Module, batch: dict[str, Tensor], conditioning_vec: Tensor) -> Tensor:
+#         clean_actions = batch["action"]
+#         noise = torch.randn_like(clean_actions)
+#         timesteps = torch.randint(
+#             low=0,
+#             high=self.noise_scheduler.config.num_train_timesteps,
+#             size=(clean_actions.shape[0],),
+#             device=clean_actions.device,
+#         ).long()
+#         noisy_actions = self.noise_scheduler.add_noise(clean_actions, noise, timesteps)
 
-        # Target depends on prediction type
-        prediction_type = self.noise_scheduler.config.prediction_type
-        if prediction_type == "epsilon":
-            target = noise
-        elif prediction_type == "sample":
-            target = clean_actions
-        else:
-            raise ValueError(f"Unsupported prediction type: {prediction_type}")
+#         # Target depends on prediction type
+#         prediction_type = self.noise_scheduler.config.prediction_type
+#         if prediction_type == "epsilon":
+#             target = noise
+#         elif prediction_type == "sample":
+#             target = clean_actions
+#         else:
+#             raise ValueError(f"Unsupported prediction type: {prediction_type}")
 
-        predicted = model(noisy_actions, timesteps, conditioning_vec=conditioning_vec)
-        loss = F.mse_loss(predicted, target, reduction="none")
+#         predicted = model(noisy_actions, timesteps, conditioning_vec=conditioning_vec)
+#         loss = F.mse_loss(predicted, target, reduction="none")
 
-        if self.do_mask_loss_for_padding and "action_is_pad" in batch:
-            valid_actions = ~batch["action_is_pad"]  # (B, T)
-            loss = loss * valid_actions.unsqueeze(-1)
+#         if self.do_mask_loss_for_padding and "action_is_pad" in batch:
+#             valid_actions = ~batch["action_is_pad"]  # (B, T)
+#             loss = loss * valid_actions.unsqueeze(-1)
 
-        return loss.mean()
+#         return loss.mean()
 
-    def conditional_sample(self, model: nn.Module, batch_size: int, conditioning_vec: Tensor) -> Tensor:
-        device = next(model.parameters()).device
-        dtype = next(model.parameters()).dtype
+#     def conditional_sample(self, model: nn.Module, batch_size: int, conditioning_vec: Tensor) -> Tensor:
+#         device = next(model.parameters()).device
+#         dtype = next(model.parameters()).dtype
 
-        sample = torch.randn(
-            size=(batch_size, self.horizon, self.action_dim),
-            dtype=dtype,
-            device=device,
-        )
+#         sample = torch.randn(
+#             size=(batch_size, self.horizon, self.action_dim),
+#             dtype=dtype,
+#             device=device,
+#         )
 
-        self.noise_scheduler.set_timesteps(self.num_inference_steps)
-        for t in self.noise_scheduler.timesteps:
-            model_output = model(
-                sample,
-                torch.full(sample.shape[:1], t, dtype=torch.long, device=sample.device),
-                conditioning_vec=conditioning_vec,
-            )
-            sample = self.noise_scheduler.step(model_output, t, sample).prev_sample
+#         self.noise_scheduler.set_timesteps(self.num_inference_steps)
+#         for t in self.noise_scheduler.timesteps:
+#             model_output = model(
+#                 sample,
+#                 torch.full(sample.shape[:1], t, dtype=torch.long, device=sample.device),
+#                 conditioning_vec=conditioning_vec,
+#             )
+#             sample = self.noise_scheduler.step(model_output, t, sample).prev_sample
 
-        return sample
+#         return sample
 
 
 class FlowMatchingObjective(BaseObjective):
