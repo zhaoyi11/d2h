@@ -4,7 +4,11 @@ from dataclasses import MISSING
 from pathlib import Path
 
 import isaaclab.sim as sim_utils
-from isaaclab.envs.mdp.events import randomize_rigid_body_scale
+from isaaclab.envs.mdp.events import (
+    randomize_rigid_body_mass,
+    randomize_rigid_body_material,
+    randomize_rigid_body_scale,
+)
 from isaaclab.managers import CommandTermCfg
 from isaaclab.markers import VisualizationMarkersCfg
 from isaaclab.markers.config import FRAME_MARKER_CFG
@@ -373,7 +377,8 @@ def success_bonus(
 ) -> torch.Tensor:
     """Bonus reward for successfully reaching the goal.
 
-    The object is considered to have reached the goal when the object orientation is within the threshold.
+    The object is considered to have reached the goal when the object orientation is within the threshold
+    and the object position is within 0.05 m of the goal.
     The reward is 1.0 if the object has reached the goal, otherwise 0.0.
 
     Args:
@@ -389,12 +394,15 @@ def success_bonus(
 
     # obtain the goal orientation
     goal_quat_w = command_term.command[:, 3:7]
+    # obtain the commanded goal position in world frame
+    goal_pos_w = command_term.command[:, 0:3] + env.scene.env_origins
     # obtain the threshold for the orientation error
     threshold = command_term.cfg.orientation_success_threshold
     # calculate the orientation error
     dtheta = math_utils.quat_error_magnitude(asset.data.root_quat_w, goal_quat_w)
+    position_error = torch.norm(goal_pos_w - asset.data.root_pos_w, p=2, dim=-1)
 
-    return dtheta <= threshold
+    return (dtheta <= threshold) & (position_error < 0.05)
 
 
 def track_pos_l2(
@@ -610,31 +618,66 @@ def recorded_object_scale(
     return scale.to(device=env.device, dtype=torch.float32)
 
 
-def asset_masses(
+def _cached_privileged_tensor(
     env: ManagerBasedRLEnv,
-    asset_cfg: SceneEntityCfg = SceneEntityCfg("object"),
+    key: str,
+    fallback: torch.Tensor | None = None,
 ) -> torch.Tensor:
-    """Rigid body masses for an asset. Shape: (num_envs, num_bodies)."""
-    asset: RigidObject | Articulation = env.scene[asset_cfg.name]
-    return asset.root_physx_view.get_masses().to(env.device)
+    """Cached privileged tensor recorded by a randomization event."""
+    if key not in env.extras:
+        if fallback is None:
+            raise RuntimeError(
+                f"Missing cached privileged observation '{key}'. "
+                "Use the matching randomization recording wrapper before reading this term."
+            )
+        env.extras[key] = fallback.to(device=env.device, dtype=torch.float32)
+    tensor = env.extras[key]
+    if not isinstance(tensor, torch.Tensor):
+        tensor = torch.as_tensor(tensor, device=env.device, dtype=torch.float32)
+    return tensor.to(device=env.device, dtype=torch.float32)
 
 
-def asset_static_friction(
+def recorded_asset_masses(
     env: ManagerBasedRLEnv,
-    asset_cfg: SceneEntityCfg = SceneEntityCfg("object"),
+    key: str,
+    asset_cfg: SceneEntityCfg | None = None,
 ) -> torch.Tensor:
-    """Per-shape static friction coefficients for an asset."""
-    asset: RigidObject | Articulation = env.scene[asset_cfg.name]
-    return asset.root_physx_view.get_material_properties()[:, :, 0].to(env.device)
+    """Cached rigid body masses for an asset. Shape: (num_envs, num_bodies)."""
+    fallback = None
+    if asset_cfg is not None and key not in env.extras:
+        asset: RigidObject | Articulation = env.scene[asset_cfg.name]
+        fallback = asset.root_physx_view.get_masses()
+    return _cached_privileged_tensor(env, key, fallback=fallback)
 
 
-def asset_dynamic_friction(
+def _recorded_asset_material_properties(
     env: ManagerBasedRLEnv,
-    asset_cfg: SceneEntityCfg = SceneEntityCfg("object"),
+    key: str,
+    asset_cfg: SceneEntityCfg | None = None,
 ) -> torch.Tensor:
-    """Per-shape dynamic friction coefficients for an asset."""
-    asset: RigidObject | Articulation = env.scene[asset_cfg.name]
-    return asset.root_physx_view.get_material_properties()[:, :, 1].to(env.device)
+    fallback = None
+    if asset_cfg is not None and key not in env.extras:
+        asset: RigidObject | Articulation = env.scene[asset_cfg.name]
+        fallback = asset.root_physx_view.get_material_properties()
+    return _cached_privileged_tensor(env, key, fallback=fallback)
+
+
+def recorded_asset_static_friction(
+    env: ManagerBasedRLEnv,
+    key: str,
+    asset_cfg: SceneEntityCfg | None = None,
+) -> torch.Tensor:
+    """Cached per-shape static friction coefficients for an asset."""
+    return _recorded_asset_material_properties(env, key, asset_cfg=asset_cfg)[:, :, 0]
+
+
+def recorded_asset_dynamic_friction(
+    env: ManagerBasedRLEnv,
+    key: str,
+    asset_cfg: SceneEntityCfg | None = None,
+) -> torch.Tensor:
+    """Cached per-shape dynamic friction coefficients for an asset."""
+    return _recorded_asset_material_properties(env, key, asset_cfg=asset_cfg)[:, :, 1]
 
 
 def asset_joint_stiffness(
@@ -653,6 +696,68 @@ def asset_joint_damping(
     """Joint damping values for an articulation. Shape: (num_envs, num_joints)."""
     asset: Articulation = env.scene[asset_cfg.name]
     return asset.data.joint_damping[:, asset_cfg.joint_ids]
+
+
+class randomize_rigid_body_material_and_record(randomize_rigid_body_material):
+    """Randomize rigid body material and cache applied properties for observations."""
+
+    def __call__(
+        self,
+        env: ManagerBasedEnv,
+        env_ids: torch.Tensor | None,
+        static_friction_range: tuple[float, float],
+        dynamic_friction_range: tuple[float, float],
+        restitution_range: tuple[float, float],
+        num_buckets: int,
+        asset_cfg: SceneEntityCfg,
+        make_consistent: bool = False,
+        record_key: str | None = None,
+    ):
+        super().__call__(
+            env,
+            env_ids,
+            static_friction_range,
+            dynamic_friction_range,
+            restitution_range,
+            num_buckets,
+            asset_cfg,
+            make_consistent,
+        )
+        key = record_key or f"{asset_cfg.name}_material_properties"
+        env.extras[key] = self.asset.root_physx_view.get_material_properties().to(
+            device=env.device, dtype=torch.float32
+        )
+
+
+class randomize_rigid_body_mass_and_record(randomize_rigid_body_mass):
+    """Randomize rigid body mass and cache applied masses for observations."""
+
+    def __call__(
+        self,
+        env: ManagerBasedEnv,
+        env_ids: torch.Tensor | None,
+        asset_cfg: SceneEntityCfg,
+        mass_distribution_params: tuple[float, float],
+        operation: Literal["add", "scale", "abs"],
+        distribution: Literal["uniform", "log_uniform", "gaussian"] = "uniform",
+        recompute_inertia: bool = True,
+        min_mass: float = 1e-6,
+        record_key: str | None = None,
+    ):
+        super().__call__(
+            env,
+            env_ids,
+            asset_cfg,
+            mass_distribution_params,
+            operation,
+            distribution,
+            recompute_inertia,
+            min_mass,
+        )
+        key = record_key or f"{asset_cfg.name}_mass"
+        env.extras[key] = self.asset.root_physx_view.get_masses().to(
+            device=env.device, dtype=torch.float32
+        )
 
 
 def randomize_rigid_body_scale_and_record(

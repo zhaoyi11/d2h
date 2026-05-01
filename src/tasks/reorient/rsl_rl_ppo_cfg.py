@@ -16,7 +16,7 @@ class LeapObjectRslRlPpoCfg(RslRlPpoCfgBase):
         # entropy_coef=0.005,
         entropy_coef=0.002,
         num_learning_epochs=5,
-        num_mini_batches=4,
+        num_mini_batches=4,  #TODO: 8 or 16
         learning_rate=1.0e-3,
         schedule="adaptive",
         gamma=0.99,

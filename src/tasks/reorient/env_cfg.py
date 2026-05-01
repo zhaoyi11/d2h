@@ -358,28 +358,43 @@ class ObservationsCfg:
 
         object_scale = ObsTerm(func=task_mdp.recorded_object_scale)
         object_mass = ObsTerm(
-            func=task_mdp.asset_masses,
-            params={"asset_cfg": SceneEntityCfg("object")},
+            func=task_mdp.recorded_asset_masses,
+            params={"key": "object_mass", "asset_cfg": SceneEntityCfg("object")},
         )
         object_static_friction = ObsTerm(
-            func=task_mdp.asset_static_friction,
-            params={"asset_cfg": SceneEntityCfg("object")},
+            func=task_mdp.recorded_asset_static_friction,
+            params={
+                "key": "object_material_properties",
+                "asset_cfg": SceneEntityCfg("object"),
+            },
         )
         object_dynamic_friction = ObsTerm(
-            func=task_mdp.asset_dynamic_friction,
-            params={"asset_cfg": SceneEntityCfg("object")},
+            func=task_mdp.recorded_asset_dynamic_friction,
+            params={
+                "key": "object_material_properties",
+                "asset_cfg": SceneEntityCfg("object"),
+            },
         )
         robot_mass = ObsTerm(
-            func=task_mdp.asset_masses,
-            params={"asset_cfg": SceneEntityCfg("robot", body_names=".*")},
+            func=task_mdp.recorded_asset_masses,
+            params={
+                "key": "robot_mass",
+                "asset_cfg": SceneEntityCfg("robot", body_names=".*"),
+            },
         )
         robot_static_friction = ObsTerm(
-            func=task_mdp.asset_static_friction,
-            params={"asset_cfg": SceneEntityCfg("robot", body_names=".*")},
+            func=task_mdp.recorded_asset_static_friction,
+            params={
+                "key": "robot_material_properties",
+                "asset_cfg": SceneEntityCfg("robot", body_names=".*"),
+            },
         )
         robot_dynamic_friction = ObsTerm(
-            func=task_mdp.asset_dynamic_friction,
-            params={"asset_cfg": SceneEntityCfg("robot", body_names=".*")},
+            func=task_mdp.recorded_asset_dynamic_friction,
+            params={
+                "key": "robot_material_properties",
+                "asset_cfg": SceneEntityCfg("robot", body_names=".*"),
+            },
         )
         robot_joint_stiffness = ObsTerm(
             func=task_mdp.asset_joint_stiffness,
@@ -408,7 +423,7 @@ class EventCfg:
     # startup
     # -- robot
     robot_physics_material = EventTerm(
-        func=mdp.randomize_rigid_body_material,
+        func=task_mdp.randomize_rigid_body_material_and_record,
         mode="startup",
         params={
             "asset_cfg": SceneEntityCfg("robot", body_names=".*"),
@@ -419,7 +434,7 @@ class EventCfg:
         },
     )
     robot_scale_mass = EventTerm(
-        func=mdp.randomize_rigid_body_mass,
+        func=task_mdp.randomize_rigid_body_mass_and_record,
         mode="startup",
         params={
             "asset_cfg": SceneEntityCfg("robot", body_names=".*"),
@@ -451,7 +466,7 @@ class EventCfg:
     )
 
     object_physics_material = EventTerm(
-        func=mdp.randomize_rigid_body_material,
+        func=task_mdp.randomize_rigid_body_material_and_record,
         mode="startup",
         params={
             "asset_cfg": SceneEntityCfg("object", body_names=".*"),
@@ -463,7 +478,7 @@ class EventCfg:
     )
 
     object_scale_mass = EventTerm(
-        func=mdp.randomize_rigid_body_mass,
+        func=task_mdp.randomize_rigid_body_mass_and_record,
         mode="startup",
         params={
             "asset_cfg": SceneEntityCfg("object"),
@@ -629,23 +644,12 @@ class RewardsCfg:
     # abnormal robot
     abnormal_robot = RewTerm(func=mdp.abnormal_robot_state, weight=-10.0)
 
-    # object_away_penalty = RewTerm(
-    #     func=task_mdp.object_away_from_robot,
-    #     weight=-1,
-    #     params={"threshold": 0.3},
-    # )
-
 
 @configclass
 class TerminationsCfg:
     """Termination terms for the MDP."""
 
     time_out = DoneTerm(func=mdp.time_out, time_out=True)
-
-    # max_consecutive_success = DoneTerm(
-    #     func=task_mdp.max_consecutive_success,
-    #     params={"num_success": 100, "command_name": "object_pose"},
-    # )
 
     abnormal_robot = DoneTerm(func=mdp.abnormal_robot_state)
 
