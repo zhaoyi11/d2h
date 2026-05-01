@@ -397,6 +397,15 @@ class EventCfg:
     )
 
     # -- object
+    object_scale = EventTerm(
+        func=mdp.randomize_rigid_body_scale,
+        mode="prestartup",
+        params={
+            "scale_range": (0.75, 0.85),
+            "asset_cfg": SceneEntityCfg("object"),
+        },
+    )
+
     object_physics_material = EventTerm(
         func=mdp.randomize_rigid_body_material,
         mode="startup",
@@ -425,10 +434,9 @@ class EventCfg:
         params={
             "base_asset_cfg": SceneEntityCfg("robot", body_names="base"),
             "object_asset_cfg": SceneEntityCfg("object"),
-            # The range will be changed with curriculum
-            "roll_range": (0.0, 0.0),
-            "pitch_range": (0.0, 0.0),
-            "yaw_range": (0.0, 0.0),
+            "roll_range": (-torch.pi, torch.pi),
+            "pitch_range": (-torch.pi, torch.pi),
+            "yaw_range": (-torch.pi, torch.pi),
         },
     )
 
@@ -439,12 +447,12 @@ class EventCfg:
         params={
             # the pose range with be changed with curriculum
             "pose_range": {
-                "x": [-0.0, 0.0],
-                "y": [-0.0, 0.0],
-                "z": [-0.0, 0.0],
-                "roll": [0.0, 0.0],
-                "pitch": [0.0, 0.0],
-                "yaw": [0.0, 0.0],
+                "x": [-0.005, 0.005],
+                "y": [-0.005, 0.005],
+                "z": [-0.005, 0.005],
+                "roll": [-torch.pi, torch.pi],
+                "pitch": [-torch.pi, torch.pi],
+                "yaw": [-torch.pi, torch.pi],
             },
             "velocity_range": {},
             "asset_cfg": SceneEntityCfg("object", body_names=".*"),

@@ -100,6 +100,10 @@ class DifficultyScheduler(ManagerTermBase):
         ).clamp(min=min_difficulty, max=max_difficulty)
 
         self.difficulty_frac = torch.mean(self.current_adr_difficulties).item() / max(max_difficulty, 1)
+        # self.difficulty_frac = (
+        #     torch.quantile(self.current_adr_difficulties, 0.5, interpolation="lower").item()
+        #     / max(max_difficulty, 1)
+        # )
         return self.difficulty_frac
 
 
@@ -134,7 +138,7 @@ class CurriculumCfg:
     #     },
     # )
 
-    # Wrist poses
+    # # Wrist poses
     # hand_object_pose_roll_adr = CurrTerm(
     #     func=common_mdp.modify_term_cfg,
     #     params={
