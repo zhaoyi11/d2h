@@ -367,7 +367,7 @@ from isaaclab.sensors import ContactSensor
 from isaaclab.utils.math import quat_apply, quat_from_euler_xyz
 
 from src.tasks.common.obj_point_cloud import sample_object_point_cloud
-# from src.tasks.reorient.curriculum import CurriculumCfg
+# from src.tasks.reorient.mdps import CurriculumCfg
 
 
 def success_bonus(

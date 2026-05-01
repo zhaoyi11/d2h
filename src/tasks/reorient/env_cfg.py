@@ -34,8 +34,7 @@ from isaaclab.utils.noise import AdditiveUniformNoiseCfg as Unoise
 from isaaclab.markers.config import FRAME_MARKER_CFG
 
 import src.tasks.common.mdps as mdp
-import src.tasks.reorient.mdps as task_mdp
-from src.tasks.reorient.curriculum import CurriculumCfg
+import src.tasks.reorient.mdps as task_mdps
 from src.assets.franka_leap_hand.leap import LEAP_HAND_CFG
 
 ##
@@ -136,7 +135,7 @@ class InHandObjectSceneCfg(InteractiveSceneCfg):
 class CommandsCfg:
     """Command specifications for the MDP."""
 
-    object_pose = task_mdp.InHandReOrientationCommandCfg(
+    object_pose = task_mdps.InHandReOrientationCommandCfg(
         asset_name="object",
         random_range=(0.3 * torch.pi, 0.5 * torch.pi),  # will increase to (0.3\pi, 0.5\pi) with curriculum
         init_pos_offset=(0.0, 0.0, 0.0),
@@ -148,6 +147,7 @@ class CommandsCfg:
         marker_pos_offset=(-0.2, -0.06, 0.08),
         debug_vis=True,
         use_position_success=True,  # also consider position success
+        # TODO: test 0.05
         position_success_threshold=0.1,  # reduce to 0.05 with curriculum
     )
 
@@ -208,7 +208,7 @@ class ObservationsCfg:
 
         # binary contact mask per fingertip (4 dims)
         contact_mask = ObsTerm(
-            func=task_mdp.tip_contact_mask_obs,
+            func=task_mdps.tip_contact_mask_obs,
             params={
                 "contact_sensor_names": [
                     "thumb_tip_object_s",
@@ -222,7 +222,7 @@ class ObservationsCfg:
 
         # per-fingertip contact force magnitude (4 dims)
         contact_force_mag = ObsTerm(
-            func=task_mdp.tip_contact_force_mag_obs,
+            func=task_mdps.tip_contact_force_mag_obs,
             params={
                 "contact_sensor_names": [
                     "thumb_tip_object_s",
@@ -237,7 +237,7 @@ class ObservationsCfg:
         # per-fingertip contact pose (theta, phi) in fingertip frame, flattened (8 dims)
         # TOOD: check this
         contact_pose = ObsTerm(
-            func=task_mdp.tip_contact_pose_flat,
+            func=task_mdps.tip_contact_pose_flat,
             params={
                 "contact_sensor_names": [
                     "thumb_tip_object_s",
@@ -268,7 +268,7 @@ class ObservationsCfg:
         )
 
         object_lin_vel = ObsTerm(
-            func=task_mdp.object_lin_vel_robot_b,
+            func=task_mdps.object_lin_vel_robot_b,
             noise=Gnoise(std=0.002),
             params={
                 "robot_cfg": SceneEntityCfg("robot"),
@@ -277,7 +277,7 @@ class ObservationsCfg:
         )
         
         object_ang_vel = ObsTerm(
-            func=task_mdp.object_ang_vel_robot_b,
+            func=task_mdps.object_ang_vel_robot_b,
             scale=0.2,
             noise=Gnoise(std=0.002),
             params={
@@ -289,7 +289,7 @@ class ObservationsCfg:
         # -- gravity in robot frame (needed for orientation-dependent grasp strategy)
         # TODO: check this as well
         gravity_dir = ObsTerm(
-            func=task_mdp.gravity_dir_b,
+            func=task_mdps.gravity_dir_b,
             params={"base_asset_cfg": SceneEntityCfg("robot")},
         )
 
@@ -356,52 +356,52 @@ class ObservationsCfg:
     class PrivilegedObsCfg(ObsGroup):
         """Object and robot DR parameters for the critic."""
 
-        object_scale = ObsTerm(func=task_mdp.recorded_object_scale)
+        object_scale = ObsTerm(func=task_mdps.recorded_object_scale)
         object_mass = ObsTerm(
-            func=task_mdp.recorded_asset_masses,
+            func=task_mdps.recorded_asset_masses,
             params={"key": "object_mass", "asset_cfg": SceneEntityCfg("object")},
         )
         object_static_friction = ObsTerm(
-            func=task_mdp.recorded_asset_static_friction,
+            func=task_mdps.recorded_asset_static_friction,
             params={
                 "key": "object_material_properties",
                 "asset_cfg": SceneEntityCfg("object"),
             },
         )
         object_dynamic_friction = ObsTerm(
-            func=task_mdp.recorded_asset_dynamic_friction,
+            func=task_mdps.recorded_asset_dynamic_friction,
             params={
                 "key": "object_material_properties",
                 "asset_cfg": SceneEntityCfg("object"),
             },
         )
         robot_mass = ObsTerm(
-            func=task_mdp.recorded_asset_masses,
+            func=task_mdps.recorded_asset_masses,
             params={
                 "key": "robot_mass",
                 "asset_cfg": SceneEntityCfg("robot", body_names=".*"),
             },
         )
         robot_static_friction = ObsTerm(
-            func=task_mdp.recorded_asset_static_friction,
+            func=task_mdps.recorded_asset_static_friction,
             params={
                 "key": "robot_material_properties",
                 "asset_cfg": SceneEntityCfg("robot", body_names=".*"),
             },
         )
         robot_dynamic_friction = ObsTerm(
-            func=task_mdp.recorded_asset_dynamic_friction,
+            func=task_mdps.recorded_asset_dynamic_friction,
             params={
                 "key": "robot_material_properties",
                 "asset_cfg": SceneEntityCfg("robot", body_names=".*"),
             },
         )
         robot_joint_stiffness = ObsTerm(
-            func=task_mdp.asset_joint_stiffness,
+            func=task_mdps.asset_joint_stiffness,
             params={"asset_cfg": SceneEntityCfg("robot", joint_names=".*")},
         )
         robot_joint_damping = ObsTerm(
-            func=task_mdp.asset_joint_damping,
+            func=task_mdps.asset_joint_damping,
             params={"asset_cfg": SceneEntityCfg("robot", joint_names=".*")},
         )
 
@@ -423,7 +423,7 @@ class EventCfg:
     # startup
     # -- robot
     robot_physics_material = EventTerm(
-        func=task_mdp.randomize_rigid_body_material_and_record,
+        func=task_mdps.randomize_rigid_body_material_and_record,
         mode="startup",
         params={
             "asset_cfg": SceneEntityCfg("robot", body_names=".*"),
@@ -434,7 +434,7 @@ class EventCfg:
         },
     )
     robot_scale_mass = EventTerm(
-        func=task_mdp.randomize_rigid_body_mass_and_record,
+        func=task_mdps.randomize_rigid_body_mass_and_record,
         mode="startup",
         params={
             "asset_cfg": SceneEntityCfg("robot", body_names=".*"),
@@ -457,7 +457,7 @@ class EventCfg:
 
     # -- object
     object_scale = EventTerm(
-        func=task_mdp.randomize_rigid_body_scale_and_record,
+        func=task_mdps.randomize_rigid_body_scale_and_record,
         mode="prestartup",
         params={
             "scale_range": (0.75, 0.85),
@@ -466,7 +466,7 @@ class EventCfg:
     )
 
     object_physics_material = EventTerm(
-        func=task_mdp.randomize_rigid_body_material_and_record,
+        func=task_mdps.randomize_rigid_body_material_and_record,
         mode="startup",
         params={
             "asset_cfg": SceneEntityCfg("object", body_names=".*"),
@@ -478,7 +478,7 @@ class EventCfg:
     )
 
     object_scale_mass = EventTerm(
-        func=task_mdp.randomize_rigid_body_mass_and_record,
+        func=task_mdps.randomize_rigid_body_mass_and_record,
         mode="startup",
         params={
             "asset_cfg": SceneEntityCfg("object"),
@@ -488,7 +488,7 @@ class EventCfg:
     )
 
     randomize_hand_object_default_pose = EventTerm(
-        func=task_mdp.randomize_hand_object_default_pose,
+        func=task_mdps.randomize_hand_object_default_pose,
         mode="reset",
         params={
             "base_asset_cfg": SceneEntityCfg("robot", body_names="base"),
@@ -519,7 +519,7 @@ class EventCfg:
     )
 
     reset_robot_joints = EventTerm(
-        func=task_mdp.reset_joints_within_limits_range,
+        func=task_mdps.reset_joints_within_limits_range,
         mode="reset",
         params={
             "position_range": {".*": [0.2, 0.2]},
@@ -543,7 +543,7 @@ class EventCfg:
     # Fires every step per-env; must be declared AFTER variable_gravity so the
     # event manager applies it after gravity has been updated.
     gravity_compensation_assist = EventTerm(
-        func=task_mdp.apply_gravity_compensation_assist,
+        func=task_mdps.apply_gravity_compensation_assist,
         mode="interval",
         interval_range_s=(0.0, 0.0),
         params={
@@ -559,7 +559,7 @@ class RewardsCfg:
     """Reward terms for the MDP."""
 
     track_position = RewTerm(
-        func=task_mdp.track_position,
+        func=task_mdps.track_position,
         weight=2.0,
         params={
             "object_cfg": SceneEntityCfg("object"),
@@ -571,7 +571,7 @@ class RewardsCfg:
     )
 
     track_orientation = RewTerm(
-        func=task_mdp.track_orientation,
+        func=task_mdps.track_orientation,
         weight=5.0,
         params={
             "object_cfg": SceneEntityCfg("object"),
@@ -583,7 +583,7 @@ class RewardsCfg:
     )
 
     # track_orientation = RewTerm(
-    #     func=task_mdp.track_orientation_exp,
+    #     func=task_mdps.track_orientation_exp,
     #     weight=5.0,
     #     params={
     #         "object_cfg": SceneEntityCfg("object"),
@@ -595,7 +595,7 @@ class RewardsCfg:
     # )
 
     # track_orientation = RewTerm(
-    #     func=task_mdp.track_orientation_inv_l2,
+    #     func=task_mdps.track_orientation_inv_l2,
     #     weight=1.0,
     #     params={
     #         "object_cfg": SceneEntityCfg("object"),
@@ -606,13 +606,13 @@ class RewardsCfg:
     # )
 
     fingertip_obj_dist = RewTerm(
-        func=task_mdp.neg_fingertip_object_distance,
+        func=task_mdps.neg_fingertip_object_distance,
         weight=0.5,
     )
 
     # todo: check good contact, the value doesn't look very good for now.
     good_contact = RewTerm(
-        func=task_mdp.good_contact_reward,
+        func=task_mdps.good_contact_reward,
         weight=1.0,
         params={
             "contact_sensor_names": [
@@ -629,15 +629,15 @@ class RewardsCfg:
     )
 
     success = RewTerm(
-        func=task_mdp.success_bonus,
+        func=task_mdps.success_bonus,
         weight=20.0,
         params={"object_cfg": SceneEntityCfg("object"), "command_name": "object_pose"},
     )
 
     # penalties
-    energy = RewTerm(func=task_mdp.joint_power, weight=-1e-5, params={"asset_cfg": SceneEntityCfg("robot")})
+    energy = RewTerm(func=task_mdps.joint_power, weight=-1e-5, params={"asset_cfg": SceneEntityCfg("robot")})
     # todo; check this
-    # joint_pos_default_l2 = RewTerm(func=task_mdp.joint_pos_default_l2, weight=-1e-3)
+    # joint_pos_default_l2 = RewTerm(func=task_mdps.joint_pos_default_l2, weight=-1e-3)
     action_l2 = RewTerm(func=mdp.action_l2, weight=-0.001)
     action_rate_l2 = RewTerm(func=mdp.action_rate_l2, weight=-0.01)
 
@@ -654,7 +654,7 @@ class TerminationsCfg:
     abnormal_robot = DoneTerm(func=mdp.abnormal_robot_state)
 
     object_out_of_reach = DoneTerm(
-        func=task_mdp.object_away_from_robot, params={"threshold": 0.2}
+        func=task_mdps.object_away_from_robot, params={"threshold": 0.2}
     )
 
 
@@ -692,7 +692,7 @@ class InHandObjectEnvCfg(ManagerBasedRLEnvCfg):
     rewards: RewardsCfg = RewardsCfg()
     terminations: TerminationsCfg = TerminationsCfg()
     events: EventCfg = EventCfg()
-    curriculum: CurriculumCfg = CurriculumCfg()
+    curriculum: task_mdps.CurriculumCfg = task_mdps.CurriculumCfg()
 
     def __post_init__(self):
         """Post initialization."""
