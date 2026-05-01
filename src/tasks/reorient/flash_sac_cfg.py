@@ -10,12 +10,12 @@ from src.tasks.common.flash_sac_cfg_base import FlashSacCfgBase
 @dataclass
 class LeapObjectFlashSacCfg(FlashSacCfgBase):
     experiment_name: str = "reorient_flash_sac"
-    # Match the RSL-RL config for Reorient-v0: policy + perception groups, symmetric.
+    # Match the RSL-RL config for Reorient-v0: policy + perception for actor, plus privileged critic terms.
     # See src/tasks/reorient/rsl_rl_ppo_cfg.py.
     obs_groups: dict[str, list[str]] = field(
         default_factory=lambda: {
             "policy": ["policy", "perception"],
-            "critic": ["policy", "perception"],
+            "critic": ["policy", "perception", "privileged"],
         }
     )
     # Reorient uses EMAJointPositionToLimitsActionCfg; actions land in [-1, 1].

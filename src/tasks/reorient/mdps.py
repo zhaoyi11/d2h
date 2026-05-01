@@ -4,9 +4,11 @@ from dataclasses import MISSING
 from pathlib import Path
 
 import isaaclab.sim as sim_utils
+from isaaclab.envs.mdp.events import randomize_rigid_body_scale
 from isaaclab.managers import CommandTermCfg
 from isaaclab.markers import VisualizationMarkersCfg
 from isaaclab.markers.config import FRAME_MARKER_CFG
+from isaaclab.sim.utils.stage import get_current_stage
 from isaaclab.utils import configclass
 from isaaclab.utils.assets import ISAAC_NUCLEUS_DIR
 from isaaclab.managers import EventTermCfg, ManagerTermBase, SceneEntityCfg
@@ -24,7 +26,7 @@ from isaaclab.managers import CommandTerm
 from isaaclab.markers.visualization_markers import VisualizationMarkers
 
 if TYPE_CHECKING:
-    from isaaclab.envs import ManagerBasedRLEnv
+    from isaaclab.envs import ManagerBasedEnv, ManagerBasedRLEnv
 
 ###########################
 ###### Command Term #######
@@ -595,6 +597,99 @@ def gravity_dir_b(
     robot: Articulation = env.scene[base_asset_cfg.name]
     gravity_w = torch.tensor([0.0, 0.0, -1.0], device=env.device).expand(env.num_envs, -1)
     return math_utils.quat_apply_inverse(robot.data.root_quat_w, gravity_w)
+
+
+def recorded_object_scale(
+    env: ManagerBasedRLEnv,
+    key: str = "object_scale",
+) -> torch.Tensor:
+    """Recorded object scale from pre-startup randomization. Shape: (num_envs, 3)."""
+    scale = env.extras.get(key)
+    if scale is None:
+        return torch.ones((env.num_envs, 3), device=env.device)
+    return scale.to(device=env.device, dtype=torch.float32)
+
+
+def asset_masses(
+    env: ManagerBasedRLEnv,
+    asset_cfg: SceneEntityCfg = SceneEntityCfg("object"),
+) -> torch.Tensor:
+    """Rigid body masses for an asset. Shape: (num_envs, num_bodies)."""
+    asset: RigidObject | Articulation = env.scene[asset_cfg.name]
+    return asset.root_physx_view.get_masses().to(env.device)
+
+
+def asset_static_friction(
+    env: ManagerBasedRLEnv,
+    asset_cfg: SceneEntityCfg = SceneEntityCfg("object"),
+) -> torch.Tensor:
+    """Per-shape static friction coefficients for an asset."""
+    asset: RigidObject | Articulation = env.scene[asset_cfg.name]
+    return asset.root_physx_view.get_material_properties()[:, :, 0].to(env.device)
+
+
+def asset_dynamic_friction(
+    env: ManagerBasedRLEnv,
+    asset_cfg: SceneEntityCfg = SceneEntityCfg("object"),
+) -> torch.Tensor:
+    """Per-shape dynamic friction coefficients for an asset."""
+    asset: RigidObject | Articulation = env.scene[asset_cfg.name]
+    return asset.root_physx_view.get_material_properties()[:, :, 1].to(env.device)
+
+
+def asset_joint_stiffness(
+    env: ManagerBasedRLEnv,
+    asset_cfg: SceneEntityCfg = SceneEntityCfg("robot"),
+) -> torch.Tensor:
+    """Joint stiffness values for an articulation. Shape: (num_envs, num_joints)."""
+    asset: Articulation = env.scene[asset_cfg.name]
+    return asset.data.joint_stiffness[:, asset_cfg.joint_ids]
+
+
+def asset_joint_damping(
+    env: ManagerBasedRLEnv,
+    asset_cfg: SceneEntityCfg = SceneEntityCfg("robot"),
+) -> torch.Tensor:
+    """Joint damping values for an articulation. Shape: (num_envs, num_joints)."""
+    asset: Articulation = env.scene[asset_cfg.name]
+    return asset.data.joint_damping[:, asset_cfg.joint_ids]
+
+
+def randomize_rigid_body_scale_and_record(
+    env: ManagerBasedEnv,
+    env_ids: torch.Tensor | None,
+    scale_range: tuple[float, float] | dict[str, tuple[float, float]],
+    asset_cfg: SceneEntityCfg,
+    relative_child_path: str | None = None,
+    key: str = "object_scale",
+):
+    """Randomize rigid body scale and store applied per-env values for critic observations."""
+    randomize_rigid_body_scale(env, env_ids, scale_range, asset_cfg, relative_child_path)
+
+    asset: RigidObject = env.scene[asset_cfg.name]
+    if env_ids is None:
+        env_ids_cpu = torch.arange(env.scene.num_envs, device="cpu")
+    else:
+        env_ids_cpu = env_ids.cpu()
+
+    if key not in env.extras or env.extras[key].shape != (env.num_envs, 3):
+        env.extras[key] = torch.ones((env.num_envs, 3), device=env.device)
+
+    child_path = relative_child_path or ""
+    if child_path and not child_path.startswith("/"):
+        child_path = "/" + child_path
+
+    stage = get_current_stage()
+    prim_paths = sim_utils.find_matching_prim_paths(asset.cfg.prim_path)
+    for env_id in env_ids_cpu.tolist():
+        prim = stage.GetPrimAtPath(prim_paths[env_id] + child_path)
+        scale_attr = prim.GetAttribute("xformOp:scale") if prim.IsValid() else None
+        scale_value = scale_attr.Get() if scale_attr is not None else None
+        if scale_value is None:
+            scale_tensor = torch.ones(3, device=env.device)
+        else:
+            scale_tensor = torch.tensor(scale_value, device=env.device, dtype=torch.float32)
+        env.extras[key][env_id] = scale_tensor
 
 
 def object_lin_vel_robot_b(

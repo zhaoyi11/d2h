@@ -6,7 +6,7 @@ from src.tasks.common.rsl_rl_ppo_cfg_base import RslRlPpoCfgBase, RslRlPpoAlgori
 @configclass
 class LeapObjectRslRlPpoCfg(RslRlPpoCfgBase):
     experiment_name = "reorient"
-    obs_groups = {"policy": ["policy", "perception"], "critic": ["policy", "perception"]}
+    obs_groups = {"policy": ["policy", "perception"], "critic": ["policy", "perception", "privileged"]}
     max_iterations = 15000
     save_interval = 250
     algorithm = RslRlPpoAlgorithmCfg(

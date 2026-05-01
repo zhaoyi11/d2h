@@ -104,7 +104,7 @@ class InHandObjectSceneCfg(InteractiveSceneCfg):
                 disable_gravity=False,
             ),
             collision_props=sim_utils.CollisionPropertiesCfg(collision_enabled=True),
-            mass_props=sim_utils.MassPropertiesCfg(mass=0.2),
+            mass_props=sim_utils.MassPropertiesCfg(mass=0.05),
             scale=(0.8, 0.8, 0.8),
         ),
         # 12 cm above the hand
@@ -352,9 +352,53 @@ class ObservationsCfg:
             self.flatten_history_dim = True
             self.history_length = 5
 
+    @configclass
+    class PrivilegedObsCfg(ObsGroup):
+        """Object and robot DR parameters for the critic."""
+
+        object_scale = ObsTerm(func=task_mdp.recorded_object_scale)
+        object_mass = ObsTerm(
+            func=task_mdp.asset_masses,
+            params={"asset_cfg": SceneEntityCfg("object")},
+        )
+        object_static_friction = ObsTerm(
+            func=task_mdp.asset_static_friction,
+            params={"asset_cfg": SceneEntityCfg("object")},
+        )
+        object_dynamic_friction = ObsTerm(
+            func=task_mdp.asset_dynamic_friction,
+            params={"asset_cfg": SceneEntityCfg("object")},
+        )
+        robot_mass = ObsTerm(
+            func=task_mdp.asset_masses,
+            params={"asset_cfg": SceneEntityCfg("robot", body_names=".*")},
+        )
+        robot_static_friction = ObsTerm(
+            func=task_mdp.asset_static_friction,
+            params={"asset_cfg": SceneEntityCfg("robot", body_names=".*")},
+        )
+        robot_dynamic_friction = ObsTerm(
+            func=task_mdp.asset_dynamic_friction,
+            params={"asset_cfg": SceneEntityCfg("robot", body_names=".*")},
+        )
+        robot_joint_stiffness = ObsTerm(
+            func=task_mdp.asset_joint_stiffness,
+            params={"asset_cfg": SceneEntityCfg("robot", joint_names=".*")},
+        )
+        robot_joint_damping = ObsTerm(
+            func=task_mdp.asset_joint_damping,
+            params={"asset_cfg": SceneEntityCfg("robot", joint_names=".*")},
+        )
+
+        def __post_init__(self):
+            self.enable_corruption = False
+            self.concatenate_terms = True
+            self.history_length = 1
+
     # observation groups
     policy: KinematicObsGroupCfg = KinematicObsGroupCfg()
     perception: PerceptionObsCfg = PerceptionObsCfg()
+    privileged: PrivilegedObsCfg = PrivilegedObsCfg()
 
 
 @configclass
@@ -398,7 +442,7 @@ class EventCfg:
 
     # -- object
     object_scale = EventTerm(
-        func=mdp.randomize_rigid_body_scale,
+        func=task_mdp.randomize_rigid_body_scale_and_record,
         mode="prestartup",
         params={
             "scale_range": (0.75, 0.85),
