@@ -26,4 +26,4 @@ class LeapObjectFlashSacCfg(FlashSacCfgBase):
         # Reorient's obs is ~1060-dim (kinematic + 5-frame 64-point PC). The default
         # FlashSAC buffer_max_length (10M) would need ~42 GB on GPU. Cap to 1M which
         # fits comfortably on consumer GPUs while still giving SAC enough capacity.
-        self.agent.buffer_max_length = 5_000_000
+        self.agent.buffer_max_length = 10_000_000

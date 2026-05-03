@@ -179,34 +179,13 @@ class ObservationsCfg:
         # observation terms (order preserved)
         # -- robot terms
         joint_pos = ObsTerm(
-            func=mdp.joint_pos_limit_normalized, noise=Unoise(n_min=0.0, n_max=0.002)
+            func=mdp.joint_pos_limit_normalized, noise=Gnoise(std=0.005)
         )
-        joint_vel = ObsTerm(func=mdp.joint_vel_rel, scale=0.2, noise=Gnoise(std=0.002))
+        joint_vel = ObsTerm(func=mdp.joint_vel_rel, scale=0.2, noise=Gnoise(std=0.01))
 
-        # fingertip pose in robot base frame
-        fingertip_pos = ObsTerm(
-            func=mdp.body_pos_b,
-            params={
-                "body_asset_cfg": SceneEntityCfg("robot", body_names=".*fingertip.*"),
-                "base_asset_cfg": SceneEntityCfg("robot"),
-            },
-        )
-        fingertip_quat = ObsTerm(
-            func=mdp.body_quat_b,
-            params={
-                "body_asset_cfg": SceneEntityCfg("robot", body_names=".*fingertip.*"),
-                "base_asset_cfg": SceneEntityCfg("robot"),
-            },
-        )
-        fingertip_lin_vel = ObsTerm(
-            func=mdp.body_lin_vel_b,
-            params={
-                "body_asset_cfg": SceneEntityCfg("robot", body_names=".*fingertip.*"),
-                "base_asset_cfg": SceneEntityCfg("robot"),
-            },
-        )
-        fingertip_ang_vel = ObsTerm(
-            func=mdp.body_ang_vel_b,
+        # fingertip pose
+        fingertip_pose = ObsTerm(
+            func=mdp.body_state_b,
             params={
                 "body_asset_cfg": SceneEntityCfg("robot", body_names=".*fingertip.*"),
                 "base_asset_cfg": SceneEntityCfg("robot"),
@@ -216,7 +195,6 @@ class ObservationsCfg:
         # fingertip contact — raw 3D forces in robot base frame (12 dims)
         fingertip_contact_force_b = ObsTerm(
             func=mdp.fingers_contact_force_b,
-            noise=Gnoise(std=0.002),
             params={
                 "contact_sensor_names": [
                     "thumb_tip_object_s",
@@ -553,7 +531,7 @@ class EventCfg:
         mode="reset",
         params={
             # the gravity will be changed with curriculum
-            "gravity_distribution_params": ([0.0, 0.0, -1.0], [0.0, 0.0, -1.0]),
+            "gravity_distribution_params": ([0.0, 0.0, 0.0], [0.0, 0.0, 0.0]),
             "operation": "abs",
         },
     )
@@ -702,7 +680,7 @@ class InHandObjectEnvCfg(ManagerBasedRLEnvCfg):
         # change viewer settings
         self.viewer.eye = (2.0, 2.0, 2.0)
         if self.curriculum is not None:
-            self.curriculum.adr.params["num_success"] = 5
+            self.curriculum.adr.params["num_success"] = 3
 
 
 @configclass
@@ -772,3 +750,15 @@ class LeapObjectEnvCfg(InHandObjectEnvCfg):
                     debug_vis=False,
                 ),
             )
+
+
+@configclass
+class LeapObjectEnvCfg_PLAY(LeapObjectEnvCfg):
+    """Leap hand object reorientation evaluation environment."""
+
+    def __post_init__(self):
+        super().__post_init__()
+        if self.curriculum is not None:
+            max_difficulty = self.curriculum.adr.params["max_difficulty"]
+            self.curriculum.adr.params["init_difficulty"] = max_difficulty
+            self.curriculum.adr.params["min_difficulty"] = max_difficulty

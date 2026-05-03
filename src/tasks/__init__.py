@@ -21,6 +21,17 @@ gym.register(
     },
 )
 
+gym.register(
+    id="Reorient_Play-v0",
+    entry_point="isaaclab.envs:ManagerBasedRLEnv",
+    disable_env_checker=True,
+    kwargs={
+        "env_cfg_entry_point": f"{__name__}.reorient.env_cfg:LeapObjectEnvCfg_PLAY",
+        "rsl_rl_cfg_entry_point": "src.tasks.reorient.rsl_rl_ppo_cfg:LeapObjectRslRlPpoCfg",
+        "flash_sac_cfg_entry_point": "src.tasks.reorient.flash_sac_cfg:LeapObjectFlashSacCfg",
+    },
+)
+
 # Pick AnyRotate Environment
 gym.register(
     id="Pick_AnyRotate-v0",
