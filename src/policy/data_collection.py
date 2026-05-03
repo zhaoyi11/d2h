@@ -51,7 +51,7 @@ parser.add_argument(
     "--disable_fabric", action="store_true", default=False, help="Disable fabric and use USD I/O operations."
 )
 parser.add_argument("--num_envs", type=int, default=None, help="Number of environments to simulate.")
-parser.add_argument("--task", type=str, default=None, help="Name of the task.")
+parser.add_argument("--task", type=str, default="Reorient_Play-v0", help="Name of the task.")
 parser.add_argument(
     "--agent", type=str, default="rsl_rl_cfg_entry_point", help="Name of the RL agent configuration entry point."
 )
@@ -74,8 +74,14 @@ parser.add_argument(
 parser.add_argument(
     "--obs_groups",
     type=str,
-    default="policy,proprio,perception",
+    default="policy",
     help="Comma-separated observation group names to save (each as its own array in the npz).",
+)
+parser.add_argument(
+    "--action_noise_std_max",
+    type=float,
+    default=0.5,
+    help="Upper bound for per-env Gaussian action-noise std sampled uniformly from [0, this] on reset.",
 )
 parser.add_argument(
     "--deterministic",
@@ -185,6 +191,7 @@ class EpisodeWriter:
         obs_group_names: list[str],
         max_in_flight_writes: int = 8,
         max_workers: int = 2,
+        max_episodes: int | None = None,
     ) -> None:
         self._output_dir = pathlib.Path(output_dir).expanduser()
         self._output_dir.mkdir(parents=True, exist_ok=True)
@@ -199,6 +206,7 @@ class EpisodeWriter:
         self._writer = ThreadPoolExecutor(max_workers=max_workers)
         self._pending: list[Future[None]] = []
         self._write_sem = threading.BoundedSemaphore(max_in_flight_writes)
+        self._max_episodes = max_episodes
         self._num_saved = 0
 
     @property
@@ -210,6 +218,7 @@ class EpisodeWriter:
         obs_groups: dict[str, np.ndarray],
         action: np.ndarray,
         reward: np.ndarray,
+        done: np.ndarray,
         terminated: np.ndarray,
         truncated: np.ndarray,
         next_obs_groups: dict[str, np.ndarray],
@@ -221,6 +230,7 @@ class EpisodeWriter:
             obs_groups[g]      (N, *obs_dim_g)
             action             (N, act_dim)
             reward             (N,)
+            done               (N,) bool
             terminated         (N,) bool
             truncated          (N,) bool
             next_obs_groups[g] (N, *obs_dim_g)
@@ -230,7 +240,7 @@ class EpisodeWriter:
         ``done`` flag is True on this call).
         """
         # TODO: check actor output range. the current one looks very high.
-        dones = terminated.astype(bool) | truncated.astype(bool)
+        dones = done.astype(bool)
         flushed = 0
         for i in range(self._num_envs):
             step: dict[str, np.ndarray] = {
@@ -269,6 +279,8 @@ class EpisodeWriter:
                 self._per_env_buffer[i] = []
                 self._per_env_success[i] = None
 
+                if self._max_episodes is not None and self._num_saved >= self._max_episodes:
+                    continue
                 path = _episode_path(self._output_dir, self._num_saved)
                 self._num_saved += 1
                 # Backpressure: block the collection loop if too many writes are
@@ -300,6 +312,45 @@ def _to_np(x: Any) -> np.ndarray | None:
     if np.issubdtype(arr.dtype, np.floating):
         arr = arr.astype(np.float32, copy=False)
     return arr
+
+
+def _select_clean_and_env_actions(
+    obs: Any,
+    policy: Any,
+    policy_nn: Any,
+    deterministic: bool,
+    action_noise_std: torch.Tensor,
+) -> tuple[torch.Tensor, torch.Tensor]:
+    """Return clean policy actions for storage and noisy actions for env interaction."""
+    if deterministic and hasattr(policy_nn, "act_inference"):
+        clean_actions = policy_nn.act_inference(obs)
+    else:
+        clean_actions = policy(obs)
+
+    noise_std = action_noise_std.to(device=clean_actions.device, dtype=clean_actions.dtype)
+    if bool((noise_std > 0.0).any()):
+        env_actions = clean_actions + torch.randn_like(clean_actions) * noise_std.view(-1, *([1] * (clean_actions.ndim - 1)))
+    else:
+        env_actions = clean_actions
+    return clean_actions, env_actions
+
+
+def _sample_action_noise_std(
+    num_envs: int,
+    device: torch.device | str,
+    max_std: float,
+    current: torch.Tensor | None = None,
+    done: torch.Tensor | None = None,
+    generator: torch.Generator | None = None,
+) -> torch.Tensor:
+    """Sample per-env action noise stds, optionally replacing only done envs."""
+    samples = torch.rand(num_envs, device=device, generator=generator) * float(max_std)
+    if current is None or done is None:
+        return samples
+    updated = current.clone()
+    done_mask = done.to(device=updated.device).bool()
+    updated[done_mask] = samples[done_mask]
+    return updated
 
 
 def _dot_lookup(root: Any, dotted: str) -> Any:
@@ -489,22 +540,43 @@ def _write_metadata(
     except Exception:
         pass
 
-    meta = {
+    meta = _build_metadata_payload(
+        args_cli=args_cli,
+        groups=groups,
+        group_dims=group_dims,
+        action_dim=action_dim,
+        resume_path=resume_path,
+        git_sha=_git_sha(),
+        timestamp=datetime.now().isoformat(timespec="seconds"),
+    )
+    with (out_dir / "metadata.json").open("w") as f:
+        json.dump(meta, f, indent=2)
+
+
+def _build_metadata_payload(
+    args_cli: argparse.Namespace,
+    groups: list[str],
+    group_dims: dict[str, Any],
+    action_dim: int,
+    resume_path: str,
+    git_sha: str | None,
+    timestamp: str,
+) -> dict[str, Any]:
+    return {
         "task": args_cli.task,
         "checkpoint": str(resume_path),
         "num_envs": args_cli.num_envs,
         "num_episodes_target": args_cli.num_episodes,
         "seed": args_cli.seed,
         "deterministic": bool(args_cli.deterministic),
+        "action_noise_std_range": [0.0, float(args_cli.action_noise_std_max)],
         "obs_groups": groups,
         "obs_group_dims": group_dims,
         "action_dim": int(action_dim),
         "success_key": args_cli.success_key,
-        "git_sha": _git_sha(),
-        "timestamp": datetime.now().isoformat(timespec="seconds"),
+        "git_sha": git_sha,
+        "timestamp": timestamp,
     }
-    with (out_dir / "metadata.json").open("w") as f:
-        json.dump(meta, f, indent=2)
 
 
 def _select_groups(obs: Mapping[str, torch.Tensor], requested: Iterable[str]) -> list[str]:
@@ -584,6 +656,7 @@ def main(
         num_envs=env.num_envs,
         obs_group_names=groups,
         max_in_flight_writes=args_cli.max_in_flight_writes,
+        max_episodes=args_cli.num_episodes,
     )
 
     try:
@@ -606,6 +679,11 @@ def main(
     device = env.unwrapped.device
     ep_return = torch.zeros(env.num_envs, device=device)
     ep_length = torch.zeros(env.num_envs, device=device, dtype=torch.long)
+    action_noise_std = _sample_action_noise_std(
+        num_envs=env.num_envs,
+        device=device,
+        max_std=args_cli.action_noise_std_max,
+    )
     returns: list[float] = []
     lengths: list[int] = []
     successes: list[bool] = []
@@ -613,21 +691,32 @@ def main(
     try:
         while writer.num_saved < args_cli.num_episodes and simulation_app.is_running():
             with torch.inference_mode():
-                if args_cli.deterministic and hasattr(policy_nn, "act_inference"):
-                    actions = policy_nn.act_inference(obs)
+                clean_actions, env_actions = _select_clean_and_env_actions(
+                    obs=obs,
+                    policy=policy,
+                    policy_nn=policy_nn,
+                    deterministic=args_cli.deterministic,
+                    action_noise_std=action_noise_std,
+                )
+                new_obs, rew, dones, infos = env.step(env_actions)
+                done_t = dones.bool()
+                time_outs = infos.get("time_outs") if isinstance(infos, Mapping) else None
+                if time_outs is None:
+                    truncated_t = env.unwrapped.termination_manager.time_outs.clone().bool()
+                elif isinstance(time_outs, torch.Tensor):
+                    truncated_t = time_outs.to(device=done_t.device).bool()
                 else:
-                    actions = policy(obs)
-                new_obs, rew, dones, _infos = env.step(actions)
-                truncated_t = env.unwrapped.termination_manager.time_outs.clone().bool()
-                terminated_t = dones.bool() & ~truncated_t
+                    truncated_t = torch.as_tensor(time_outs, device=done_t.device).bool()
+                terminated_t = done_t & ~truncated_t
                 success_t = _detect_success(env, args_cli.success_key)
 
                 obs_np = {g: _to_np(obs[g]) for g in groups}
                 next_obs_np = {g: _to_np(new_obs[g]) for g in groups}
                 n_flushed = writer.add_step(
                     obs_groups=obs_np,
-                    action=_to_np(actions),
+                    action=_to_np(clean_actions),
                     reward=_to_np(rew),
+                    done=_to_np(done_t),
                     terminated=_to_np(terminated_t),
                     truncated=_to_np(truncated_t),
                     next_obs_groups=next_obs_np,
@@ -636,8 +725,8 @@ def main(
 
                 ep_return += rew
                 ep_length += 1
-                if dones.any():
-                    done_mask = dones.bool()
+                if done_t.any():
+                    done_mask = done_t
                     finished_idx = torch.where(done_mask)[0].tolist()
                     for i in finished_idx:
                         returns.append(float(ep_return[i].item()))
@@ -646,6 +735,13 @@ def main(
                             successes.append(bool(success_t[i].item()))
                     ep_return[done_mask] = 0.0
                     ep_length[done_mask] = 0
+                    action_noise_std = _sample_action_noise_std(
+                        num_envs=env.num_envs,
+                        device=device,
+                        max_std=args_cli.action_noise_std_max,
+                        current=action_noise_std,
+                        done=done_mask,
+                    )
                     pbar.update(n_flushed)
 
                 if hasattr(policy_nn, "reset"):

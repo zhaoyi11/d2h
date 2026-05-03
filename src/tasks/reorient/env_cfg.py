@@ -672,7 +672,7 @@ class InHandObjectEnvCfg(ManagerBasedRLEnvCfg):
     def __post_init__(self):
         """Post initialization."""
         # general settings
-        self.decimation = 4  # 25 Hz
+        self.decimation = 4  # 30 Hz
         self.episode_length_s = 15  # 15 seconds
         # simulation settings
         self.sim.dt = 1.0 / 120.0
