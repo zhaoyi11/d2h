@@ -43,8 +43,7 @@ def success_bonus(
     # calculate the orientation error
     dtheta = math_utils.quat_error_magnitude(asset.data.root_quat_w, goal_quat_w)
     position_error = torch.norm(goal_pos_w - asset.data.root_pos_w, p=2, dim=-1)
-    return dtheta <= orientation_threshold
-    # return (dtheta <= orientation_threshold) & (position_error < position_threshold)
+    return (dtheta <= orientation_threshold) & (position_error < position_threshold)
 
 
 def track_pos_l2(
@@ -232,6 +231,30 @@ def neg_fingertip_object_distance(
     dists = torch.norm(fingertip_pos - object_pos_expanded, p=2, dim=-1)
 
     return -torch.mean(dists, dim=-1)
+
+
+def fingertip_object_distance_exp(
+    env: ManagerBasedRLEnv,
+    dist_scale: float = 10.0,
+    dist_temp: float = 1.0,
+) -> torch.Tensor:
+    """Bounded fingertip-object distance reward using an exponential kernel.
+
+    reward = exp(-mean_distance^2 * dist_scale / dist_temp)
+    """
+
+    fingertip_pos = env.scene.sensors["fingertip_transforms"].data.target_pos_w
+    num_finger = fingertip_pos.shape[1]
+    fingertip_pos_e = fingertip_pos - env.scene.env_origins.unsqueeze(1).expand(
+        env.num_envs, num_finger, 3
+    )
+
+    obj: RigidObject = env.scene["object"]
+    obj_pos_e = obj.data.root_pos_w - env.scene.env_origins
+
+    dists = torch.norm(fingertip_pos_e - obj_pos_e.unsqueeze(1), p=2, dim=-1)
+    mean_dist = torch.mean(dists, dim=-1)
+    return torch.exp(-(mean_dist ** 2) * dist_scale / dist_temp)
 
 
 def joint_pos_default_l2(

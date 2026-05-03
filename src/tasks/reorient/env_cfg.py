@@ -147,8 +147,7 @@ class CommandsCfg:
         marker_pos_offset=(-0.2, -0.06, 0.08),
         debug_vis=True,
         use_position_success=True,  # also consider position success
-        # TODO: test 0.05
-        position_success_threshold=0.1,  # reduce to 0.05 with curriculum
+        position_success_threshold=0.05,  # reduce to 0.05 with curriculum
     )
 
 
@@ -287,7 +286,6 @@ class ObservationsCfg:
         )
 
         # -- gravity in robot frame (needed for orientation-dependent grasp strategy)
-        # TODO: check this as well
         gravity_dir = ObsTerm(
             func=task_mdps.gravity_dir_b,
             params={"base_asset_cfg": SceneEntityCfg("robot")},
@@ -336,21 +334,21 @@ class ObservationsCfg:
             self.object_lin_vel = None
             self.object_ang_vel = None
 
-    @configclass
-    class PerceptionObsCfg(ObsGroup):
-        object_point_cloud = ObsTerm(
-            func=mdp.object_point_cloud_b,
-            noise=Unoise(n_min=-0.01, n_max=0.01),
-            clip=(-2.0, 2.0),  # clamp between -2 m to 2 m
-            params={"num_points": 64, "flatten": True},
-        )
+    # @configclass
+    # class PerceptionObsCfg(ObsGroup):
+    #     object_point_cloud = ObsTerm(
+    #         func=mdp.object_point_cloud_b,
+    #         noise=Unoise(n_min=-0.01, n_max=0.01),
+    #         clip=(-2.0, 2.0),  # clamp between -2 m to 2 m
+    #         params={"num_points": 64, "flatten": True},
+    #     )
 
-        def __post_init__(self):
-            self.enable_corruption = True
-            self.concatenate_dim = 0
-            self.concatenate_terms = True
-            self.flatten_history_dim = True
-            self.history_length = 5
+    #     def __post_init__(self):
+    #         self.enable_corruption = True
+    #         self.concatenate_dim = 0
+    #         self.concatenate_terms = True
+    #         self.flatten_history_dim = True
+    #         self.history_length = 5
 
     @configclass
     class PrivilegedObsCfg(ObsGroup):
@@ -412,7 +410,7 @@ class ObservationsCfg:
 
     # observation groups
     policy: KinematicObsGroupCfg = KinematicObsGroupCfg()
-    perception: PerceptionObsCfg = PerceptionObsCfg()
+    # perception: PerceptionObsCfg = PerceptionObsCfg()
     privileged: PrivilegedObsCfg = PrivilegedObsCfg()
 
 
@@ -564,8 +562,8 @@ class RewardsCfg:
         params={
             "object_cfg": SceneEntityCfg("object"),
             "command_name": "object_pose",
-            "pos_scale": 2.0,
-            "pos_temp": 0.5,
+            "pos_scale": 80.0,
+            "pos_temp": 1.0,
             "need_contact": True,
         },
     )
@@ -582,32 +580,13 @@ class RewardsCfg:
         },
     )
 
-    # track_orientation = RewTerm(
-    #     func=task_mdps.track_orientation_exp,
-    #     weight=5.0,
-    #     params={
-    #         "object_cfg": SceneEntityCfg("object"),
-    #         "command_name": "object_pose",
-    #         "rot_scale": 2.0,
-    #         "rot_temp": 1.0,
-    #         "need_contact": True,
-    #     }
-    # )
-
-    # track_orientation = RewTerm(
-    #     func=task_mdps.track_orientation_inv_l2,
-    #     weight=1.0,
-    #     params={
-    #         "object_cfg": SceneEntityCfg("object"),
-    #         "rot_eps": 0.1,
-    #         "command_name": "object_pose",
-    #         "need_contact": True
-    #     }
-    # )
-
-    fingertip_obj_dist = RewTerm(
-        func=task_mdps.neg_fingertip_object_distance,
+    fingertip_obj_dist_exp = RewTerm(
+        func=task_mdps.fingertip_object_distance_exp,
         weight=0.5,
+        params={
+            "dist_scale": 80.0,
+            "dist_temp": 1.0,
+        },
     )
 
     # todo: check good contact, the value doesn't look very good for now.
@@ -636,8 +615,6 @@ class RewardsCfg:
 
     # penalties
     energy = RewTerm(func=task_mdps.joint_power, weight=-1e-5, params={"asset_cfg": SceneEntityCfg("robot")})
-    # todo; check this
-    # joint_pos_default_l2 = RewTerm(func=task_mdps.joint_pos_default_l2, weight=-1e-3)
     action_l2 = RewTerm(func=mdp.action_l2, weight=-0.001)
     action_rate_l2 = RewTerm(func=mdp.action_rate_l2, weight=-0.01)
 
