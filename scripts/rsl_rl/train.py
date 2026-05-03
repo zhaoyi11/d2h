@@ -147,6 +147,38 @@ def _apply_grasp_overrides(env_cfg, args_cli):
         return
 
 
+def _scheduled_entropy_coef(initial_entropy_coef, final_entropy_coef, iteration, decay_iterations):
+    if decay_iterations <= 0:
+        return final_entropy_coef
+    progress = min(max(iteration / decay_iterations, 0.0), 1.0)
+    return initial_entropy_coef + progress * (final_entropy_coef - initial_entropy_coef)
+
+
+def _apply_entropy_coef_schedule(runner, agent_cfg):
+    final_entropy_coef = getattr(agent_cfg, "entropy_coef_final", None)
+    decay_fraction = getattr(agent_cfg, "entropy_coef_decay_fraction", None)
+    if final_entropy_coef is None or decay_fraction is None:
+        return
+
+    initial_entropy_coef = runner.alg.entropy_coef
+    decay_iterations = int(agent_cfg.max_iterations * decay_fraction)
+    iteration = runner.current_learning_iteration
+    update = runner.alg.update
+
+    def update_with_entropy_schedule():
+        nonlocal iteration
+        runner.alg.entropy_coef = _scheduled_entropy_coef(
+            initial_entropy_coef,
+            final_entropy_coef,
+            iteration,
+            decay_iterations,
+        )
+        iteration += 1
+        return update()
+
+    runner.alg.update = update_with_entropy_schedule
+
+
 @hydra_task_config(args_cli.task, args_cli.agent)
 def main(
     env_cfg: ManagerBasedRLEnvCfg | DirectRLEnvCfg | DirectMARLEnvCfg,
@@ -270,6 +302,7 @@ def main(
         print(f"[INFO]: Loading model checkpoint from: {resume_path}")
         # load previously trained model
         runner.load(resume_path)
+    _apply_entropy_coef_schedule(runner, agent_cfg)
 
     # dump the configuration into log-directory
     dump_yaml(os.path.join(log_dir, "params", "env.yaml"), env_cfg)
