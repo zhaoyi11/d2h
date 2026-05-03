@@ -116,6 +116,21 @@ def object_quat_b(
     return quat_mul(quat_inv(robot.data.root_quat_w), object.data.root_quat_w)
 
 
+def object_pose_b(
+    env: ManagerBasedRLEnv,
+    robot_cfg: SceneEntityCfg = SceneEntityCfg("robot"),
+    object_cfg: SceneEntityCfg = SceneEntityCfg("object"),
+) -> torch.Tensor:
+    """Object pose in the robot's root frame as ``[position, quaternion]``."""
+    return torch.cat(
+        (
+            object_pos_b(env, robot_cfg=robot_cfg, object_cfg=object_cfg),
+            object_quat_b(env, robot_cfg=robot_cfg, object_cfg=object_cfg),
+        ),
+        dim=1,
+    )
+
+
 def body_state_b(
     env: ManagerBasedRLEnv,
     body_asset_cfg: SceneEntityCfg,

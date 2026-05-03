@@ -65,7 +65,9 @@ _build
 /datasets/
 
 # Tests
-tests/
+tests/*
+!tests/policy/
+!tests/policy/test_vae.py
 
 # Docker history
 .isaac-lab-docker-history

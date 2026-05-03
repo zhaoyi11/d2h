@@ -23,10 +23,11 @@ from isaaclab.utils.assets import ISAAC_NUCLEUS_DIR
 from isaaclab.utils.noise import AdditiveUniformNoiseCfg as Unoise
 from isaaclab.sensors import ContactSensorCfg
 
-import src.tasks.pick_anyrotate.mdps as mdp
+import src.tasks.clean_table.mdps as mdp
 from src.assets.franka_leap_hand.franka_leap import FRANKA_LEAP_HAND_CFG
 
 # UWLAB_CLOUD_ASSETS_DIR = "https://huggingface.co/datasets/UW-Lab/uwlab-assets/resolve/main"
+
 
 def _get_visdex_usd_paths() -> list[str]:
     """Return sorted visdex USD asset paths bundled with this repo."""
@@ -44,6 +45,7 @@ def _get_visdex_usd_paths() -> list[str]:
         raise ValueError(f"No visdex USD assets found in: {usd_root}")
     return usd_paths
 
+
 @configclass
 class SceneCfg(InteractiveSceneCfg):
     """Dexsuite Scene for multi-objects Lifting"""
@@ -56,7 +58,7 @@ class SceneCfg(InteractiveSceneCfg):
         prim_path="{ENV_REGEX_NS}/Object",
         spawn=sim_utils.MultiUsdFileCfg(
             usd_path=_get_visdex_usd_paths(),
-            random_choice=False,
+            random_choice=True,
             articulation_props=sim_utils.ArticulationRootPropertiesCfg(
                 articulation_enabled=False,
             ),
@@ -74,7 +76,6 @@ class SceneCfg(InteractiveSceneCfg):
             rot=[1.0, 0.0, 0.0, 0.0],
         ),
     )
-
 
     receptive_object = RigidObjectCfg(
         prim_path="{ENV_REGEX_NS}/ReceptiveObject",
@@ -94,57 +95,6 @@ class SceneCfg(InteractiveSceneCfg):
         init_state=RigidObjectCfg.InitialStateCfg(pos=(0.55, 0.0, 0.271), rot=(1.0, 0.0, 0.0, 0.0)),
     )
 
-    # # table base
-    # object_table = RigidObjectCfg(
-    #     prim_path="{ENV_REGEX_NS}/ObjectTable",
-    #     spawn=sim_utils.UsdFileCfg(
-    #         usd_path=f"/home/yizhao/yi/D2H/src/assets/square_table_leg/square_table_top_convex.usd",
-    #         activate_contact_sensors=True,
-    #         rigid_props=sim_utils.RigidBodyPropertiesCfg(
-    #             kinematic_enabled=True,
-    #             disable_gravity=True,
-    #             max_depenetration_velocity=1000.0,
-    #             max_linear_velocity=1000.0,
-    #             max_angular_velocity=1000.0,
-    #         ),
-    #         articulation_props=sim_utils.ArticulationRootPropertiesCfg(
-    #             articulation_enabled=False,
-    #         ),
-    #         collision_props=sim_utils.CollisionPropertiesCfg(),
-    #         mass_props=sim_utils.MassPropertiesCfg(mass=0.2),
-    #         scale=(1.5, 1.5, 1.5),
-    #     ),
-    #     init_state=RigidObjectCfg.InitialStateCfg(
-    #         pos=[0.55, 0.0, 0.271],
-    #         rot=[0.7071068, 0.7071068, 0.0, 0.0],
-    #     ),
-    # )
-
-    # # table leg
-    # object = RigidObjectCfg(
-    #     prim_path="{ENV_REGEX_NS}/Object",
-    #     spawn=sim_utils.UsdFileCfg(
-    #         usd_path=f"/home/yizhao/yi/D2H/src/assets/square_table_leg/square_table_leg1_convex.usd",
-    #         activate_contact_sensors=True,
-    #         rigid_props=sim_utils.RigidBodyPropertiesCfg(
-    #             disable_gravity=False,
-    #             max_depenetration_velocity=1000.0,
-    #             max_linear_velocity=1000.0,
-    #             max_angular_velocity=1000.0,
-    #         ),
-    #         articulation_props=sim_utils.ArticulationRootPropertiesCfg(
-    #             articulation_enabled=False,
-    #         ),
-    #         collision_props=sim_utils.CollisionPropertiesCfg(),
-    #         mass_props=sim_utils.MassPropertiesCfg(mass=0.2),
-    #         scale=(1.5, 1.5, 1.5),
-    #     ),
-    #     init_state=RigidObjectCfg.InitialStateCfg(
-    #         pos=[0.55, 0.1, 0.34],
-    #         rot=[1.0, 0.0, 0.0, 0.0],
-    #     ),
-    # )    
-    
     # table
     table: RigidObjectCfg = RigidObjectCfg(
         prim_path="{ENV_REGEX_NS}/Table",
@@ -178,21 +128,19 @@ class SceneCfg(InteractiveSceneCfg):
 class CommandsCfg:
     """Command terms for the MDP."""
 
-    object_pose = mdp.ObjectUniformPoseCommandCfg(
-        asset_name="robot",
-        object_name="object",
-        resampling_time_range=(3.0, 5.0),
-        debug_vis=False,
-        ranges=mdp.ObjectUniformPoseCommandCfg.Ranges(
-            pos_x=(0.3, 0.7),
-            pos_y=(-0.25, 0.25),
-            pos_z=(0.55, 0.95),
-            roll=(-3.14, 3.14),
-            pitch=(-3.14, 3.14),
-            yaw=(0.0, 0.0),
-        ),
-        success_vis_asset_name="table",
+    task_command = mdp.PlaceInBoxCommandCfg(
+        robot_cfg=SceneEntityCfg("robot"),
+        object_cfg=SceneEntityCfg("object"),
+        box_cfg=SceneEntityCfg("receptive_object"),
+        table_cfg=SceneEntityCfg("table"),
+        resampling_time_range=(1.0e6, 1.0e6),
+        table_half_height=0.02,
+        lift_height=0.08,
+        box_target_pos=(0.0, 0.0, 0.12),
+        box_min=(-0.18, -0.26, 0.02),
+        box_max=(0.18, 0.26, 0.24),
     )
+
 
 @configclass
 class ObservationsCfg:
@@ -201,15 +149,23 @@ class ObservationsCfg:
     class PolicyCfg(ObsGroup):
         """Observations for policy group."""
 
-        # object_pos_b = ObsTerm(
-        #     func=mdp.object_pos_b, noise=Unoise(n_min=-0.0, n_max=0.0)
-        # )
+        object_pos_b = ObsTerm(
+            func=mdp.object_pos_b, noise=Unoise(n_min=-0.0, n_max=0.0)
+        )
 
         object_quat_b = ObsTerm(
             func=mdp.object_quat_b, noise=Unoise(n_min=-0.0, n_max=0.0)
         )
-        target_object_pose_b = ObsTerm(
-            func=mdp.generated_commands, params={"command_name": "object_pose"}
+        box_pose_b = ObsTerm(
+            func=mdp.box_pose_b,
+            params={"box_cfg": SceneEntityCfg("receptive_object")},
+        )
+        object_pos_box = ObsTerm(
+            func=mdp.object_pos_box,
+            params={
+                "object_cfg": SceneEntityCfg("object"),
+                "box_cfg": SceneEntityCfg("receptive_object"),
+            },
         )
         actions = ObsTerm(func=mdp.last_action)
 
@@ -341,6 +297,16 @@ class EventCfg:
         },
     )
 
+    reset_receptive_object = EventTerm(
+        func=mdp.reset_root_state_uniform,
+        mode="reset",
+        params={
+            "pose_range": {"x": [-0.25, 0.15], "y": [-0.25, 0.25], "z": [0.0, 0.0]},
+            "velocity_range": {"x": [-0.0, 0.0], "y": [-0.0, 0.0], "z": [-0.0, 0.0]},
+            "asset_cfg": SceneEntityCfg("receptive_object"),
+        },
+    )
+
     reset_object = EventTerm(
         func=mdp.reset_root_state_uniform,
         mode="reset",
@@ -377,20 +343,6 @@ class EventCfg:
         },
     )
 
-    # Note (Octi): This is a deliberate trick in Remake to accelerate learning.
-    # By scheduling gravity as a curriculum — starting with no gravity (easy)
-    # and gradually introducing full gravity (hard) — the agent learns more smoothly.
-    # This removes the need for a special "Lift" reward (often required to push the
-    # agent to counter gravity), which has bonus effect of simplifying reward composition overall.
-    variable_gravity = EventTerm(
-        func=mdp.randomize_physics_scene_gravity,
-        mode="reset",
-        params={
-            "gravity_distribution_params": ([0.0, 0.0, 0.0], [0.0, 0.0, 0.0]),
-            "operation": "abs",
-        },
-    )
-
 
 @configclass
 class ActionsCfg:
@@ -412,50 +364,34 @@ class RewardsCfg:
         func=mdp.object_ee_distance, params={"std": 0.4}, weight=1.0
     )
 
-    position_tracking = RewTerm(
-        func=mdp.position_command_error_tanh,
-        weight=2.0,
-        params={
-            "asset_cfg": SceneEntityCfg("robot"),
-            "std": 0.2,
-            "command_name": "object_pose",
-            "align_asset_cfg": SceneEntityCfg("object"),
-        },
+    good_finger_contact = RewTerm(
+        func=mdp.good_finger_contact,
+        weight=0.5,
+        params={"threshold": 1.0},
     )
 
-    orientation_tracking = RewTerm(
-        func=mdp.orientation_command_error_tanh,
+    lift = RewTerm(
+        func=mdp.lift_reward,
         weight=2.0,
-        params={
-            "asset_cfg": SceneEntityCfg("robot"),
-            "std": 1.5,
-            "command_name": "object_pose",
-            "align_asset_cfg": SceneEntityCfg("object"),
-        },
+        params={"command_name": "task_command", "target_height": 0.08},
     )
 
-    # success_position = RewTerm(
-    #     func=mdp.success_reward,
-    #     weight=5,
-    #     params={
-    #         "asset_cfg": SceneEntityCfg("robot"),
-    #         "pos_std": 0.1,
-    #         "rot_std": None,
-    #         "command_name": "object_pose",
-    #         "align_asset_cfg": SceneEntityCfg("object"),
-    #     },
-    # )
+    transport = RewTerm(
+        func=mdp.transport_reward,
+        weight=3.0,
+        params={"command_name": "task_command", "std": 0.35},
+    )
+
+    inside_box = RewTerm(
+        func=mdp.inside_box_reward,
+        weight=8.0,
+        params={"command_name": "task_command"},
+    )
 
     success = RewTerm(
-        func=mdp.success_reward,
+        func=mdp.place_success_reward,
         weight=10,
-        params={
-            "asset_cfg": SceneEntityCfg("robot"),
-            "pos_std": 0.1,
-            "rot_std": 0.5,
-            "command_name": "object_pose",
-            "align_asset_cfg": SceneEntityCfg("object"),
-        },
+        params={"command_name": "task_command"},
     )
 
     early_termination = RewTerm(
@@ -497,32 +433,12 @@ class DexsuiteReorientEnvCfg(ManagerBasedRLEnvCfg):
     rewards: RewardsCfg = RewardsCfg()
     terminations: TerminationsCfg = TerminationsCfg()
     events: EventCfg = EventCfg()
-    curriculum: mdp.CurriculumCfg | None = mdp.CurriculumCfg()
+    curriculum: mdp.CurriculumCfg | None = None
 
     def __post_init__(self):
         """Post initialization."""
         # general settings
         self.decimation = 2  # 50 Hz
-
-        # *single-goal setup
-        self.commands.object_pose.resampling_time_range = (10.0, 10.0)
-        self.commands.object_pose.position_only = False
-        self.commands.object_pose.success_visualizer_cfg.markers["failure"] = (
-            self.scene.table.spawn.replace(
-                visual_material=sim_utils.PreviewSurfaceCfg(
-                    diffuse_color=(0.25, 0.15, 0.15), roughness=0.25
-                ),
-                visible=True,
-            )
-        )
-        self.commands.object_pose.success_visualizer_cfg.markers["success"] = (
-            self.scene.table.spawn.replace(
-                visual_material=sim_utils.PreviewSurfaceCfg(
-                    diffuse_color=(0.15, 0.25, 0.15), roughness=0.25
-                ),
-                visible=True,
-            )
-        )
 
         self.episode_length_s = 4.0
         self.is_finite_horizon = True
@@ -534,30 +450,12 @@ class DexsuiteReorientEnvCfg(ManagerBasedRLEnvCfg):
         self.sim.physx.bounce_threshold_velocity = 0.01
         self.sim.physx.gpu_max_rigid_patch_count = 4 * 5 * 2**15
 
-        if self.curriculum is not None:
-            self.curriculum.adr.params["pos_tol"] = (
-                self.rewards.success.params["pos_std"] / 2
-            )
-
-            self.curriculum.adr.params["rot_tol"] = (
-                self.rewards.success.params["rot_std"] / 2
-            )
-
 
 class DexsuiteLiftEnvCfg(DexsuiteReorientEnvCfg):
     """Dexsuite lift task definition"""
 
     def __post_init__(self):
         super().__post_init__()
-        self.rewards.orientation_tracking = None  # no orientation reward
-        self.commands.object_pose.position_only = True
-        if self.curriculum is not None:
-            self.rewards.success.params["rot_std"] = (
-                None  # make success reward not consider orientation
-            )
-            self.curriculum.adr.params["rot_tol"] = (
-                None  # make adr not tracking orientation
-            )
 
 
 class DexsuiteReorientEnvCfg_PLAY(DexsuiteReorientEnvCfg):
@@ -565,11 +463,6 @@ class DexsuiteReorientEnvCfg_PLAY(DexsuiteReorientEnvCfg):
 
     def __post_init__(self):
         super().__post_init__()
-        self.commands.object_pose.resampling_time_range = (2.0, 3.0)
-        self.commands.object_pose.debug_vis = True
-        self.curriculum.adr.params["init_difficulty"] = self.curriculum.adr.params[
-            "max_difficulty"
-        ]
 
 
 class DexsuiteLiftEnvCfg_PLAY(DexsuiteLiftEnvCfg):
@@ -577,12 +470,6 @@ class DexsuiteLiftEnvCfg_PLAY(DexsuiteLiftEnvCfg):
 
     def __post_init__(self):
         super().__post_init__()
-        self.commands.object_pose.resampling_time_range = (2.0, 3.0)
-        self.commands.object_pose.debug_vis = True
-        self.commands.object_pose.position_only = True
-        self.curriculum.adr.params["init_difficulty"] = self.curriculum.adr.params[
-            "max_difficulty"
-        ]
 
 
 ##########
@@ -595,7 +482,6 @@ class FrankaLeapMixinCfg:
 
     def __post_init__(self: DexsuiteReorientEnvCfg):
         super().__post_init__()
-        self.commands.object_pose.body_name = "base"  # TODO: check this !!
         finger_tip_body_list = [
             "thumb_fingertip",
             "fingertip",
@@ -608,7 +494,7 @@ class FrankaLeapMixinCfg:
                 f"{link_name}_object_s",
                 ContactSensorCfg(
                     prim_path="{ENV_REGEX_NS}/Robot/Franka_LeapHand/leap_hand_right/" + link_name,
-                    filter_prim_paths_expr=["{ENV_REGEX_NS}/Object/square_table_leg1"],
+                    filter_prim_paths_expr=["{ENV_REGEX_NS}/Object/.*"],
                 ),
             )
         self.observations.proprio.contact = ObsTerm(
