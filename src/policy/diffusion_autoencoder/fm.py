@@ -25,6 +25,7 @@ Architecture:
 """
 
 from abc import ABC, abstractmethod
+from collections.abc import Callable
 
 import torch
 import torch.nn as nn
@@ -169,24 +170,49 @@ class FlowMatchingObjective(BaseObjective):
         super().__init__(config, action_dim, horizon)
         self.do_mask_loss_for_padding = do_mask_loss_for_padding
 
-    def _sample_timesteps(self, batch_size: int, device: torch.device) -> Tensor:
+    def _sample_timesteps(
+        self,
+        batch_size: int,
+        device: torch.device,
+        dtype: torch.dtype = torch.float32,
+    ) -> Tensor:
         """Sample timesteps according to configured strategy.
 
         Uniform: Sample t uniformly from [0,1]
         Beta: Sample t from Beta(α,β) scaled to [0,s], emphasizing high noise (low t)
         """
-        if self.config.timestep_sampling.strategy_name == "uniform":
-            return torch.rand(batch_size, device=device)
-        elif self.config.timestep_sampling.strategy_name == "beta":
+        timestep_sampling = getattr(self.config, "timestep_sampling", None)
+        if timestep_sampling is None or timestep_sampling.strategy_name == "uniform":
+            return torch.rand(batch_size, device=device, dtype=dtype)
+        elif timestep_sampling.strategy_name == "beta":
             # Sample u ~ Beta(α, β) then transform: t = s(1-u)
             # This emphasizes t near 0 (high noise) when α > β
             beta_dist = torch.distributions.Beta(
-                self.config.timestep_sampling.alpha, self.config.timestep_sampling.beta
+                timestep_sampling.alpha, timestep_sampling.beta
             )
-            u = beta_dist.sample((batch_size,)).to(device)
-            return self.config.timestep_sampling.s * (1.0 - u)
+            u = beta_dist.sample((batch_size,)).to(device=device, dtype=dtype)
+            return timestep_sampling.s * (1.0 - u)
         else:
-            raise ValueError(f"Unknown timestep strategy: {self.config.timestep_sampling.strategy_name}")
+            raise ValueError(f"Unknown timestep strategy: {timestep_sampling.strategy_name}")
+
+    def _num_integration_steps(self) -> int:
+        num_steps = getattr(self.config, "num_integration_steps", None)
+        if num_steps is None:
+            num_steps = self.config.num_sample_steps
+        return int(num_steps)
+
+    def _integration_method(self) -> str:
+        return str(getattr(self.config, "integration_method", "euler"))
+
+    def prepare_training_sample(self, data: Tensor) -> tuple[Tensor, Tensor, Tensor]:
+        """Create the noised sample, timestep, and target velocity for flow matching."""
+        batch_size = data.shape[0]
+        noise = torch.randn_like(data)
+        t = self._sample_timesteps(batch_size, data.device, data.dtype)
+        t_expanded = t.view(-1, 1, 1)
+        x_t = t_expanded * data + (1 - (1 - self.config.sigma_min) * t_expanded) * noise
+        target_velocity = data - (1 - self.config.sigma_min) * noise
+        return x_t, t, target_velocity
 
     def compute_loss(self, model: nn.Module, batch: dict[str, Tensor], conditioning_vec: Tensor) -> Tensor:
         """Compute flow matching training loss.
@@ -194,16 +220,7 @@ class FlowMatchingObjective(BaseObjective):
         Trains the model to predict the velocity field along linear interpolation paths.
         """
         data = batch["action"]  # Clean action sequences (B, T, D)
-        batch_size = data.shape[0]
-        device = data.device
-
-        noise = torch.randn_like(data)
-        t = self._sample_timesteps(batch_size, device)
-        t_expanded = t.view(-1, 1, 1)  # (B, 1, 1) for broadcasting
-        x_t = t_expanded * data + (1 - (1 - self.config.sigma_min) * t_expanded) * noise
-
-        # The velocity we want the model to learn: v = data - (1-σ)·noise
-        target_velocity = data - (1 - self.config.sigma_min) * noise
+        x_t, t, target_velocity = self.prepare_training_sample(data)
         predicted_velocity = model(x_t, t, conditioning_vec=conditioning_vec)
         loss = F.mse_loss(predicted_velocity, target_velocity, reduction="none")
 
@@ -225,43 +242,53 @@ class FlowMatchingObjective(BaseObjective):
         # Start from random noise at t=0
         x = torch.randn((batch_size, self.horizon, self.action_dim), dtype=dtype, device=device)
 
-        # Time grid from 0 to 1
-        num_steps = self.config.num_integration_steps
-        time_grid = torch.linspace(0, 1, num_steps + 1, device=device)
+        return self.integrate(lambda sample, t: model(sample, t, conditioning_vec=conditioning_vec), x)
 
-        # Integrate ODE using chosen method
-        if self.config.integration_method == "euler":
-            x = self._euler_integrate(model, x, time_grid, conditioning_vec)
-        elif self.config.integration_method == "rk4":
-            x = self._rk4_integrate(model, x, time_grid, conditioning_vec)
+    def integrate(self, velocity_fn: Callable[[Tensor, Tensor], Tensor], initial_sample: Tensor) -> Tensor:
+        """Generate samples by integrating a velocity function from t=0 to t=1."""
+        num_steps = self._num_integration_steps()
+        time_grid = torch.linspace(0, 1, num_steps + 1, device=initial_sample.device, dtype=initial_sample.dtype)
+        integration_method = self._integration_method()
+
+        if integration_method == "euler":
+            return self._euler_integrate(velocity_fn, initial_sample, time_grid)
+        elif integration_method == "rk4":
+            return self._rk4_integrate(velocity_fn, initial_sample, time_grid)
         else:
-            raise ValueError(f"Unknown integration method: {self.config.integration_method}")
+            raise ValueError(f"Unknown integration method: {integration_method}")
 
-        return x
-
-    def _euler_integrate(self, model: nn.Module, x_init: Tensor, time_grid: Tensor, conditioning_vec: Tensor) -> Tensor:
+    def _euler_integrate(
+        self,
+        velocity_fn: Callable[[Tensor, Tensor], Tensor],
+        x_init: Tensor,
+        time_grid: Tensor,
+    ) -> Tensor:
         """
         Euler integration: x_{n+1} = x_n + dt * v_θ(x_n, t_n)
         """
         x = x_init
 
         for i in range(len(time_grid) - 1):
-            t_scalar = time_grid[i].item()
-            dt = (time_grid[i + 1] - time_grid[i]).item()
+            dt = time_grid[i + 1] - time_grid[i]
 
             # Create time tensor for batch
-            t_batch = torch.full((x.shape[0],), t_scalar, dtype=x.dtype, device=x.device)
+            t_batch = time_grid[i].expand(x.shape[0])
 
             # Get velocity at current point
             with torch.no_grad():
-                velocity = model(x, t_batch, conditioning_vec=conditioning_vec)
+                velocity = velocity_fn(x, t_batch)
 
             # Euler step
             x = x + dt * velocity
 
         return x
 
-    def _rk4_integrate(self, model: nn.Module, x_init: Tensor, time_grid: Tensor, conditioning_vec: Tensor) -> Tensor:
+    def _rk4_integrate(
+        self,
+        velocity_fn: Callable[[Tensor, Tensor], Tensor],
+        x_init: Tensor,
+        time_grid: Tensor,
+    ) -> Tensor:
         """4th-order Runge-Kutta integration.
 
         Uses 4 velocity evaluations per step:
@@ -277,15 +304,15 @@ class FlowMatchingObjective(BaseObjective):
         """
         x = x_init
 
-        def dynamics(x_val: Tensor, t_scalar: float) -> Tensor:
+        def dynamics(x_val: Tensor, t: Tensor) -> Tensor:
             """dynamics helper to get velocity at (x, t)"""
-            t_batch = torch.full((x_val.shape[0],), t_scalar, dtype=x_val.dtype, device=x_val.device)
+            t_batch = t.expand(x_val.shape[0])
             with torch.no_grad():
-                return model(x_val, t_batch, conditioning_vec=conditioning_vec)
+                return velocity_fn(x_val, t_batch)
 
         for i in range(len(time_grid) - 1):
-            t = time_grid[i].item()
-            dt = (time_grid[i + 1] - time_grid[i]).item()
+            t = time_grid[i]
+            dt = time_grid[i + 1] - time_grid[i]
 
             # RK4 stages
             k1 = dynamics(x, t)

@@ -50,7 +50,7 @@ class TrajectoryChunkDataset(Dataset):
         dataset_dir: str | Path,
         past_length: int = 4,
         future_length: int = 8,
-        state_keys: tuple[str, ...] = STATE_KEYS,
+        state_keys: tuple[str, ...] | None = None,
         min_chunks: int | None = None,
         seed: int | None = None,
     ) -> None:
@@ -58,7 +58,6 @@ class TrajectoryChunkDataset(Dataset):
         self.past_length = int(past_length)
         self.future_length = int(future_length)
         self.required_length = self.past_length + self.future_length
-        self.state_keys = tuple(state_keys)
         self.min_chunks = None if min_chunks is None else int(min_chunks)
         self._rng = np.random.default_rng(seed)
 
@@ -76,6 +75,15 @@ class TrajectoryChunkDataset(Dataset):
         if metadata_path.exists():
             with metadata_path.open() as f:
                 self.metadata = json.load(f)
+
+        if state_keys is None:
+            groups = self.metadata.get("obs_groups")
+            if groups:
+                self.state_keys = tuple(f"observation.{g}" for g in groups)
+            else:
+                self.state_keys = STATE_KEYS
+        else:
+            self.state_keys = tuple(state_keys)
 
         self._episodes: list[tuple[Path, int]] = []
         self._episode_indices: list[int] = []

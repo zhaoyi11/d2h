@@ -13,6 +13,7 @@ import torch.nn.functional as F  # noqa: N812
 from torch import Tensor, nn
 from torch.utils.data import DataLoader
 
+from src.policy.diffusion_autoencoder.fm import FlowMatchingObjective
 from src.policy.diffusion_autoencoder.transformer import SinusoidalPosEmb, modulate
 from src.policy.vae import TrajectoryChunkDataset, _move_batch
 from src.policy.vae_sigreg import SIGReg
@@ -184,6 +185,7 @@ class ConditionalTrajectoryDiffusionAutoencoder(nn.Module):
         self.decoder = TrajectoryDiTDecoder(config)
         self.sigreg = SIGReg(knots=config.sigreg_knots, num_proj=config.sigreg_num_proj)
         self.latent_prior = nn.Parameter(torch.zeros(config.latent_dim))
+        self.flow_matching = FlowMatchingObjective(config, config.action_dim, config.target_length)
 
         beta = torch.linspace(1e-4, 2e-2, config.num_diffusion_steps, dtype=torch.float32)
         alpha = 1.0 - beta
@@ -194,12 +196,7 @@ class ConditionalTrajectoryDiffusionAutoencoder(nn.Module):
         return self.encoder(encoder_input)
 
     def _flow_matching_forward(self, context_features: Tensor, latent: Tensor, target_actions: Tensor) -> dict[str, Tensor]:
-        batch_size = target_actions.shape[0]
-        noise = torch.randn_like(target_actions)
-        timestep = torch.rand(batch_size, device=target_actions.device, dtype=target_actions.dtype)
-        t_view = timestep.view(-1, 1, 1)
-        noised = t_view * target_actions + (1 - (1 - self.config.sigma_min) * t_view) * noise
-        target = target_actions - (1 - self.config.sigma_min) * noise
+        noised, timestep, target = self.flow_matching.prepare_training_sample(target_actions)
         prediction = self.decoder(noised, timestep, context_features, latent)
         return {"prediction": prediction, "target": target, "objective_loss_key": "flow_matching_loss"}
 
@@ -259,14 +256,10 @@ class ConditionalTrajectoryDiffusionAutoencoder(nn.Module):
         return self._sample_diffusion(sample, context_features, latent)
 
     def _sample_flow_matching(self, sample: Tensor, context_features: Tensor, latent: Tensor) -> Tensor:
-        time_grid = torch.linspace(0, 1, self.config.num_sample_steps + 1, device=sample.device, dtype=sample.dtype)
-        x = sample
-        for i in range(len(time_grid) - 1):
-            t = time_grid[i].expand(x.shape[0])
-            dt = time_grid[i + 1] - time_grid[i]
-            velocity = self.decoder(x, t, context_features, latent)
-            x = x + dt * velocity
-        return x
+        return self.flow_matching.integrate(
+            lambda x, t: self.decoder(x, t, context_features, latent),
+            sample,
+        )
 
     def _sample_diffusion(self, sample: Tensor, context_features: Tensor, latent: Tensor) -> Tensor:
         steps = torch.linspace(
