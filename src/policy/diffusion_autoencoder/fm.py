@@ -176,6 +176,8 @@ class FlowMatchingObjective(BaseObjective):
 
         if integration_method == "euler":
             return self._euler_integrate(velocity_fn, initial_sample, time_grid)
+        elif integration_method == "heun":
+            return self._heun_integrate(velocity_fn, initial_sample, time_grid)
         elif integration_method == "rk4":
             return self._rk4_integrate(velocity_fn, initial_sample, time_grid)
         else:
@@ -204,6 +206,31 @@ class FlowMatchingObjective(BaseObjective):
 
             # Euler step
             x = x + dt * velocity
+
+        return x
+
+    def _heun_integrate(
+        self,
+        velocity_fn: Callable[[Tensor, Tensor], Tensor],
+        x_init: Tensor,
+        time_grid: Tensor,
+    ) -> Tensor:
+        """Heun integration using an Euler predictor and trapezoid corrector."""
+        x = x_init
+
+        for i in range(len(time_grid) - 1):
+            t = time_grid[i]
+            next_t = time_grid[i + 1]
+            dt = next_t - t
+
+            t_batch = t.expand(x.shape[0])
+            next_t_batch = next_t.expand(x.shape[0])
+            with torch.no_grad():
+                velocity = velocity_fn(x, t_batch)
+                predicted_x = x + dt * velocity
+                corrected_velocity = velocity_fn(predicted_x, next_t_batch)
+
+            x = x + dt * 0.5 * (velocity + corrected_velocity)
 
         return x
 

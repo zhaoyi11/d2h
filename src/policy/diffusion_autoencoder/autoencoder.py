@@ -46,6 +46,8 @@ class DiffusionAutoencoderConfigArgs:
     sigreg_num_proj: int = 1024
     sigma_min: float = 1e-4
     num_sample_steps: int = 20
+    timestep_scale: float = 1000.0
+    integration_method: Literal["euler", "heun", "rk4"] = "euler"
 
     def build(self, state_dim: int, action_dim: int) -> DiffusionAutoencoderConfig:
         return DiffusionAutoencoderConfig(
@@ -261,7 +263,7 @@ class TrajectoryDiTDecoder(nn.Module):
         _, seq_len, _ = actions.shape
         hidden = self.input_proj(actions)
         hidden = hidden + self.pos_embedding[:, :seq_len]
-        time_features = self.time_mlp(timestep)
+        time_features = self.time_mlp(timestep * self.config.timestep_scale)
 
         for block in self.blocks:
             hidden = block(hidden, time_features, context_features, latent)
@@ -862,6 +864,8 @@ def train_diffusion_autoencoder(
     sigreg_num_proj: int = 1024,
     sigma_min: float = 1e-4,
     num_sample_steps: int = 20,
+    timestep_scale: float = 1000.0,
+    integration_method: Literal["euler", "heun", "rk4"] = "euler",
     num_workers: int = 0,
     val_ratio: float = 0.1,
     train_windows_per_epoch: int = 100_000,
@@ -909,6 +913,8 @@ def train_diffusion_autoencoder(
         sigreg_num_proj=sigreg_num_proj,
         sigma_min=sigma_min,
         num_sample_steps=num_sample_steps,
+        timestep_scale=timestep_scale,
+        integration_method=integration_method,
     )
 
     torch_device = torch.device(device if device != "cuda" or torch.cuda.is_available() else "cpu")
@@ -960,6 +966,8 @@ def train_diffusion_autoencoder(
         "sigreg_num_proj": sigreg_num_proj,
         "sigma_min": sigma_min,
         "num_sample_steps": num_sample_steps,
+        "timestep_scale": timestep_scale,
+        "integration_method": integration_method,
         "num_workers": num_workers,
         "val_ratio": val_ratio,
         "train_windows_per_epoch": train_windows_per_epoch,
