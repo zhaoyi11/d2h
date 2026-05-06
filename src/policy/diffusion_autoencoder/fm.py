@@ -14,15 +14,7 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-"""
-This module contains a base objective class, and implementation of the objective
-classes for use in the Multi-Task Diffusion Transformer Policy.
-
-Architecture:
-- BaseObjective: Abstract interface definition
-- DiffusionObjective: Implements standard DDPM/DDIM diffusion objective
-- FlowMatchingObjective: Implements flow matching objective
-"""
+"""Flow matching objective utilities for trajectory generation."""
 
 from abc import ABC, abstractmethod
 from collections.abc import Callable
@@ -30,8 +22,6 @@ from collections.abc import Callable
 import torch
 import torch.nn as nn
 import torch.nn.functional as F  # noqa: N812
-# from diffusers.schedulers.scheduling_ddim import DDIMScheduler
-# from diffusers.schedulers.scheduling_ddpm import DDPMScheduler
 from torch import Tensor
 
 
@@ -75,90 +65,6 @@ class BaseObjective(ABC):
         pass
 
 
-# class DiffusionObjective(BaseObjective):
-#     """Standard diffusion (DDPM/DDIM) objective implementation.
-
-#     Contains the noise scheduler, training loss, and conditional sampling.
-#     """
-
-#     def __init__(self, config, action_dim: int, horizon: int, do_mask_loss_for_padding: bool = False):
-#         super().__init__(config, action_dim, horizon)
-#         self.do_mask_loss_for_padding = do_mask_loss_for_padding
-
-#         # Build noise scheduler
-#         scheduler_kwargs = {
-#             "num_train_timesteps": config.num_train_timesteps,
-#             "beta_start": config.beta_start,
-#             "beta_end": config.beta_end,
-#             "beta_schedule": config.beta_schedule,
-#             "prediction_type": config.prediction_type,
-#         }
-
-#         if config.noise_scheduler_type == "DDPM":
-#             self.noise_scheduler: DDPMScheduler | DDIMScheduler = DDPMScheduler(**scheduler_kwargs)
-#         elif config.noise_scheduler_type == "DDIM":
-#             self.noise_scheduler = DDIMScheduler(**scheduler_kwargs)
-#         else:
-#             raise ValueError(f"Unsupported noise scheduler type {config.noise_scheduler_type}")
-
-#         # Inference steps default to training steps if not provided
-#         self.num_inference_steps = (
-#             config.num_inference_steps
-#             if getattr(config, "num_inference_steps", None) is not None
-#             else self.noise_scheduler.config.num_train_timesteps
-#         )
-
-#     def compute_loss(self, model: nn.Module, batch: dict[str, Tensor], conditioning_vec: Tensor) -> Tensor:
-#         clean_actions = batch["action"]
-#         noise = torch.randn_like(clean_actions)
-#         timesteps = torch.randint(
-#             low=0,
-#             high=self.noise_scheduler.config.num_train_timesteps,
-#             size=(clean_actions.shape[0],),
-#             device=clean_actions.device,
-#         ).long()
-#         noisy_actions = self.noise_scheduler.add_noise(clean_actions, noise, timesteps)
-
-#         # Target depends on prediction type
-#         prediction_type = self.noise_scheduler.config.prediction_type
-#         if prediction_type == "epsilon":
-#             target = noise
-#         elif prediction_type == "sample":
-#             target = clean_actions
-#         else:
-#             raise ValueError(f"Unsupported prediction type: {prediction_type}")
-
-#         predicted = model(noisy_actions, timesteps, conditioning_vec=conditioning_vec)
-#         loss = F.mse_loss(predicted, target, reduction="none")
-
-#         if self.do_mask_loss_for_padding and "action_is_pad" in batch:
-#             valid_actions = ~batch["action_is_pad"]  # (B, T)
-#             loss = loss * valid_actions.unsqueeze(-1)
-
-#         return loss.mean()
-
-#     def conditional_sample(self, model: nn.Module, batch_size: int, conditioning_vec: Tensor) -> Tensor:
-#         device = next(model.parameters()).device
-#         dtype = next(model.parameters()).dtype
-
-#         sample = torch.randn(
-#             size=(batch_size, self.horizon, self.action_dim),
-#             dtype=dtype,
-#             device=device,
-#         )
-
-#         self.noise_scheduler.set_timesteps(self.num_inference_steps)
-#         for t in self.noise_scheduler.timesteps:
-#             model_output = model(
-#                 sample,
-#                 torch.full(sample.shape[:1], t, dtype=torch.long, device=sample.device),
-#                 conditioning_vec=conditioning_vec,
-#             )
-#             sample = self.noise_scheduler.step(model_output, t, sample).prev_sample
-
-#         return sample
-
-
 class FlowMatchingObjective(BaseObjective):
     """
     Flow matching objective: trains a model to predict velocity fields v_θ(x, t) that transports
@@ -169,6 +75,9 @@ class FlowMatchingObjective(BaseObjective):
     def __init__(self, config, action_dim: int, horizon: int, do_mask_loss_for_padding: bool = False):
         super().__init__(config, action_dim, horizon)
         self.do_mask_loss_for_padding = do_mask_loss_for_padding
+        sigma_min = float(self.config.sigma_min)
+        if not 0.0 <= sigma_min < 1.0:
+            raise ValueError("sigma_min must be in [0, 1)")
 
     def _sample_timesteps(
         self,
@@ -199,16 +108,31 @@ class FlowMatchingObjective(BaseObjective):
         num_steps = getattr(self.config, "num_integration_steps", None)
         if num_steps is None:
             num_steps = self.config.num_sample_steps
-        return int(num_steps)
+            name = "num_sample_steps"
+        else:
+            name = "num_integration_steps"
+        num_steps = int(num_steps)
+        if num_steps < 1:
+            raise ValueError(f"{name} must be at least 1")
+        return num_steps
 
     def _integration_method(self) -> str:
         return str(getattr(self.config, "integration_method", "euler"))
 
-    def prepare_training_sample(self, data: Tensor) -> tuple[Tensor, Tensor, Tensor]:
+    def prepare_training_sample(
+        self,
+        data: Tensor,
+        noise: Tensor | None = None,
+        timestep: Tensor | None = None,
+    ) -> tuple[Tensor, Tensor, Tensor]:
         """Create the noised sample, timestep, and target velocity for flow matching."""
         batch_size = data.shape[0]
-        noise = torch.randn_like(data)
-        t = self._sample_timesteps(batch_size, data.device, data.dtype)
+        if noise is None:
+            noise = torch.randn_like(data)
+        if timestep is None:
+            t = self._sample_timesteps(batch_size, data.device, data.dtype)
+        else:
+            t = timestep.to(device=data.device, dtype=data.dtype)
         t_expanded = t.view(-1, 1, 1)
         x_t = t_expanded * data + (1 - (1 - self.config.sigma_min) * t_expanded) * noise
         target_velocity = data - (1 - self.config.sigma_min) * noise

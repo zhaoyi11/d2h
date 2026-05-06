@@ -2,18 +2,18 @@
 
 from __future__ import annotations
 
-import argparse
 import json
 import random
 import sys
 from datetime import datetime
-from dataclasses import asdict, dataclass
+from dataclasses import asdict, dataclass, field
 from pathlib import Path
-from typing import Any
+from typing import Any, Literal
 
 import numpy as np
 import torch
 import torch.nn.functional as F  # noqa: N812
+import tyro
 from torch import Tensor, nn
 from torch.utils.data import DataLoader, Dataset, get_worker_info
 
@@ -29,61 +29,149 @@ DEFAULT_WANDB_PROJECT = "d2h-diffusion-autoencoder"
 
 
 @dataclass
-class DiffusionAutoencoderConfig:
-    state_dim: int
-    action_dim: int
+class DiffusionAutoencoderConfigArgs:
     past_length: int = 4
     future_length: int = 8
     latent_dim: int = 64
     condition_dim: int = 256
-    hidden_dim: int = 512
-    transformer_hidden_dim: int = 128
+    hidden_dim: int = 1024
+    transformer_hidden_dim: int = 512
     transformer_layers: int = 4
     transformer_heads: int = 4
-    transformer_dropout: float = 0.0
+    transformer_feedforward_dim: int = 1024
+    transformer_dropout: float = 0.1
     timestep_embed_dim: int = 128
-    objective: str = "flow_matching"
     sigreg_weight: float = 0.09
     sigreg_knots: int = 17
     sigreg_num_proj: int = 1024
     sigma_min: float = 1e-4
-    num_diffusion_steps: int = 100
     num_sample_steps: int = 20
+
+    def build(self, state_dim: int, action_dim: int) -> DiffusionAutoencoderConfig:
+        return DiffusionAutoencoderConfig(
+            state_dim=int(state_dim),
+            action_dim=int(action_dim),
+            **asdict(self),
+        )
+
+
+@dataclass(kw_only=True)
+class DiffusionAutoencoderConfig(DiffusionAutoencoderConfigArgs):
+    state_dim: int
+    action_dim: int
+
+    @property
+    def token_dim(self) -> int:
+        return self.state_dim + self.action_dim
 
     @property
     def context_dim(self) -> int:
-        return self.past_length * (self.state_dim + self.action_dim)
+        return self.token_dim
 
     @property
     def encoder_input_dim(self) -> int:
-        return (self.past_length + self.future_length) * (self.state_dim + self.action_dim)
+        return self.encoder_length * self.token_dim
+
+    @property
+    def context_input_dim(self) -> int:
+        return self.past_length * self.context_dim
 
     @property
     def target_length(self) -> int:
         return self.future_length
 
+    @property
+    def encoder_length(self) -> int:
+        return self.past_length + self.future_length
+
+
+@dataclass
+class DiffusionAutoencoderTrainArgs:
+    dataset_dir: str = str(DEFAULT_DATASET_DIR)
+    output_dir: str | None = None
+    diffusion_autoencoder_config: DiffusionAutoencoderConfigArgs = field(
+        default_factory=DiffusionAutoencoderConfigArgs
+    )
+    batch_size: int = 256
+    epochs: int = 100
+    lr: float = 3e-4
+    weight_decay: float = 0.01
+    grad_clip_norm: float | None = None
+    num_workers: int = 0
+    val_ratio: float = 0.1
+    train_windows_per_epoch: int = 100_000
+    val_windows: int = 10_000
+    log_every_steps: int = 100
+    checkpoint_every_epochs: int = 10
+    resume: str | None = None
+    wandb_project: str = DEFAULT_WANDB_PROJECT
+    wandb_entity: str | None = None
+    wandb_mode: Literal["online", "offline", "disabled"] = "online"
+    wandb_run_name: str | None = None
+    amp: bool = False
+    seed: int = 0
+    device: str = "cuda"
+
+
+###### Transformer Blocks ######
+def _transformer_encoder(config: DiffusionAutoencoderConfig) -> nn.TransformerEncoder:
+    if config.hidden_dim % config.transformer_heads != 0:
+        raise ValueError("hidden_dim must be divisible by transformer_heads")
+    layer = nn.TransformerEncoderLayer(
+        d_model=config.hidden_dim,
+        nhead=config.transformer_heads,
+        dim_feedforward=config.transformer_feedforward_dim,
+        dropout=config.transformer_dropout,
+        activation="gelu",
+        batch_first=True,
+        norm_first=False,
+    )
+    return nn.TransformerEncoder(layer, num_layers=config.transformer_layers)
+
 
 class SequenceEncoder(nn.Module):
     def __init__(self, config: DiffusionAutoencoderConfig) -> None:
         super().__init__()
-        self.net = nn.Sequential(
-            nn.Linear(config.encoder_input_dim, 1024),
-            nn.LayerNorm(1024),
-            nn.ReLU(),
-            nn.Linear(1024, 512),
-            nn.LayerNorm(512),
-            nn.ReLU(),
-            nn.Linear(512, config.hidden_dim),
-            nn.ReLU(),
-            nn.Linear(config.hidden_dim, config.latent_dim),
+        self.config = config
+        self.input_proj = nn.Linear(config.token_dim, config.hidden_dim)
+        self.cls_token = nn.Parameter(torch.zeros(1, 1, config.hidden_dim))
+        self.pos_embedding = nn.Parameter(
+            torch.empty(1, 1 + config.encoder_length, config.hidden_dim).normal_(std=0.02)
         )
+        self.transformer = _transformer_encoder(config)
+        self.latent_proj = nn.Linear(config.hidden_dim, config.latent_dim)
 
     def forward(self, encoder_input: Tensor) -> Tensor:
-        return self.net(encoder_input)
+        tokens = encoder_input.reshape(-1, self.config.encoder_length, self.config.token_dim)
+        hidden = self.input_proj(tokens)
+        cls = self.cls_token.expand(hidden.size(0), -1, -1)
+        hidden = torch.cat([cls, hidden], dim=1)
+        hidden = hidden + self.pos_embedding[:, : hidden.size(1)]
+        encoded = self.transformer(hidden)
+        return self.latent_proj(encoded[:, 0])
+
+
+class ContextEncoder(nn.Module):
+    def __init__(self, config: DiffusionAutoencoderConfig) -> None:
+        super().__init__()
+        self.config = config
+        self.input_proj = nn.Linear(config.context_dim, config.hidden_dim)
+        self.pos_embedding = nn.Parameter(
+            torch.empty(1, config.past_length, config.hidden_dim).normal_(std=0.02)
+        )
+        self.transformer = _transformer_encoder(config)
+        self.condition_proj = nn.Linear(config.hidden_dim, config.condition_dim)
+
+    def forward(self, context: Tensor) -> Tensor:
+        tokens = context.reshape(-1, self.config.past_length, self.config.context_dim)
+        hidden = self.input_proj(tokens)
+        hidden = hidden + self.pos_embedding[:, : hidden.size(1)]
+        encoded = self.transformer(hidden)
+        return self.condition_proj(encoded)
 
 
 class SeparateConditionTransformerBlock(nn.Module):
-    """DiT block with separate AdaLN branches for time, context, and latent."""
+    """DiT block with AdaLN time/latent conditioning and context cross-attention."""
 
     def __init__(
         self,
@@ -96,7 +184,16 @@ class SeparateConditionTransformerBlock(nn.Module):
     ) -> None:
         super().__init__()
         self.attn = nn.MultiheadAttention(hidden_size, num_heads=num_heads, batch_first=True, dropout=dropout)
+        self.context_attn = nn.MultiheadAttention(
+            hidden_size,
+            num_heads=num_heads,
+            batch_first=True,
+            dropout=dropout,
+            kdim=context_dim,
+            vdim=context_dim,
+        )
         self.norm1 = nn.LayerNorm(hidden_size, elementwise_affine=False, eps=1e-6)
+        self.norm_context = nn.LayerNorm(hidden_size, elementwise_affine=False, eps=1e-6)
         self.norm2 = nn.LayerNorm(hidden_size, elementwise_affine=False, eps=1e-6)
         self.mlp = nn.Sequential(
             nn.Linear(hidden_size, hidden_size * 4),
@@ -105,20 +202,18 @@ class SeparateConditionTransformerBlock(nn.Module):
         )
 
         self.time_modulation = nn.Sequential(nn.SiLU(), nn.Linear(time_dim, 6 * hidden_size, bias=True))
-        self.context_modulation = nn.Sequential(nn.SiLU(), nn.Linear(context_dim, 6 * hidden_size, bias=True))
         self.latent_modulation = nn.Sequential(nn.SiLU(), nn.Linear(latent_dim, 6 * hidden_size, bias=True))
 
     def forward(self, x: Tensor, time_features: Tensor, context_features: Tensor, latent: Tensor) -> Tensor:
-        modulation = (
-            self.time_modulation(time_features)
-            + self.context_modulation(context_features)
-            + self.latent_modulation(latent)
-        )
+        modulation = self.time_modulation(time_features) + self.latent_modulation(latent)
         shift_msa, scale_msa, gate_msa, shift_mlp, scale_mlp, gate_mlp = modulation.chunk(6, dim=1)
 
         attn_input = modulate(self.norm1(x), shift_msa.unsqueeze(1), scale_msa.unsqueeze(1))
         attn_out, _ = self.attn(attn_input, attn_input, attn_input)
         x = x + gate_msa.unsqueeze(1) * attn_out
+
+        context_out, _ = self.context_attn(self.norm_context(x), context_features, context_features)
+        x = x + context_out
 
         mlp_input = modulate(self.norm2(x), shift_mlp.unsqueeze(1), scale_mlp.unsqueeze(1))
         x = x + gate_mlp.unsqueeze(1) * self.mlp(mlp_input)
@@ -158,7 +253,7 @@ class TrajectoryDiTDecoder(nn.Module):
 
     def _initialize_weights(self) -> None:
         for block in self.blocks:
-            for branch in (block.time_modulation, block.context_modulation, block.latent_modulation):
+            for branch in (block.time_modulation, block.latent_modulation):
                 nn.init.constant_(branch[-1].weight, 0)
                 nn.init.constant_(branch[-1].bias, 0)
 
@@ -176,40 +271,51 @@ class TrajectoryDiTDecoder(nn.Module):
 class ConditionalTrajectoryDiffusionAutoencoder(nn.Module):
     def __init__(self, config: DiffusionAutoencoderConfig) -> None:
         super().__init__()
-        if config.objective not in {"diffusion", "flow_matching"}:
-            raise ValueError("objective must be 'diffusion' or 'flow_matching'")
         self.config = config
         self.encoder = SequenceEncoder(config)
-        self.context_encoder = nn.Sequential(
-            nn.Linear(config.context_dim, 512),
-            nn.LayerNorm(512),
-            nn.ReLU(),
-            nn.Linear(512, config.condition_dim),
-            nn.LayerNorm(config.condition_dim),
-            nn.ReLU(),
-        )
+        self.context_encoder = ContextEncoder(config)
         self.decoder = TrajectoryDiTDecoder(config)
         self.sigreg = SIGReg(knots=config.sigreg_knots, num_proj=config.sigreg_num_proj)
         self.latent_prior = nn.Parameter(torch.zeros(config.latent_dim))
         self.flow_matching = FlowMatchingObjective(config, config.action_dim, config.target_length)
 
-        beta = torch.linspace(1e-4, 2e-2, config.num_diffusion_steps, dtype=torch.float32)
-        alpha = 1.0 - beta
-        self.register_buffer("sqrt_alpha_bar", torch.cumprod(alpha, dim=0).sqrt())
-        self.register_buffer("sqrt_one_minus_alpha_bar", (1.0 - torch.cumprod(alpha, dim=0)).sqrt())
-
     def encode(self, encoder_input: Tensor) -> Tensor:
         return self.encoder(encoder_input)
 
-    def _flow_matching_forward(self, context_features: Tensor, latent: Tensor, target_actions: Tensor) -> dict[str, Tensor]:
-        noised, timestep, target = self.flow_matching.prepare_training_sample(target_actions)
+    def _flow_matching_forward(
+        self,
+        context_features: Tensor,
+        latent: Tensor,
+        target_actions: Tensor,
+        noise: Tensor | None = None,
+        timestep: Tensor | None = None,
+    ) -> dict[str, Tensor]:
+        noised, timestep, target = self.flow_matching.prepare_training_sample(
+            target_actions,
+            noise=noise,
+            timestep=timestep,
+        )
         prediction = self.decoder(noised, timestep, context_features, latent)
         return {"prediction": prediction, "target": target, "objective_loss_key": "flow_matching_loss"}
 
-    def forward(self, encoder_input: Tensor, context: Tensor, target_actions: Tensor) -> dict[str, Tensor]:
+    def forward(
+        self,
+        encoder_input: Tensor,
+        context: Tensor,
+        target_actions: Tensor,
+        flow_noise: Tensor | None = None,
+        flow_timestep: Tensor | None = None,
+    ) -> dict[str, Tensor]:
         latent = self.encode(encoder_input)
         context_features = self.context_encoder(context)
-        output = self._flow_matching_forward(context_features, latent, target_actions)
+
+        output = self._flow_matching_forward(
+            context_features,
+            latent,
+            target_actions,
+            noise=flow_noise,
+            timestep=flow_timestep,
+        )
         output["latent"] = latent
         return output
 
@@ -225,19 +331,27 @@ class ConditionalTrajectoryDiffusionAutoencoder(nn.Module):
         }
 
     @torch.no_grad()
-    def sample(self, context: Tensor, latent: Tensor | None = None) -> Tensor:
+    def sample(
+        self,
+        context: Tensor,
+        latent: Tensor | None = None,
+        initial_sample: Tensor | None = None,
+    ) -> Tensor:
         batch_size = context.shape[0]
-        context_features = self.context_encoder(context)
         if latent is None:
-            latent = self.latent_prior.unsqueeze(0).expand(batch_size, -1)
+            raise ValueError("sample() requires an encoded latent; no trained latent prior is available.")
+        context_features = self.context_encoder(context)
 
-        sample = torch.randn(
-            batch_size,
-            self.config.target_length,
-            self.config.action_dim,
-            device=context.device,
-            dtype=context.dtype,
-        )
+        if initial_sample is None:
+            sample = torch.randn(
+                batch_size,
+                self.config.target_length,
+                self.config.action_dim,
+                device=context.device,
+                dtype=context.dtype,
+            )
+        else:
+            sample = initial_sample
 
         return self._sample_flow_matching(sample, context_features, latent)
 
@@ -574,6 +688,7 @@ def _save_checkpoint(
     epoch: int,
     global_step: int,
     best_val_loss: float,
+    best_val_sample_mse: float,
     scaler: torch.cuda.amp.GradScaler | None,
 ) -> None:
     payload: dict[str, Any] = {
@@ -585,6 +700,8 @@ def _save_checkpoint(
         "epoch": epoch,
         "global_step": global_step,
         "best_val_loss": best_val_loss,
+        "best_val_sample_mse": best_val_sample_mse,
+        "best_checkpoint_metric": "val_sample_mse",
         "rng_state": _rng_state(),
     }
     if scaler is not None:
@@ -635,35 +752,87 @@ def _cuda_autocast(enabled: bool):
     return torch.cuda.amp.autocast(enabled=enabled)
 
 
+def _seeded_randn_like(reference: Tensor, seed: int) -> Tensor:
+    generator = torch.Generator(device="cpu")
+    generator.manual_seed(int(seed))
+    value = torch.randn(reference.shape, dtype=reference.dtype, generator=generator)
+    return value.to(device=reference.device)
+
+
+def _seeded_rand(
+    shape: tuple[int, ...],
+    reference: Tensor,
+    seed: int,
+) -> Tensor:
+    generator = torch.Generator(device="cpu")
+    generator.manual_seed(int(seed))
+    value = torch.rand(shape, dtype=reference.dtype, generator=generator)
+    return value.to(device=reference.device)
+
+
+def _set_torch_seed(seed: int) -> None:
+    torch.manual_seed(int(seed))
+    if torch.cuda.is_available():
+        torch.cuda.manual_seed_all(int(seed))
+
+
 @torch.no_grad()
 def _evaluate(
     model: ConditionalTrajectoryDiffusionAutoencoder,
     loader: DataLoader,
     torch_device: torch.device,
-    objective_key: str,
     amp_enabled: bool,
+    validation_seed: int | None = None,
 ) -> dict[str, float]:
     model.eval()
+    rng_state = _rng_state() if validation_seed is not None else None
     total_loss = 0.0
-    total_objective = 0.0
+    total_flow_matching = 0.0
     total_sigreg = 0.0
     total_sample_mse = 0.0
     total_batches = 0
-    for batch in loader:
-        batch = _move_batch(batch, torch_device)
-        with _cuda_autocast(amp_enabled):
-            output = model(batch["encoder_input"], batch["context"], batch["target_actions"])
-            loss, metrics = model.loss(output, batch["target_actions"])
-            clean_samples = model.sample(batch["context"], latent=output["latent"])
-            sample_mse = F.mse_loss(clean_samples, batch["target_actions"])
-        total_loss += float(loss.detach().cpu())
-        total_objective += float(metrics[objective_key].cpu())
-        total_sigreg += float(metrics["sigreg_loss"].cpu())
-        total_sample_mse += float(sample_mse.detach().cpu())
-        total_batches += 1
+    try:
+        for batch_idx, batch in enumerate(loader):
+            batch = _move_batch(batch, torch_device)
+            flow_noise = None
+            flow_timestep = None
+            initial_sample = None
+            if validation_seed is not None:
+                seed = int(validation_seed) + batch_idx * 4
+                flow_noise = _seeded_randn_like(batch["target_actions"], seed)
+                flow_timestep = _seeded_rand(
+                    (batch["target_actions"].shape[0],),
+                    batch["target_actions"],
+                    seed + 1,
+                )
+                initial_sample = _seeded_randn_like(batch["target_actions"], seed + 2)
+                _set_torch_seed(seed + 3)
+
+            with _cuda_autocast(amp_enabled):
+                output = model(
+                    batch["encoder_input"],
+                    batch["context"],
+                    batch["target_actions"],
+                    flow_noise=flow_noise,
+                    flow_timestep=flow_timestep,
+                )
+                loss, metrics = model.loss(output, batch["target_actions"])
+                clean_samples = model.sample(
+                    batch["context"],
+                    latent=output["latent"],
+                    initial_sample=initial_sample,
+                )
+                sample_mse = F.mse_loss(clean_samples, batch["target_actions"])
+            total_loss += float(loss.detach().cpu())
+            total_flow_matching += float(metrics["flow_matching_loss"].cpu())
+            total_sigreg += float(metrics["sigreg_loss"].cpu())
+            total_sample_mse += float(sample_mse.detach().cpu())
+            total_batches += 1
+    finally:
+        _restore_rng_state(rng_state)
     return {
         "loss": total_loss / total_batches,
-        objective_key: total_objective / total_batches,
+        "flow_matching_loss": total_flow_matching / total_batches,
         "sigreg_loss": total_sigreg / total_batches,
         "sample_mse": total_sample_mse / total_batches,
     }
@@ -676,23 +845,22 @@ def train_diffusion_autoencoder(
     future_length: int = 8,
     latent_dim: int = 64,
     condition_dim: int = 256,
-    hidden_dim: int = 512,
-    transformer_hidden_dim: int = 128,
+    hidden_dim: int = 1024,
+    transformer_hidden_dim: int = 512,
     transformer_layers: int = 4,
     transformer_heads: int = 4,
-    transformer_dropout: float = 0.0,
+    transformer_feedforward_dim: int = 1024,
+    transformer_dropout: float = 0.1,
     timestep_embed_dim: int = 128,
-    objective: str = "flow_matching",
-    batch_size: int = 64,
+    batch_size: int = 256,
     epochs: int = 100,
-    lr: float = 1e-3,
-    weight_decay: float = 0.0,
+    lr: float = 3e-4,
+    weight_decay: float = 0.01,
     grad_clip_norm: float | None = None,
     sigreg_weight: float = 0.09,
     sigreg_knots: int = 17,
     sigreg_num_proj: int = 1024,
     sigma_min: float = 1e-4,
-    num_diffusion_steps: int = 100,
     num_sample_steps: int = 20,
     num_workers: int = 0,
     val_ratio: float = 0.1,
@@ -733,14 +901,13 @@ def train_diffusion_autoencoder(
         transformer_hidden_dim=transformer_hidden_dim,
         transformer_layers=transformer_layers,
         transformer_heads=transformer_heads,
+        transformer_feedforward_dim=transformer_feedforward_dim,
         transformer_dropout=transformer_dropout,
         timestep_embed_dim=timestep_embed_dim,
-        objective=objective,
         sigreg_weight=sigreg_weight,
         sigreg_knots=sigreg_knots,
         sigreg_num_proj=sigreg_num_proj,
         sigma_min=sigma_min,
-        num_diffusion_steps=num_diffusion_steps,
         num_sample_steps=num_sample_steps,
     )
 
@@ -780,9 +947,9 @@ def train_diffusion_autoencoder(
         "transformer_hidden_dim": transformer_hidden_dim,
         "transformer_layers": transformer_layers,
         "transformer_heads": transformer_heads,
+        "transformer_feedforward_dim": transformer_feedforward_dim,
         "transformer_dropout": transformer_dropout,
         "timestep_embed_dim": timestep_embed_dim,
-        "objective": objective,
         "batch_size": batch_size,
         "epochs": epochs,
         "lr": lr,
@@ -792,7 +959,6 @@ def train_diffusion_autoencoder(
         "sigreg_knots": sigreg_knots,
         "sigreg_num_proj": sigreg_num_proj,
         "sigma_min": sigma_min,
-        "num_diffusion_steps": num_diffusion_steps,
         "num_sample_steps": num_sample_steps,
         "num_workers": num_workers,
         "val_ratio": val_ratio,
@@ -807,6 +973,8 @@ def train_diffusion_autoencoder(
         "wandb_run_name": wandb_run_name,
         "amp": amp,
         "seed": seed,
+        "validation_seed": seed,
+        "best_checkpoint_metric": "val_sample_mse",
         "device": str(torch_device),
         "state_keys": dataset_info.state_keys,
         "eligible_episodes": dataset_info.eligible_episodes,
@@ -820,6 +988,7 @@ def train_diffusion_autoencoder(
     start_epoch = 1
     global_step = 0
     best_val_loss = float("inf")
+    best_val_sample_mse = float("inf")
     if resume is not None:
         checkpoint = _torch_load_checkpoint(Path(resume).expanduser(), map_location=torch_device)
         model.load_state_dict(checkpoint["model_state_dict"])
@@ -829,6 +998,7 @@ def train_diffusion_autoencoder(
         start_epoch = int(checkpoint["epoch"]) + 1
         global_step = int(checkpoint.get("global_step", 0))
         best_val_loss = float(checkpoint.get("best_val_loss", best_val_loss))
+        best_val_sample_mse = float(checkpoint.get("best_val_sample_mse", best_val_sample_mse))
         _restore_rng_state(checkpoint.get("rng_state"))
 
     wandb_run = _init_wandb(
@@ -842,13 +1012,12 @@ def train_diffusion_autoencoder(
 
     log_path = output_path / "train_log.jsonl"
     log_mode = "a" if resume is not None and log_path.exists() else "w"
-    objective_key = "flow_matching_loss" if objective == "flow_matching" else "diffusion_loss"
     try:
         with log_path.open(log_mode) as log_file:
             for epoch in range(start_epoch, epochs + 1):
                 model.train()
                 total_loss = 0.0
-                total_objective = 0.0
+                total_flow_matching = 0.0
                 total_sigreg = 0.0
                 total_batches = 0
 
@@ -874,7 +1043,7 @@ def train_diffusion_autoencoder(
 
                     global_step += 1
                     total_loss += float(loss.detach().cpu())
-                    total_objective += float(metrics[objective_key].cpu())
+                    total_flow_matching += float(metrics["flow_matching_loss"].cpu())
                     total_sigreg += float(metrics["sigreg_loss"].cpu())
                     total_batches += 1
 
@@ -883,7 +1052,7 @@ def train_diffusion_autoencoder(
                             wandb_run,
                             {
                                 "train/loss": float(loss.detach().cpu()),
-                                f"train/{objective_key}": float(metrics[objective_key].cpu()),
+                                "train/flow_matching_loss": float(metrics["flow_matching_loss"].cpu()),
                                 "train/sigreg_loss": float(metrics["sigreg_loss"].cpu()),
                                 "train/lr": float(optimizer.param_groups[0]["lr"]),
                                 "epoch": epoch,
@@ -892,30 +1061,41 @@ def train_diffusion_autoencoder(
                         )
 
                 train_loss = total_loss / total_batches
-                train_objective = total_objective / total_batches
+                train_flow_matching = total_flow_matching / total_batches
                 train_sigreg = total_sigreg / total_batches
-                val_metrics = _evaluate(model, val_loader, torch_device, objective_key, amp_enabled)
+                val_metrics = _evaluate(
+                    model,
+                    val_loader,
+                    torch_device,
+                    amp_enabled,
+                    validation_seed=seed,
+                )
                 val_loss = val_metrics["loss"]
-                is_best = val_loss < best_val_loss
-                if is_best:
+                val_sample_mse = val_metrics["sample_mse"]
+                if val_loss < best_val_loss:
                     best_val_loss = val_loss
+                is_best = val_sample_mse < best_val_sample_mse
+                if is_best:
+                    best_val_sample_mse = val_sample_mse
 
                 row = {
                     "epoch": epoch,
                     "global_step": global_step,
                     "loss": train_loss,
-                    objective_key: train_objective,
+                    "flow_matching_loss": train_flow_matching,
                     "sigreg_loss": train_sigreg,
                     "val_loss": val_loss,
-                    f"val_{objective_key}": val_metrics[objective_key],
+                    "val_flow_matching_loss": val_metrics["flow_matching_loss"],
                     "val_sigreg_loss": val_metrics["sigreg_loss"],
-                    "val_sample_mse": val_metrics["sample_mse"],
+                    "val_sample_mse": val_sample_mse,
                     "best_val_loss": best_val_loss,
+                    "best_val_sample_mse": best_val_sample_mse,
+                    "best_checkpoint_metric": "val_sample_mse",
                 }
                 print(json.dumps(row), file=log_file, flush=True)
                 print(
                     f"epoch {epoch:04d} step={global_step} loss={row['loss']:.6f} "
-                    f"{objective_key}={row[objective_key]:.6f} sigreg={row['sigreg_loss']:.6f} "
+                    f"flow_matching_loss={row['flow_matching_loss']:.6f} sigreg={row['sigreg_loss']:.6f} "
                     f"val_loss={row['val_loss']:.6f} val_sample_mse={row['val_sample_mse']:.6f}",
                     flush=True,
                 )
@@ -924,13 +1104,14 @@ def train_diffusion_autoencoder(
                     {
                         "epoch": epoch,
                         "train/epoch_loss": train_loss,
-                        f"train/epoch_{objective_key}": train_objective,
+                        "train/epoch_flow_matching_loss": train_flow_matching,
                         "train/epoch_sigreg_loss": train_sigreg,
                         "val/loss": val_metrics["loss"],
-                        f"val/{objective_key}": val_metrics[objective_key],
+                        "val/flow_matching_loss": val_metrics["flow_matching_loss"],
                         "val/sigreg_loss": val_metrics["sigreg_loss"],
-                        "val/sample_mse": val_metrics["sample_mse"],
+                        "val/sample_mse": val_sample_mse,
                         "best_val_loss": best_val_loss,
+                        "best_val_sample_mse": best_val_sample_mse,
                     },
                     step=global_step,
                 )
@@ -945,6 +1126,7 @@ def train_diffusion_autoencoder(
                     epoch=epoch,
                     global_step=global_step,
                     best_val_loss=best_val_loss,
+                    best_val_sample_mse=best_val_sample_mse,
                     scaler=scaler,
                 )
                 _wandb_save(wandb_run, last_path)
@@ -960,6 +1142,7 @@ def train_diffusion_autoencoder(
                         epoch=epoch,
                         global_step=global_step,
                         best_val_loss=best_val_loss,
+                        best_val_sample_mse=best_val_sample_mse,
                         scaler=scaler,
                     )
                     _wandb_save(wandb_run, best_path)
@@ -975,6 +1158,7 @@ def train_diffusion_autoencoder(
                         epoch=epoch,
                         global_step=global_step,
                         best_val_loss=best_val_loss,
+                        best_val_sample_mse=best_val_sample_mse,
                         scaler=scaler,
                     )
                     _wandb_save(wandb_run, epoch_path)
@@ -993,94 +1177,21 @@ def train_diffusion_autoencoder(
     return model
 
 
-def _parse_args() -> argparse.Namespace:
-    parser = argparse.ArgumentParser(description="Train a SIGReg DiT trajectory autoencoder.")
-    parser.add_argument(
-        "--dataset-dir",
-        default=str(DEFAULT_DATASET_DIR),
-        help="Directory containing metadata.json and episode .npz files.",
-    )
-    parser.add_argument("--output-dir", default=None, help="Directory to write config.json, checkpoints, and logs.")
-    parser.add_argument("--past-length", type=int, default=4)
-    parser.add_argument("--future-length", type=int, default=8)
-    parser.add_argument("--latent-dim", type=int, default=64)
-    parser.add_argument("--condition-dim", type=int, default=256)
-    parser.add_argument("--hidden-dim", type=int, default=512)
-    parser.add_argument("--transformer-hidden-dim", type=int, default=128)
-    parser.add_argument("--transformer-layers", type=int, default=4)
-    parser.add_argument("--transformer-heads", type=int, default=4)
-    parser.add_argument("--transformer-dropout", type=float, default=0.0)
-    parser.add_argument("--timestep-embed-dim", type=int, default=128)
-    parser.add_argument("--objective", choices=("diffusion", "flow_matching"), default="flow_matching")
-    parser.add_argument("--batch-size", type=int, default=64)
-    parser.add_argument("--epochs", type=int, default=100)
-    parser.add_argument("--lr", type=float, default=1e-3)
-    parser.add_argument("--weight-decay", type=float, default=0.0)
-    parser.add_argument("--grad-clip-norm", type=float, default=None)
-    parser.add_argument("--sigreg-weight", type=float, default=0.09)
-    parser.add_argument("--sigreg-knots", type=int, default=17)
-    parser.add_argument("--sigreg-num-proj", type=int, default=1024)
-    parser.add_argument("--sigma-min", type=float, default=1e-4)
-    parser.add_argument("--num-diffusion-steps", type=int, default=100)
-    parser.add_argument("--num-sample-steps", type=int, default=20)
-    parser.add_argument("--num-workers", type=int, default=0)
-    parser.add_argument("--val-ratio", type=float, default=0.1)
-    parser.add_argument("--train-windows-per-epoch", type=int, default=100_000)
-    parser.add_argument("--val-windows", type=int, default=10_000)
-    parser.add_argument("--log-every-steps", type=int, default=100)
-    parser.add_argument("--checkpoint-every-epochs", type=int, default=10)
-    parser.add_argument("--resume", default=None)
-    parser.add_argument("--wandb-project", default=DEFAULT_WANDB_PROJECT)
-    parser.add_argument("--wandb-entity", default=None)
-    parser.add_argument("--wandb-mode", choices=("online", "offline", "disabled"), default="online")
-    parser.add_argument("--wandb-run-name", default=None)
-    parser.add_argument("--amp", action="store_true")
-    parser.add_argument("--seed", type=int, default=0)
-    parser.add_argument("--device", default="cuda")
-    return parser.parse_args()
+def _parse_args(args: list[str] | None = None) -> DiffusionAutoencoderTrainArgs:
+    return tyro.cli(DiffusionAutoencoderTrainArgs, args=args)
+
+
+def _train_kwargs_from_args(args: DiffusionAutoencoderTrainArgs) -> dict[str, Any]:
+    train_kwargs = asdict(args)
+    config_kwargs = train_kwargs.pop("diffusion_autoencoder_config")
+    train_kwargs.update(config_kwargs)
+    return train_kwargs
 
 
 def main() -> None:
     args = _parse_args()
     train_diffusion_autoencoder(
-        dataset_dir=args.dataset_dir,
-        output_dir=args.output_dir,
-        past_length=args.past_length,
-        future_length=args.future_length,
-        latent_dim=args.latent_dim,
-        condition_dim=args.condition_dim,
-        hidden_dim=args.hidden_dim,
-        transformer_hidden_dim=args.transformer_hidden_dim,
-        transformer_layers=args.transformer_layers,
-        transformer_heads=args.transformer_heads,
-        transformer_dropout=args.transformer_dropout,
-        timestep_embed_dim=args.timestep_embed_dim,
-        objective=args.objective,
-        batch_size=args.batch_size,
-        epochs=args.epochs,
-        lr=args.lr,
-        weight_decay=args.weight_decay,
-        grad_clip_norm=args.grad_clip_norm,
-        sigreg_weight=args.sigreg_weight,
-        sigreg_knots=args.sigreg_knots,
-        sigreg_num_proj=args.sigreg_num_proj,
-        sigma_min=args.sigma_min,
-        num_diffusion_steps=args.num_diffusion_steps,
-        num_sample_steps=args.num_sample_steps,
-        num_workers=args.num_workers,
-        val_ratio=args.val_ratio,
-        train_windows_per_epoch=args.train_windows_per_epoch,
-        val_windows=args.val_windows,
-        log_every_steps=args.log_every_steps,
-        checkpoint_every_epochs=args.checkpoint_every_epochs,
-        resume=args.resume,
-        wandb_project=args.wandb_project,
-        wandb_entity=args.wandb_entity,
-        wandb_mode=args.wandb_mode,
-        wandb_run_name=args.wandb_run_name,
-        amp=args.amp,
-        seed=args.seed,
-        device=args.device,
+        **_train_kwargs_from_args(args),
     )
 
 

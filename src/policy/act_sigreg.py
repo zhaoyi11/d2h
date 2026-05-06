@@ -1,11 +1,11 @@
-"""SIGReg-regularized deterministic autoencoder for trajectory chunks."""
+"""ACT-style trajectory autoencoder with SIGReg latent regularization."""
 
 from __future__ import annotations
 
 import argparse
 import json
 import random
-from dataclasses import asdict
+from dataclasses import asdict, dataclass
 from pathlib import Path
 from typing import Any
 
@@ -17,7 +17,6 @@ from torch.utils.data import DataLoader
 
 from src.policy.vae import (
     DEFAULT_WANDB_PROJECT,
-    VAEConfig,
     _build_window_datasets,
     _cuda_autocast,
     _default_output_dir,
@@ -30,114 +29,159 @@ from src.policy.vae import (
     _wandb_log,
     _wandb_save,
 )
+from src.policy.vae_sigreg import SIGReg
 
 
-MODEL_TYPE = "conditional_trajectory_sigreg_autoencoder"
+MODEL_TYPE = "conditional_trajectory_act_sigreg_autoencoder"
 
 
-class SIGReg(nn.Module):
-    """Sketch Isotropic Gaussian Regularizer from LeWorldModel."""
+@dataclass
+class ACTSIGRegConfig:
+    state_dim: int
+    action_dim: int
+    past_length: int = 4
+    future_length: int = 8
+    latent_dim: int = 64
+    condition_dim: int = 256
+    hidden_dim: int = 256
+    transformer_layers: int = 4
+    transformer_heads: int = 4
+    transformer_feedforward_dim: int = 1024
+    transformer_dropout: float = 0.1
+    sigreg_weight: float = 0.09
+    sigreg_knots: int = 17
+    sigreg_num_proj: int = 1024
 
-    def __init__(self, knots: int = 17, num_proj: int = 1024) -> None:
-        super().__init__()
-        if knots < 2:
-            raise ValueError("knots must be at least 2")
-        if num_proj < 1:
-            raise ValueError("num_proj must be at least 1")
+    @property
+    def token_dim(self) -> int:
+        return self.state_dim + self.action_dim
 
-        self.num_proj = int(num_proj)
-        t = torch.linspace(0, 3, int(knots), dtype=torch.float32)
-        dt = 3 / (int(knots) - 1)
-        weights = torch.full((int(knots),), 2 * dt, dtype=torch.float32)
-        weights[[0, -1]] = dt
-        window = torch.exp(-t.square() / 2.0)
-        self.register_buffer("t", t)
-        self.register_buffer("phi", window)
-        self.register_buffer("weights", weights * window)
+    @property
+    def context_dim(self) -> int:
+        return self.past_length * self.token_dim
 
-    def forward(self, embeddings: Tensor) -> Tensor:
-        """Compute SIGReg for embeddings shaped (batch, latent_dim)."""
-        if embeddings.ndim != 2:
-            raise ValueError("embeddings must have shape (batch, latent_dim)")
+    @property
+    def encoder_input_dim(self) -> int:
+        return (self.past_length + self.future_length) * self.token_dim
 
-        directions = torch.randn(
-            embeddings.size(-1),
-            self.num_proj,
-            device=embeddings.device,
-            dtype=embeddings.dtype,
-        )
-        directions = directions.div_(directions.norm(p=2, dim=0).clamp_min(torch.finfo(embeddings.dtype).eps))
+    @property
+    def target_length(self) -> int:
+        return self.future_length
 
-        t = self.t.to(device=embeddings.device, dtype=embeddings.dtype)
-        phi = self.phi.to(device=embeddings.device, dtype=embeddings.dtype)
-        weights = self.weights.to(device=embeddings.device, dtype=embeddings.dtype)
-        projected = (embeddings @ directions).unsqueeze(-1) * t
-        err = (projected.cos().mean(0) - phi).square() + projected.sin().mean(0).square()
-        statistic = (err @ weights) * embeddings.size(0)
-        return statistic.mean()
+    @property
+    def encoder_length(self) -> int:
+        return self.past_length + self.future_length
 
 
-class ConditionalTrajectorySIGRegAutoencoder(nn.Module):
-    def __init__(self, config: VAEConfig, sigreg_knots: int = 17, sigreg_num_proj: int = 1024) -> None:
+def _transformer_encoder(config: ACTSIGRegConfig) -> nn.TransformerEncoder:
+    if config.hidden_dim % config.transformer_heads != 0:
+        raise ValueError("hidden_dim must be divisible by transformer_heads")
+    layer = nn.TransformerEncoderLayer(
+        d_model=config.hidden_dim,
+        nhead=config.transformer_heads,
+        dim_feedforward=config.transformer_feedforward_dim,
+        dropout=config.transformer_dropout,
+        activation="gelu",
+        batch_first=True,
+        norm_first=False,
+    )
+    return nn.TransformerEncoder(layer, num_layers=config.transformer_layers)
+
+
+class ACTSequenceLatentEncoder(nn.Module):
+    def __init__(self, config: ACTSIGRegConfig) -> None:
         super().__init__()
         self.config = config
-        self.sigreg = SIGReg(knots=sigreg_knots, num_proj=sigreg_num_proj)
+        self.input_proj = nn.Linear(config.token_dim, config.hidden_dim)
+        self.cls_token = nn.Parameter(torch.zeros(1, 1, config.hidden_dim))
+        self.pos_embedding = nn.Parameter(torch.empty(1, 1 + config.encoder_length, config.hidden_dim).normal_(std=0.02))
+        self.transformer = _transformer_encoder(config)
+        self.latent_proj = nn.Linear(config.hidden_dim, config.latent_dim)
 
-        self.encoder = nn.Sequential(
-            nn.Linear(config.encoder_input_dim, 1024),
-            nn.LayerNorm(1024),
-            nn.ReLU(),
-            nn.Linear(1024, 512),
-            nn.LayerNorm(512),
-            nn.ReLU(),
-            nn.Linear(512, config.hidden_dim),
-            nn.ReLU(),
-            nn.Linear(config.hidden_dim, config.latent_dim),
-        )
+    def forward(self, encoder_input: Tensor) -> Tensor:
+        tokens = encoder_input.reshape(-1, self.config.encoder_length, self.config.token_dim)
+        hidden = self.input_proj(tokens)
+        cls = self.cls_token.expand(hidden.size(0), -1, -1)
+        hidden = torch.cat([cls, hidden], dim=1)
+        hidden = hidden + self.pos_embedding[:, : hidden.size(1)]
+        encoded = self.transformer(hidden)
+        return self.latent_proj(encoded[:, 0])
 
-        self.context_encoder = nn.Sequential(
-            nn.Linear(config.context_dim, 512),
-            nn.LayerNorm(512),
-            nn.ReLU(),
-            nn.Linear(512, config.condition_dim),
-            nn.LayerNorm(config.condition_dim),
-            nn.ReLU(),
-        )
 
-        self.decoder = nn.Sequential(
-            nn.Linear(config.condition_dim + config.latent_dim, 1024),
-            nn.LayerNorm(1024),
-            nn.ReLU(),
-            nn.Linear(1024, 1024),
-            nn.LayerNorm(1024),
-            nn.ReLU(),
-            nn.Linear(1024, 512),
-            nn.ReLU(),
-            nn.Linear(512, config.target_length * config.action_dim),
+class ACTContextEncoder(nn.Module):
+    def __init__(self, config: ACTSIGRegConfig) -> None:
+        super().__init__()
+        self.config = config
+        self.input_proj = nn.Linear(config.token_dim, config.hidden_dim)
+        self.cls_token = nn.Parameter(torch.zeros(1, 1, config.hidden_dim))
+        self.pos_embedding = nn.Parameter(torch.empty(1, 1 + config.past_length, config.hidden_dim).normal_(std=0.02))
+        self.transformer = _transformer_encoder(config)
+        self.condition_proj = nn.Linear(config.hidden_dim, config.condition_dim)
+
+    def forward(self, context: Tensor) -> tuple[Tensor, Tensor]:
+        tokens = context.reshape(-1, self.config.past_length, self.config.token_dim)
+        hidden = self.input_proj(tokens)
+        cls = self.cls_token.expand(hidden.size(0), -1, -1)
+        hidden = torch.cat([cls, hidden], dim=1)
+        hidden = hidden + self.pos_embedding[:, : hidden.size(1)]
+        encoded = self.transformer(hidden)
+        return self.condition_proj(encoded[:, 0]), encoded
+
+
+class ACTQueryDecoder(nn.Module):
+    def __init__(self, config: ACTSIGRegConfig) -> None:
+        super().__init__()
+        self.config = config
+        self.query_embed = nn.Embedding(config.target_length, config.hidden_dim)
+        self.latent_memory_proj = nn.Linear(config.latent_dim, config.hidden_dim)
+        self.condition_memory_proj = nn.Linear(config.condition_dim, config.hidden_dim)
+        layer = nn.TransformerDecoderLayer(
+            d_model=config.hidden_dim,
+            nhead=config.transformer_heads,
+            dim_feedforward=config.transformer_feedforward_dim,
+            dropout=config.transformer_dropout,
+            activation="gelu",
+            batch_first=True,
+            norm_first=False,
         )
+        self.transformer = nn.TransformerDecoder(layer, num_layers=int(config.transformer_layers) * 2) # TODO:::::::::
+        self.action_head = nn.Linear(config.hidden_dim, config.action_dim)
+
+    def forward(self, condition: Tensor, latent: Tensor, context_memory: Tensor) -> Tensor:
+        batch_size = latent.size(0)
+        latent_token = self.latent_memory_proj(latent).unsqueeze(1)
+        condition_token = self.condition_memory_proj(condition).unsqueeze(1)
+        memory = torch.cat([latent_token, condition_token, context_memory], dim=1)
+        queries = self.query_embed.weight.unsqueeze(0).expand(batch_size, -1, -1)
+        decoded = self.transformer(queries, memory)
+        return self.action_head(decoded)
+
+
+class ConditionalTrajectoryACTSIGRegAutoencoder(nn.Module):
+    def __init__(self, config: ACTSIGRegConfig) -> None:
+        super().__init__()
+        self.config = config
+        self.encoder = ACTSequenceLatentEncoder(config)
+        self.context_encoder = ACTContextEncoder(config)
+        self.decoder = ACTQueryDecoder(config)
+        self.sigreg = SIGReg(knots=config.sigreg_knots, num_proj=config.sigreg_num_proj)
 
     def encode(self, encoder_input: Tensor) -> Tensor:
         return self.encoder(encoder_input)
 
-    def decode(self, condition: Tensor, latent: Tensor) -> Tensor:
-        flat = self.decoder(torch.cat([condition, latent], dim=-1))
-        return flat.reshape(-1, self.config.target_length, self.config.action_dim)
+    def decode(self, condition: Tensor, latent: Tensor, context_memory: Tensor) -> Tensor:
+        return self.decoder(condition, latent, context_memory)
 
     def forward(self, encoder_input: Tensor, context: Tensor) -> dict[str, Tensor]:
         latent = self.encode(encoder_input)
-        condition = self.context_encoder(context)
-        reconstruction = self.decode(condition, latent)
-        return {"reconstruction": reconstruction, "latent": latent}
+        condition, context_memory = self.context_encoder(context)
+        reconstruction = self.decode(condition, latent, context_memory)
+        return {"reconstruction": reconstruction, "latent": latent, "context_memory": context_memory}
 
-    def loss(
-        self,
-        output: dict[str, Tensor],
-        target_actions: Tensor,
-        sigreg_weight: float,
-    ) -> tuple[Tensor, dict[str, Tensor]]:
+    def loss(self, output: dict[str, Tensor], target_actions: Tensor) -> tuple[Tensor, dict[str, Tensor]]:
         reconstruction_loss = F.mse_loss(output["reconstruction"], target_actions)
         sigreg_loss = self.sigreg(output["latent"])
-        loss = reconstruction_loss + sigreg_weight * sigreg_loss
+        loss = reconstruction_loss + self.config.sigreg_weight * sigreg_loss
         return loss, {
             "reconstruction_loss": reconstruction_loss.detach(),
             "sigreg_loss": sigreg_loss.detach(),
@@ -146,10 +190,9 @@ class ConditionalTrajectorySIGRegAutoencoder(nn.Module):
 
 @torch.no_grad()
 def _evaluate(
-    model: ConditionalTrajectorySIGRegAutoencoder,
+    model: ConditionalTrajectoryACTSIGRegAutoencoder,
     loader: DataLoader,
     torch_device: torch.device,
-    sigreg_weight: float,
     amp_enabled: bool,
 ) -> dict[str, float]:
     model.eval()
@@ -161,7 +204,7 @@ def _evaluate(
         batch = _move_batch(batch, torch_device)
         with _cuda_autocast(amp_enabled):
             output = model(batch["encoder_input"], batch["context"])
-            loss, metrics = model.loss(output, batch["target_actions"], sigreg_weight=sigreg_weight)
+            loss, metrics = model.loss(output, batch["target_actions"])
         total_loss += float(loss.detach().cpu())
         total_reconstruction += float(metrics["reconstruction_loss"].cpu())
         total_sigreg += float(metrics["sigreg_loss"].cpu())
@@ -175,23 +218,24 @@ def _evaluate(
 
 def _save_checkpoint(
     path: Path,
-    model: ConditionalTrajectorySIGRegAutoencoder,
+    model: ConditionalTrajectoryACTSIGRegAutoencoder,
     optimizer: torch.optim.Optimizer,
-    config: VAEConfig,
+    config: ACTSIGRegConfig,
     train_args: dict[str, Any],
     epoch: int,
     global_step: int,
     best_val_loss: float,
     scaler: torch.cuda.amp.GradScaler | None,
-    sigreg_weight: float,
-    sigreg_knots: int,
-    sigreg_num_proj: int,
 ) -> None:
     payload: dict[str, Any] = {
         "config": asdict(config),
         "model_type": MODEL_TYPE,
         "training": train_args,
-        "sigreg": {"weight": sigreg_weight, "knots": sigreg_knots, "num_proj": sigreg_num_proj},
+        "sigreg": {
+            "weight": config.sigreg_weight,
+            "knots": config.sigreg_knots,
+            "num_proj": config.sigreg_num_proj,
+        },
         "model_state_dict": model.state_dict(),
         "optimizer_state_dict": optimizer.state_dict(),
         "epoch": epoch,
@@ -204,14 +248,18 @@ def _save_checkpoint(
     torch.save(payload, path)
 
 
-def train_vae_sigreg(
+def train_act_sigreg(
     dataset_dir: str | Path,
     output_dir: str | Path | None = None,
     past_length: int = 4,
     future_length: int = 8,
     latent_dim: int = 64,
     condition_dim: int = 256,
-    hidden_dim: int = 512,
+    hidden_dim: int = 256,
+    transformer_layers: int = 4,
+    transformer_heads: int = 4,
+    transformer_feedforward_dim: int = 1024,
+    transformer_dropout: float = 0.1,
     batch_size: int = 64,
     epochs: int = 100,
     lr: float = 1e-3,
@@ -234,7 +282,7 @@ def train_vae_sigreg(
     amp: bool = False,
     seed: int = 0,
     device: str = "cuda",
-) -> ConditionalTrajectorySIGRegAutoencoder:
+) -> ConditionalTrajectoryACTSIGRegAutoencoder:
     torch.manual_seed(seed)
     np.random.seed(seed)
     random.seed(seed)
@@ -248,7 +296,7 @@ def train_vae_sigreg(
         val_windows=val_windows,
         seed=seed,
     )
-    config = VAEConfig(
+    config = ACTSIGRegConfig(
         state_dim=int(dataset_info.state_dim),
         action_dim=int(dataset_info.action_dim),
         past_length=past_length,
@@ -256,6 +304,13 @@ def train_vae_sigreg(
         latent_dim=latent_dim,
         condition_dim=condition_dim,
         hidden_dim=hidden_dim,
+        transformer_layers=transformer_layers,
+        transformer_heads=transformer_heads,
+        transformer_feedforward_dim=transformer_feedforward_dim,
+        transformer_dropout=transformer_dropout,
+        sigreg_weight=sigreg_weight,
+        sigreg_knots=sigreg_knots,
+        sigreg_num_proj=sigreg_num_proj,
     )
 
     torch_device = torch.device(device if device != "cuda" or torch.cuda.is_available() else "cpu")
@@ -268,11 +323,7 @@ def train_vae_sigreg(
         loader_kwargs["persistent_workers"] = True
     train_loader = DataLoader(train_dataset, shuffle=False, **loader_kwargs)
     val_loader = DataLoader(val_dataset, shuffle=False, **loader_kwargs)
-    model = ConditionalTrajectorySIGRegAutoencoder(
-        config,
-        sigreg_knots=sigreg_knots,
-        sigreg_num_proj=sigreg_num_proj,
-    ).to(torch_device)
+    model = ConditionalTrajectoryACTSIGRegAutoencoder(config).to(torch_device)
     optimizer = torch.optim.AdamW(model.parameters(), lr=lr, weight_decay=weight_decay)
     amp_enabled = bool(amp and torch_device.type == "cuda")
     scaler = torch.cuda.amp.GradScaler(enabled=amp_enabled) if amp_enabled else None
@@ -295,6 +346,10 @@ def train_vae_sigreg(
         "latent_dim": latent_dim,
         "condition_dim": condition_dim,
         "hidden_dim": hidden_dim,
+        "transformer_layers": transformer_layers,
+        "transformer_heads": transformer_heads,
+        "transformer_feedforward_dim": transformer_feedforward_dim,
+        "transformer_dropout": transformer_dropout,
         "batch_size": batch_size,
         "epochs": epochs,
         "lr": lr,
@@ -365,7 +420,7 @@ def train_vae_sigreg(
                     optimizer.zero_grad(set_to_none=True)
                     with _cuda_autocast(amp_enabled):
                         output = model(batch["encoder_input"], batch["context"])
-                        loss, metrics = model.loss(output, batch["target_actions"], sigreg_weight=sigreg_weight)
+                        loss, metrics = model.loss(output, batch["target_actions"])
 
                     if scaler is not None:
                         scaler.scale(loss).backward()
@@ -402,13 +457,7 @@ def train_vae_sigreg(
                 train_loss = total_loss / total_batches
                 train_reconstruction = total_reconstruction / total_batches
                 train_sigreg = total_sigreg / total_batches
-                val_metrics = _evaluate(
-                    model,
-                    val_loader,
-                    torch_device,
-                    sigreg_weight=sigreg_weight,
-                    amp_enabled=amp_enabled,
-                )
+                val_metrics = _evaluate(model, val_loader, torch_device, amp_enabled=amp_enabled)
                 val_loss = val_metrics["loss"]
                 is_best = val_loss < best_val_loss
                 if is_best:
@@ -458,9 +507,6 @@ def train_vae_sigreg(
                     global_step=global_step,
                     best_val_loss=best_val_loss,
                     scaler=scaler,
-                    sigreg_weight=sigreg_weight,
-                    sigreg_knots=sigreg_knots,
-                    sigreg_num_proj=sigreg_num_proj,
                 )
                 _wandb_save(wandb_run, last_path)
 
@@ -476,9 +522,6 @@ def train_vae_sigreg(
                         global_step=global_step,
                         best_val_loss=best_val_loss,
                         scaler=scaler,
-                        sigreg_weight=sigreg_weight,
-                        sigreg_knots=sigreg_knots,
-                        sigreg_num_proj=sigreg_num_proj,
                     )
                     _wandb_save(wandb_run, best_path)
 
@@ -494,9 +537,6 @@ def train_vae_sigreg(
                         global_step=global_step,
                         best_val_loss=best_val_loss,
                         scaler=scaler,
-                        sigreg_weight=sigreg_weight,
-                        sigreg_knots=sigreg_knots,
-                        sigreg_num_proj=sigreg_num_proj,
                     )
                     _wandb_save(wandb_run, epoch_path)
     finally:
@@ -507,7 +547,11 @@ def train_vae_sigreg(
         {
             "config": asdict(config),
             "model_type": MODEL_TYPE,
-            "sigreg": {"weight": sigreg_weight, "knots": sigreg_knots, "num_proj": sigreg_num_proj},
+            "sigreg": {
+                "weight": config.sigreg_weight,
+                "knots": config.sigreg_knots,
+                "num_proj": config.sigreg_num_proj,
+            },
             "model_state_dict": model.state_dict(),
         },
         output_path / "model.pt",
@@ -516,7 +560,7 @@ def train_vae_sigreg(
 
 
 def _parse_args() -> argparse.Namespace:
-    parser = argparse.ArgumentParser(description="Train a SIGReg trajectory autoencoder from collected episodes.")
+    parser = argparse.ArgumentParser(description="Train an ACT-SIGReg trajectory autoencoder from collected episodes.")
     parser.add_argument("--dataset-dir", required=True, help="Directory containing metadata.json and episode .npz files.")
     parser.add_argument("--output-dir", default=None, help="Directory to write config.json, checkpoints, and logs.")
     parser.add_argument("--past-length", type=int, default=4)
@@ -524,6 +568,10 @@ def _parse_args() -> argparse.Namespace:
     parser.add_argument("--latent-dim", type=int, default=64)
     parser.add_argument("--condition-dim", type=int, default=256)
     parser.add_argument("--hidden-dim", type=int, default=256)
+    parser.add_argument("--transformer-layers", type=int, default=4)
+    parser.add_argument("--transformer-heads", type=int, default=4)
+    parser.add_argument("--transformer-feedforward-dim", type=int, default=1024)
+    parser.add_argument("--transformer-dropout", type=float, default=0.1)
     parser.add_argument("--batch-size", type=int, default=256)
     parser.add_argument("--epochs", type=int, default=500)
     parser.add_argument("--lr", type=float, default=3e-4)
@@ -551,7 +599,7 @@ def _parse_args() -> argparse.Namespace:
 
 def main() -> None:
     args = _parse_args()
-    train_vae_sigreg(
+    train_act_sigreg(
         dataset_dir=args.dataset_dir,
         output_dir=args.output_dir,
         past_length=args.past_length,
@@ -559,6 +607,10 @@ def main() -> None:
         latent_dim=args.latent_dim,
         condition_dim=args.condition_dim,
         hidden_dim=args.hidden_dim,
+        transformer_layers=args.transformer_layers,
+        transformer_heads=args.transformer_heads,
+        transformer_feedforward_dim=args.transformer_feedforward_dim,
+        transformer_dropout=args.transformer_dropout,
         batch_size=args.batch_size,
         epochs=args.epochs,
         lr=args.lr,
