@@ -1,0 +1,47 @@
+{
+  "vae_z": {
+    "num_samples": 10000,
+    "latent_dim": 128,
+    "mean_abs": 0.04458010102928321,
+    "std_abs_error": 0.7172075560340168,
+    "skew_abs_mean": 0.231287630447031,
+    "excess_kurtosis_abs_mean": 0.2663689155096351,
+    "covariance_frobenius_to_identity": 0.9462798184216044,
+    "covariance_eigenvalue_min": 2.572495564529378e-05,
+    "covariance_eigenvalue_median": 0.010360258087795272,
+    "covariance_eigenvalue_max": 1.7160016815462167,
+    "squared_norm_wasserstein_to_chi_square": 116.93297034309482,
+    "random_projection_wasserstein_mean": 0.5790648881281274,
+    "random_projection_wasserstein_max": 0.6523859203816624
+  },
+  "vae_mu": {
+    "num_samples": 10000,
+    "latent_dim": 128,
+    "mean_abs": 0.04457319018083149,
+    "std_abs_error": 0.7172211388054692,
+    "skew_abs_mean": 0.23135675679266204,
+    "excess_kurtosis_abs_mean": 0.2663423801237503,
+    "covariance_frobenius_to_identity": 0.9462875109318868,
+    "covariance_eigenvalue_min": 1.779066875923678e-05,
+    "covariance_eigenvalue_median": 0.01035225786401512,
+    "covariance_eigenvalue_max": 1.7160419253724388,
+    "squared_norm_wasserstein_to_chi_square": 116.9340368523099,
+    "random_projection_wasserstein_mean": 0.5790785158695406,
+    "random_projection_wasserstein_max": 0.6524440367490366
+  },
+  "sigreg": {
+    "num_samples": 10000,
+    "latent_dim": 128,
+    "mean_abs": 0.07957568825417052,
+    "std_abs_error": 0.06625442264402455,
+    "skew_abs_mean": 0.1504501880269004,
+    "excess_kurtosis_abs_mean": 0.2451898822127695,
+    "covariance_frobenius_to_identity": 1.4220621678829086,
+    "covariance_eigenvalue_min": 5.040121557133359e-05,
+    "covariance_eigenvalue_median": 0.2021483811860744,
+    "covariance_eigenvalue_max": 8.62937374391614,
+    "squared_norm_wasserstein_to_chi_square": 17.990567953278678,
+    "random_projection_wasserstein_mean": 0.11363863679016661,
+    "random_projection_wasserstein_max": 0.3125195319586958
+  }
+}
