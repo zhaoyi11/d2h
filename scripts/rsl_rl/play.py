@@ -32,6 +32,11 @@ parser.add_argument(
     action="store_true",
     help="When no checkpoint provided, use the last saved model.",
 )
+parser.add_argument(
+    "--actor_only_checkpoint_load",
+    action="store_true",
+    help="Load only actor-compatible checkpoint weights; useful when critic privileged observations changed.",
+)
 parser.add_argument("--real-time", action="store_true", default=False, help="Run in real-time, if possible.")
 # append RSL-RL cli arguments
 cli_args.add_rsl_rl_args(parser)
@@ -106,6 +111,42 @@ def _apply_grasp_overrides(env_cfg, args_cli):
                 object_scale_override=env_cfg.object_scale_override,
                 object_urdf_path=env_cfg.object_urdf_path,
             )
+
+
+def _load_actor_only_checkpoint(runner, resume_path: str, device: str) -> None:
+    """Load actor-compatible weights while leaving critic parameters initialized."""
+    checkpoint = torch.load(resume_path, weights_only=False, map_location=device)
+    loaded_state = checkpoint["model_state_dict"]
+    policy = getattr(runner.alg, "policy", None)
+    if policy is None:
+        policy = getattr(runner.alg, "actor_critic", None)
+    if policy is None:
+        raise RuntimeError("Runner does not expose a policy module for actor-only checkpoint loading.")
+
+    current_state = policy.state_dict()
+    merged_state = current_state.copy()
+    loaded_keys: list[str] = []
+    skipped_keys: list[str] = []
+    critic_prefixes = ("critic.", "critic_obs_normalizer.")
+
+    for key, value in loaded_state.items():
+        if key.startswith(critic_prefixes):
+            skipped_keys.append(key)
+            continue
+        if key not in current_state or current_state[key].shape != value.shape:
+            skipped_keys.append(key)
+            continue
+        merged_state[key] = value
+        loaded_keys.append(key)
+
+    if not any(key.startswith("actor.") for key in loaded_keys):
+        raise RuntimeError(f"No actor weights could be loaded from checkpoint: {resume_path}")
+
+    policy.load_state_dict(merged_state, strict=True)
+    print(
+        f"[INFO]: Actor-only checkpoint load: loaded {len(loaded_keys)} keys, "
+        f"skipped {len(skipped_keys)} incompatible/non-actor keys."
+    )
 
 
 @hydra_task_config(args_cli.task, args_cli.agent)
@@ -200,7 +241,12 @@ def main(env_cfg: ManagerBasedRLEnvCfg | DirectRLEnvCfg | DirectMARLEnvCfg, agen
         raise ValueError(f"Unsupported runner class: {agent_cfg.class_name}")
 
     # load previously trained model
-    runner.load(resume_path)
+    if args_cli.actor_only_checkpoint_load:
+        if agent_cfg.class_name != "OnPolicyRunner":
+            raise ValueError("--actor_only_checkpoint_load is only supported for OnPolicyRunner checkpoints.")
+        _load_actor_only_checkpoint(runner, resume_path, agent_cfg.device)
+    else:
+        runner.load(resume_path)
 
     # obtain the trained policy for inference
     policy = runner.get_inference_policy(device=env.unwrapped.device)
