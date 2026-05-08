@@ -2,10 +2,14 @@ import gymnasium as gym
 from pathlib import Path
 
 # Patch IsaacLab-registered environments with flash_sac_cfg_entry_point.
-_allegro_spec = gym.spec("Isaac-Repose-Cube-Allegro-Direct-v0")
-_allegro_spec.kwargs["flash_sac_cfg_entry_point"] = (
-    "src.tasks.allegro_hand.flash_sac_cfg:AllegroHandFlashSacCfg"
-)
+try:
+    _allegro_spec = gym.spec("Isaac-Repose-Cube-Allegro-Direct-v0")
+except gym.error.Error:
+    _allegro_spec = None
+if _allegro_spec is not None:
+    _allegro_spec.kwargs["flash_sac_cfg_entry_point"] = (
+        "src.tasks.allegro_hand.flash_sac_cfg:AllegroHandFlashSacCfg"
+    )
 
 # Register Gym environments.
 
@@ -80,6 +84,16 @@ gym.register(
     disable_env_checker=True,
     kwargs={
         "env_cfg_entry_point": f"{__name__}.pick_insert.env_cfg:DexsuiteFrankaLeapInsertEnvCfg",
+        "rsl_rl_cfg_entry_point": "src.tasks.pick_insert.rsl_rl_ppo_cfg:PickInsertRslRlPpoCfg",
+    },
+)
+
+gym.register(
+    id="Pick_Insert_HRL-v0",
+    entry_point="isaaclab.envs:ManagerBasedRLEnv",
+    disable_env_checker=True,
+    kwargs={
+        "env_cfg_entry_point": f"{__name__}.pick_insert.env_cfg:DexsuiteFrankaLeapInsertHrlEnvCfg",
         "rsl_rl_cfg_entry_point": "src.tasks.pick_insert.rsl_rl_ppo_cfg:PickInsertRslRlPpoCfg",
     },
 )
