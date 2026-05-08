@@ -39,9 +39,9 @@ class DiffusionAutoencoderConfigArgs:
     transformer_layers: int = 4
     transformer_heads: int = 4
     transformer_feedforward_dim: int = 1024
-    transformer_dropout: float = 0.1
+    transformer_dropout: float = 0.0
     timestep_embed_dim: int = 128
-    sigreg_weight: float = 0.09
+    sigreg_weight: float = 0.0
     sigreg_knots: int = 17
     sigreg_num_proj: int = 1024
     sigma_min: float = 1e-4
@@ -94,6 +94,7 @@ class DiffusionAutoencoderTrainArgs:
     diffusion_autoencoder_config: DiffusionAutoencoderConfigArgs = field(
         default_factory=DiffusionAutoencoderConfigArgs
     )
+    overfit: bool = False
     batch_size: int = 256
     epochs: int = 100
     lr: float = 3e-4
@@ -608,8 +609,40 @@ def _build_window_datasets(
     val_windows: int,
     seed: int,
     state_keys: tuple[str, ...] | None = None,
-) -> tuple[RandomTrajectoryWindowDataset, FixedTrajectoryWindowDataset, _WindowDatasetInfo]:
+    overfit: bool = False,
+) -> tuple[Dataset, FixedTrajectoryWindowDataset, _WindowDatasetInfo]:
     specs, info = _discover_episode_specs(dataset_dir, past_length, future_length, state_keys=state_keys)
+    if overfit:
+        train_specs = specs
+        val_specs = specs
+        fixed_windows = _sample_fixed_windows(train_specs, val_windows=val_windows, seed=seed + 1)
+        train_dataset = FixedTrajectoryWindowDataset(
+            train_specs,
+            info.state_keys,
+            past_length=past_length,
+            future_length=future_length,
+            windows=fixed_windows,
+        )
+        val_dataset = FixedTrajectoryWindowDataset(
+            val_specs,
+            info.state_keys,
+            past_length=past_length,
+            future_length=future_length,
+            windows=fixed_windows,
+        )
+        return (
+            train_dataset,
+            val_dataset,
+            _WindowDatasetInfo(
+                state_dim=info.state_dim,
+                action_dim=info.action_dim,
+                state_keys=info.state_keys,
+                eligible_episodes=info.eligible_episodes,
+                train_episodes=len(train_specs),
+                val_episodes=len(val_specs),
+            ),
+        )
+
     train_specs, val_specs = _split_episode_specs(specs, val_ratio=val_ratio, seed=seed)
     train_dataset = RandomTrajectoryWindowDataset(
         train_specs,
@@ -843,6 +876,7 @@ def _evaluate(
 def train_diffusion_autoencoder(
     dataset_dir: str | Path = DEFAULT_DATASET_DIR,
     output_dir: str | Path | None = None,
+    overfit: bool = False,
     past_length: int = 4,
     future_length: int = 8,
     latent_dim: int = 64,
@@ -885,6 +919,12 @@ def train_diffusion_autoencoder(
     np.random.seed(seed)
     random.seed(seed)
 
+    if overfit:
+        val_ratio = 0.0
+        transformer_dropout = 0.0
+        sigreg_weight = 0.0
+        weight_decay = 0.0
+
     train_dataset, val_dataset, dataset_info = _build_window_datasets(
         dataset_dir,
         past_length=past_length,
@@ -893,6 +933,7 @@ def train_diffusion_autoencoder(
         train_windows_per_epoch=train_windows_per_epoch,
         val_windows=val_windows,
         seed=seed,
+        overfit=overfit,
     )
     config = DiffusionAutoencoderConfig(
         state_dim=int(dataset_info.state_dim),
@@ -945,6 +986,7 @@ def train_diffusion_autoencoder(
     train_args = {
         "dataset_dir": str(Path(dataset_dir).expanduser()),
         "output_dir": str(output_path),
+        "overfit": overfit,
         "past_length": past_length,
         "future_length": future_length,
         "latent_dim": latent_dim,
