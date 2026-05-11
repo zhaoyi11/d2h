@@ -1,6 +1,8 @@
-"""RSL-RL adapter for the chunk-level HRL environment wrapper."""
+"""RSL-RL adapter for HRL environment wrappers."""
 
 from __future__ import annotations
+
+from typing import Any
 
 import gymnasium as gym
 import torch
@@ -8,13 +10,11 @@ from tensordict import TensorDict
 
 from rsl_rl.env import VecEnv
 
-from .wrapper import HierarchicalChunkEnvWrapper
-
 
 class HrlRslRlVecEnvWrapper(VecEnv):
     """Minimal RSL-RL VecEnv wrapper that respects HRL action dimensions."""
 
-    def __init__(self, env: HierarchicalChunkEnvWrapper, clip_actions: float | None = None) -> None:
+    def __init__(self, env: Any, clip_actions: float | None = None) -> None:
         self.env = env
         self.clip_actions = clip_actions
         self.num_envs = env.num_envs

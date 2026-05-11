@@ -96,10 +96,18 @@ class DifficultyScheduler(ManagerTermBase):
     ):
         asset: Articulation = env.scene[asset_cfg.name]
         object: RigidObject = env.scene[object_cfg.name]
-        command = env.command_manager.get_command("object_pose")
-        des_pos_w, des_quat_w = combine_frame_transforms(
-            asset.data.root_pos_w[env_ids], asset.data.root_quat_w[env_ids], command[env_ids, :3], command[env_ids, 3:7]
-        )
+        command_term = env.command_manager.get_term("object_pose") if hasattr(env.command_manager, "get_term") else None
+        if command_term is not None and hasattr(command_term, "pose_command_w"):
+            des_pos_w = command_term.pose_command_w[env_ids, :3]
+            des_quat_w = command_term.pose_command_w[env_ids, 3:7]
+        else:
+            command = env.command_manager.get_command("object_pose")
+            des_pos_w, des_quat_w = combine_frame_transforms(
+                asset.data.root_pos_w[env_ids],
+                asset.data.root_quat_w[env_ids],
+                command[env_ids, :3],
+                command[env_ids, 3:7],
+            )
         pos_err, rot_err = compute_pose_error(
             des_pos_w, des_quat_w, object.data.root_pos_w[env_ids], object.data.root_quat_w[env_ids]
         )

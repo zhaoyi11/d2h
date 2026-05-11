@@ -27,16 +27,23 @@ parser.add_argument("--distributed", action="store_true", default=False, help="R
 parser.add_argument("--export_io_descriptors", action="store_true", default=False, help="Export IO descriptors.")
 parser.add_argument("--init_at_random_ep_len", type=bool, default=False, help="Randomize initial episode lengths.")
 parser.add_argument(
+    "--low_level_backend",
+    type=str,
+    choices=("vae", "rsl_rl_direct"),
+    default="vae",
+    help="Frozen low-level policy backend used by the HRL wrapper.",
+)
+parser.add_argument(
     "--low_level_checkpoint",
     type=str,
     required=True,
-    help="Path to the frozen low-level VAE checkpoint.",
+    help="Path to the frozen low-level checkpoint.",
 )
 parser.add_argument(
     "--low_level_obs_group",
     type=str,
     default="low_level",
-    help="Observation group used as the VAE low-level state.",
+    help="Observation group used as the low-level policy state.",
 )
 cli_args.add_rsl_rl_args(parser)
 AppLauncher.add_app_launcher_args(parser)
@@ -60,6 +67,7 @@ from isaaclab_tasks.utils.hydra import hydra_task_config  # noqa: E402
 
 import isaaclab_tasks  # noqa: F401, E402
 import src.tasks  # noqa: F401, E402
+from src.policy.hi_policy_direct import DirectLowLevelEnvWrapper, load_direct_rsl_rl_policy  # noqa: E402
 from src.policy.hl_policy import HierarchicalChunkEnvWrapper, load_low_level_vae  # noqa: E402
 from src.policy.hl_policy.rsl_rl_wrapper import HrlRslRlVecEnvWrapper  # noqa: E402
 from src.utils import _patch_rsl_wandb_writer  # noqa: E402
@@ -139,17 +147,32 @@ def main(env_cfg: ManagerBasedRLEnvCfg, agent_cfg: RslRlBaseRunnerCfg):
         env = multi_agent_to_single_agent(env)
 
     hand_action_dim = int(env.unwrapped.action_manager.get_term("hand_action").action_dim)
-    # import ipdb; ipdb.set_trace()
-    low_level_policy = load_low_level_vae(
-        args_cli.low_level_checkpoint,
-        device=env.unwrapped.device,
-        expected_action_dim=hand_action_dim,
-    )
-    env = HierarchicalChunkEnvWrapper(
-        env,
-        low_level_policy=low_level_policy,
-        low_level_obs_group=args_cli.low_level_obs_group,
-    )
+    if args_cli.low_level_backend == "vae":
+        low_level_policy = load_low_level_vae(
+            args_cli.low_level_checkpoint,
+            device=env.unwrapped.device,
+            expected_action_dim=hand_action_dim,
+        )
+        env = HierarchicalChunkEnvWrapper(
+            env,
+            low_level_policy=low_level_policy,
+            low_level_obs_group=args_cli.low_level_obs_group,
+        )
+    elif args_cli.low_level_backend == "rsl_rl_direct":
+        arm_action_dim = int(env.unwrapped.action_manager.get_term("arm_action").action_dim)
+        low_level_policy = load_direct_rsl_rl_policy(
+            args_cli.low_level_checkpoint,
+            device=env.unwrapped.device,
+            expected_action_dim=hand_action_dim,
+        )
+        env = DirectLowLevelEnvWrapper(
+            env,
+            low_level_policy=low_level_policy,
+            low_level_obs_group=args_cli.low_level_obs_group,
+            wrist_action_dim=arm_action_dim,
+        )
+    else:
+        raise ValueError(f"Unsupported low-level backend: {args_cli.low_level_backend}")
     env = HrlRslRlVecEnvWrapper(env, clip_actions=agent_cfg.clip_actions)
 
     if agent_cfg.resume:
@@ -165,7 +188,13 @@ def main(env_cfg: ManagerBasedRLEnvCfg, agent_cfg: RslRlBaseRunnerCfg):
 
     dump_yaml(os.path.join(log_dir, "params", "env.yaml"), env_cfg)
     dump_yaml(os.path.join(log_dir, "params", "agent.yaml"), agent_cfg)
-    print_dict({"low_level_checkpoint": args_cli.low_level_checkpoint, "low_level_obs_group": args_cli.low_level_obs_group})
+    print_dict(
+        {
+            "low_level_backend": args_cli.low_level_backend,
+            "low_level_checkpoint": args_cli.low_level_checkpoint,
+            "low_level_obs_group": args_cli.low_level_obs_group,
+        }
+    )
 
     runner.learn(
         num_learning_iterations=agent_cfg.max_iterations,

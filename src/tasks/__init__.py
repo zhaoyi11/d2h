@@ -36,6 +36,29 @@ gym.register(
     },
 )
 
+# Reorient Debug Environment
+gym.register(
+    id="Reorient_Debug-v0",
+    entry_point="isaaclab.envs:ManagerBasedRLEnv",
+    disable_env_checker=True,
+    kwargs={
+        "env_cfg_entry_point": f"{__name__}.reorient_debug.env_cfg:LeapObjectEnvCfg",
+        "rsl_rl_cfg_entry_point": "src.tasks.reorient_debug.rsl_rl_ppo_cfg:LeapObjectRslRlPpoCfg",
+        "flash_sac_cfg_entry_point": "src.tasks.reorient_debug.flash_sac_cfg:LeapObjectFlashSacCfg",
+    },
+)
+
+gym.register(
+    id="Reorient_Debug_Play-v0",
+    entry_point="isaaclab.envs:ManagerBasedRLEnv",
+    disable_env_checker=True,
+    kwargs={
+        "env_cfg_entry_point": f"{__name__}.reorient_debug.env_cfg:LeapObjectEnvCfg_PLAY",
+        "rsl_rl_cfg_entry_point": "src.tasks.reorient_debug.rsl_rl_ppo_cfg:LeapObjectRslRlPpoCfg",
+        "flash_sac_cfg_entry_point": "src.tasks.reorient_debug.flash_sac_cfg:LeapObjectFlashSacCfg",
+    },
+)
+
 # Pick AnyRotate Environment
 gym.register(
     id="Pick_AnyRotate-v0",
@@ -95,6 +118,27 @@ gym.register(
     kwargs={
         "env_cfg_entry_point": f"{__name__}.pick_insert.env_cfg:DexsuiteFrankaLeapInsertHrlEnvCfg",
         "rsl_rl_cfg_entry_point": "src.tasks.pick_insert.rsl_rl_ppo_cfg:PickInsertRslRlPpoCfg",
+    },
+)
+
+# Pick Insert Debug Environment
+gym.register(
+    id="Pick_Insert_Debug-v0",
+    entry_point="isaaclab.envs:ManagerBasedRLEnv",
+    disable_env_checker=True,
+    kwargs={
+        "env_cfg_entry_point": f"{__name__}.pick_insert_debug.env_cfg:DexsuiteFrankaLeapInsertEnvCfg",
+        "rsl_rl_cfg_entry_point": "src.tasks.pick_insert_debug.rsl_rl_ppo_cfg:PickInsertRslRlPpoCfg",
+    },
+)
+
+gym.register(
+    id="Pick_Insert_Debug_HRL-v0",
+    entry_point="isaaclab.envs:ManagerBasedRLEnv",
+    disable_env_checker=True,
+    kwargs={
+        "env_cfg_entry_point": f"{__name__}.pick_insert_debug.env_cfg:DexsuiteFrankaLeapInsertHrlEnvCfg",
+        "rsl_rl_cfg_entry_point": "src.tasks.pick_insert_debug.rsl_rl_ppo_cfg:PickInsertRslRlPpoCfg",
     },
 )
 
