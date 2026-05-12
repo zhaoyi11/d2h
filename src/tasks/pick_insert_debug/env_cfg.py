@@ -118,6 +118,7 @@ class CommandsCfg:
         debug_vis=True,
     )
 
+
 @configclass
 class ObservationsCfg:
     """Observation specifications for the MDP."""

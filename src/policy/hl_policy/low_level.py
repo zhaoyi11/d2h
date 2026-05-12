@@ -4,17 +4,15 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 import torch
 from torch import Tensor
 
 from src.policy.vae import ConditionalTrajectoryVAE, MODEL_TYPE, VAEConfig
-from src.policy.goal_conditioned import (
-    GoalConditionedChunkConfig,
-    GoalConditionedChunkPolicy,
-    MODEL_TYPE as GOAL_CONDITIONED_MODEL_TYPE,
-)
+
+if TYPE_CHECKING:
+    from src.policy.goal_conditioned import GoalConditionedChunkConfig, GoalConditionedChunkPolicy
 
 
 def _torch_load_checkpoint(path: str | Path, map_location: torch.device | str) -> dict[str, Any]:
@@ -121,6 +119,12 @@ def load_low_level_goal_conditioned(
     expected_action_dim: int | None = None,
 ) -> LowLevelGoalConditionedPolicy:
     """Load a frozen goal-conditioned low-level hand-action policy checkpoint."""
+    from src.policy.goal_conditioned import (
+        GoalConditionedChunkConfig,
+        GoalConditionedChunkPolicy,
+        MODEL_TYPE as GOAL_CONDITIONED_MODEL_TYPE,
+    )
+
     path = Path(checkpoint_path).expanduser()
     checkpoint = _torch_load_checkpoint(path, map_location=device)
     model_type = checkpoint.get("model_type")

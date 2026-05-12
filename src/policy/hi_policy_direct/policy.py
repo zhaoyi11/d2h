@@ -1,4 +1,4 @@
-"""Direct frozen RSL-RL low-level policy loading."""
+"""Direct frozen low-level policy loading."""
 
 from __future__ import annotations
 
@@ -10,9 +10,23 @@ from typing import Any
 import torch
 from torch import Tensor, nn
 
+from src.policy.bc_base import (
+    MODEL_TYPE as BC_MODEL_TYPE,
+    BehaviorCloningChunkConfig,
+    BehaviorCloningChunkPolicy,
+)
 
 DEFAULT_DIRECT_RSL_RL_CHECKPOINT = (
     Path(__file__).resolve().parents[3] / "logs" / "rsl_rl" / "anyreorient" / "model_14999.pt"
+)
+DEFAULT_DIRECT_BC_CHECKPOINT = (
+    Path(__file__).resolve().parents[3]
+    / "logs"
+    / "bc"
+    / "Reorient_Debug_Play-v0"
+    / "uw_peg"
+    / "bc_base_reorient_debug_uw_peg_f4_h2048_bs4096_seed0"
+    / "final_20260512_030225.pt"
 )
 
 _ACTOR_WEIGHT_RE = re.compile(r"^actor\.(\d+)\.weight$")
@@ -124,6 +138,34 @@ class DirectRslRlLowLevelPolicy:
         return self.model((obs - self.obs_mean) / (self.obs_std + self.eps))
 
 
+@dataclass
+class DirectBcLowLevelPolicy:
+    """Inference wrapper around a frozen behavior-cloning action policy."""
+
+    model: BehaviorCloningChunkPolicy
+
+    @property
+    def device(self) -> torch.device:
+        return next(self.model.parameters()).device
+
+    @property
+    def obs_dim(self) -> int:
+        return int(self.model.config.state_dim)
+
+    @property
+    def action_dim(self) -> int:
+        return int(self.model.config.action_dim)
+
+    @torch.inference_mode()
+    def act(self, obs: Tensor) -> Tensor:
+        """Return the current hand action from a BC action chunk."""
+        obs = obs.to(device=self.device, dtype=next(self.model.parameters()).dtype)
+        if obs.shape[-1] != self.obs_dim:
+            raise ValueError(f"Expected direct BC obs dim {self.obs_dim}, got {obs.shape[-1]}.")
+        # bc_base trains forward_normalized against raw target actions.
+        return self.model.forward_normalized(obs)[:, 0, :]
+
+
 def load_direct_rsl_rl_policy(
     checkpoint_path: str | Path = DEFAULT_DIRECT_RSL_RL_CHECKPOINT,
     device: torch.device | str = "cpu",
@@ -152,6 +194,46 @@ def load_direct_rsl_rl_policy(
         raise ValueError(f"Expected direct RSL-RL obs dim {expected_obs_dim}, checkpoint has {policy.obs_dim}.")
     if expected_action_dim is not None and int(expected_action_dim) != policy.action_dim:
         raise ValueError(f"Expected direct RSL-RL action dim {expected_action_dim}, checkpoint has {policy.action_dim}.")
+
+    model.eval()
+    for param in model.parameters():
+        param.requires_grad_(False)
+    return policy
+
+
+def load_direct_bc_policy(
+    checkpoint_path: str | Path = DEFAULT_DIRECT_BC_CHECKPOINT,
+    device: torch.device | str = "cpu",
+    expected_obs_dim: int | None = None,
+    expected_action_dim: int | None = None,
+) -> DirectBcLowLevelPolicy:
+    """Load a frozen deterministic BC actor from a bc_base checkpoint."""
+    path = Path(checkpoint_path).expanduser()
+    checkpoint = _torch_load_checkpoint(path, map_location=device)
+    model_type = checkpoint.get("model_type")
+    if model_type is not None and model_type != BC_MODEL_TYPE:
+        raise ValueError(f"Expected checkpoint model_type {BC_MODEL_TYPE!r}, got {model_type!r}.")
+    if "config" not in checkpoint:
+        raise KeyError(f"Checkpoint is missing config: {path}")
+    if "model_state_dict" not in checkpoint:
+        raise KeyError(f"Checkpoint is missing model_state_dict: {path}")
+
+    config_payload = checkpoint["config"]
+    if not isinstance(config_payload, dict):
+        raise TypeError(f"Expected config to be a dict, got {type(config_payload).__name__}.")
+    state_dict = checkpoint["model_state_dict"]
+    if not isinstance(state_dict, dict):
+        raise TypeError(f"Expected model_state_dict to be a dict, got {type(state_dict).__name__}.")
+
+    config = BehaviorCloningChunkConfig(**config_payload)
+    model = BehaviorCloningChunkPolicy(config).to(device)
+    model.load_state_dict(state_dict, strict=True)
+
+    policy = DirectBcLowLevelPolicy(model=model)
+    if expected_obs_dim is not None and int(expected_obs_dim) != policy.obs_dim:
+        raise ValueError(f"Expected direct BC obs dim {expected_obs_dim}, checkpoint has {policy.obs_dim}.")
+    if expected_action_dim is not None and int(expected_action_dim) != policy.action_dim:
+        raise ValueError(f"Expected direct BC action dim {expected_action_dim}, checkpoint has {policy.action_dim}.")
 
     model.eval()
     for param in model.parameters():

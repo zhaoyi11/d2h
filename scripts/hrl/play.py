@@ -28,7 +28,7 @@ parser.add_argument("--seed", type=int, default=None, help="Seed used for the en
 parser.add_argument(
     "--low_level_backend",
     type=str,
-    choices=("vae", "rsl_rl_direct"),
+    choices=("vae", "rsl_rl_direct", "bc_direct"),
     default="vae",
     help="Frozen low-level policy backend used by the HRL wrapper.",
 )
@@ -74,7 +74,11 @@ from isaaclab_tasks.utils.hydra import hydra_task_config  # noqa: E402
 
 import isaaclab_tasks  # noqa: F401, E402
 import src.tasks  # noqa: F401, E402
-from src.policy.hi_policy_direct import DirectLowLevelEnvWrapper, load_direct_rsl_rl_policy  # noqa: E402
+from src.policy.hi_policy_direct import (  # noqa: E402
+    DirectLowLevelEnvWrapper,
+    load_direct_bc_policy,
+    load_direct_rsl_rl_policy,
+)
 from src.policy.hl_policy import HierarchicalChunkEnvWrapper, load_low_level_vae  # noqa: E402
 from src.policy.hl_policy.rsl_rl_wrapper import HrlRslRlVecEnvWrapper  # noqa: E402
 
@@ -150,9 +154,10 @@ def main(env_cfg: ManagerBasedRLEnvCfg, agent_cfg: RslRlBaseRunnerCfg):
             low_level_policy=low_level_policy,
             low_level_obs_group=args_cli.low_level_obs_group,
         )
-    elif args_cli.low_level_backend == "rsl_rl_direct":
+    elif args_cli.low_level_backend in ("rsl_rl_direct", "bc_direct"):
         arm_action_dim = int(env.unwrapped.action_manager.get_term("arm_action").action_dim)
-        low_level_policy = load_direct_rsl_rl_policy(
+        loader = load_direct_bc_policy if args_cli.low_level_backend == "bc_direct" else load_direct_rsl_rl_policy
+        low_level_policy = loader(
             args_cli.low_level_checkpoint,
             device=env.unwrapped.device,
             expected_action_dim=hand_action_dim,

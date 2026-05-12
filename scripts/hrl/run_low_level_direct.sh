@@ -17,7 +17,7 @@ set -u
 
 TASK="${TASK:-Pick_Insert_Debug_HRL-v0}"
 NUM_ENVS="${NUM_ENVS:-1}"
-LOW_LEVEL_CHECKPOINT="${LOW_LEVEL_CHECKPOINT:-${REPO_ROOT}/logs/rsl_rl/anyreorient/model_14999.pt}"
+LOW_LEVEL_CHECKPOINT="${LOW_LEVEL_CHECKPOINT:-${REPO_ROOT}/logs/bc/Reorient_Debug_Play-v0/uw_peg/bc_base_reorient_debug_uw_peg_f4_h2048_bs4096_seed0/final_20260512_030225.pt}"
 LOW_LEVEL_OBS_GROUP="${LOW_LEVEL_OBS_GROUP:-low_level}"
 
 python scripts/hrl/play_low_level_direct.py \

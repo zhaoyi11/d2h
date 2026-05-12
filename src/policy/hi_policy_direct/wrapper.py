@@ -1,4 +1,4 @@
-"""HRL wrapper that delegates hand actions to a direct frozen low-level policy."""
+"""HRL wrapper that delegates hand actions to a direct frozen BC policy."""
 
 from __future__ import annotations
 
@@ -8,16 +8,16 @@ import gymnasium as gym
 import torch
 from torch import Tensor
 
-from .policy import DirectRslRlLowLevelPolicy
+from .policy import DirectBcLowLevelPolicy
 
 
 class DirectLowLevelEnvWrapper:
-    """Expose a wrist-only HRL action interface over a direct low-level hand policy."""
+    """Expose a wrist-only HRL action interface over a direct BC hand policy."""
 
     def __init__(
         self,
         env: gym.Env,
-        low_level_policy: DirectRslRlLowLevelPolicy,
+        low_level_policy: DirectBcLowLevelPolicy,
         low_level_obs_group: str = "low_level",
         wrist_action_dim: int = 6,
     ) -> None:
@@ -88,5 +88,5 @@ class DirectLowLevelEnvWrapper:
         state = obs[self.low_level_obs_group].to(device=self.device)
         state = state.reshape(self.num_envs, -1)
         if state.shape[-1] != self.low_level_policy.obs_dim:
-            raise ValueError(f"Expected direct RSL-RL state dim {self.low_level_policy.obs_dim}, got {state.shape[-1]}.")
+            raise ValueError(f"Expected direct BC state dim {self.low_level_policy.obs_dim}, got {state.shape[-1]}.")
         return state
