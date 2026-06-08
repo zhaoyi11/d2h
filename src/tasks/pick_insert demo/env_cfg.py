@@ -59,7 +59,7 @@ class SceneCfg(InteractiveSceneCfg):
         prim_path="{ENV_REGEX_NS}/ReceptiveObject",
         spawn=sim_utils.UsdFileCfg(
             usd_path=f"{UWLAB_CLOUD_ASSETS_DIR}/Props/Custom/PegHole/peg_hole.usd",
-            scale=(1.5, 1.5, 1.5),
+            scale=(2.2, 2.2, 2.2),
             rigid_props=sim_utils.RigidBodyPropertiesCfg(
                 solver_position_iteration_count=4,
                 solver_velocity_iteration_count=0,
@@ -108,7 +108,7 @@ class CommandsCfg:
         asset_name="robot",
         object_name="object",
         resampling_time_range=(10.0, 10.0),
-        debug_vis=True,
+        debug_vis=False,
         ranges=mdp.PickInsertTrajectoryObjectAndHandBasePoseCommandCfg.Ranges(
             pos_x=(0.35, 0.35),
             pos_y=(0.0, 0.0),
@@ -414,14 +414,14 @@ class EventCfg:
         },
     )
 
-    reset_robot_joints = EventTerm(
-        func=mdp.reset_joints_by_offset,
-        mode="reset",
-        params={
-            "position_range": [-0.50, 0.50],
-            "velocity_range": [0.0, 0.0],
-        },
-    )
+    # reset_robot_joints = EventTerm(
+    #     func=mdp.reset_joints_by_offset,
+    #     mode="reset",
+    #     params={
+    #         "position_range": [-0.50, 0.50],
+    #         "velocity_range": [0.0, 0.0],
+    #     },
+    # )
 
     reset_object_relative_to_hand = EventTerm(
         func=mdp.reset_object_pose_relative_to_body,
@@ -630,7 +630,7 @@ class DexsuiteInsertPegEnvCfg(ManagerBasedRLEnvCfg):
             )
         )
 
-        self.episode_length_s = 4.0
+        self.episode_length_s = 10.0
         self.is_finite_horizon = True
 
         # simulation settings
@@ -651,7 +651,7 @@ class DexsuiteInsertEnvCfg(DexsuiteInsertPegEnvCfg):
 
     def __post_init__(self):
         super().__post_init__()
-        self.commands.object_pose.position_only = True
+        self.commands.object_pose.position_only = False
 
 
 class DexsuiteInsertEnvCfg_PLAY(DexsuiteInsertPegEnvCfg):
@@ -660,7 +660,7 @@ class DexsuiteInsertEnvCfg_PLAY(DexsuiteInsertPegEnvCfg):
     def __post_init__(self):
         super().__post_init__()
         self.commands.object_pose.resampling_time_range = (2.0, 3.0)
-        self.commands.object_pose.debug_vis = True
+        self.commands.object_pose.debug_vis = False
         self.curriculum.adr.params["init_difficulty"] = self.curriculum.adr.params[
             "max_difficulty"
         ]
@@ -725,7 +725,7 @@ class FrankaLeapMixinCfg:
                 ContactSensorCfg(
                     prim_path="{ENV_REGEX_NS}/Robot/Franka_LeapHand/leap_hand_right/" + link_name,
                     filter_prim_paths_expr=["{ENV_REGEX_NS}/Object"], # TODO: check this !!
-                    debug_vis=True,
+                    debug_vis=False,
                 ),
             )
         self.observations.proprio.contact = ObsTerm(

@@ -187,7 +187,7 @@ def object_ang_vel_body_b(
 
 
 def command_object_pose_b(env: ManagerBasedRLEnv, command_name: str) -> torch.Tensor:
-    """Target object pose from a command that may contain additional target frames."""
+    """Target object pose slice from a command that may contain additional target frames."""
     return env.command_manager.get_command(command_name)[:, :7]
 
 
@@ -605,6 +605,9 @@ def _command_object_pose_body_b(
     command_asset_cfg: SceneEntityCfg,
 ) -> tuple[torch.Tensor, torch.Tensor]:
     command = env.command_manager.get_command(command_name)
+    if command.shape[-1] >= 14:
+        return command[:, :3], command[:, 3:7]
+
     command_asset: Articulation = env.scene[command_asset_cfg.name]
     goal_pos_w, goal_quat_w = combine_frame_transforms(
         command_asset.data.root_pos_w,

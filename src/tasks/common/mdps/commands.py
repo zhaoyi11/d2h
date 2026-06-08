@@ -39,9 +39,9 @@ if TYPE_CHECKING:
 
 DEFAULT_HAND_BASE_TO_ANCHOR_POSE = (0.10623648, 0.01035594, 0.07579897, 1.0, 0.0, 0.0, 0.0)
 DEFAULT_TARGET_ANCHOR_QUAT = (0.70710678, 0.0, 0.70710678, 0.0)
-DEFAULT_ANCHOR_CLEARANCE = 0.02
+DEFAULT_ANCHOR_CLEARANCE = -0.01
 DEFAULT_PICK_INSERT_RECEPTIVE_POSE = (0.35, 0.0, 0.285, 1.0, 0.0, 0.0, 0.0)
-DEFAULT_PICK_INSERT_SEGMENT_STEPS = (20, 20, 10, 20, 5)
+DEFAULT_PICK_INSERT_SEGMENT_STEPS = (20, 20, 10, 20, 10)
 
 
 def _load_pick_insert_object_trajectory_module():
@@ -247,7 +247,12 @@ class ObjectUniformPoseCommand(CommandTerm):
 
 
 class ObjectAndHandBasePoseCommand(ObjectUniformPoseCommand):
-    """Object pose command augmented with a target robot hand-base pose."""
+    """Object pose command augmented with a target robot hand-base pose.
+
+    The internal object target is stored in the robot root frame. The public
+    command exposes the object target in the target hand-base frame followed by
+    the target hand-base pose in the robot root frame.
+    """
 
     cfg: ObjectAndHandBasePoseCommandCfg
 
@@ -265,7 +270,7 @@ class ObjectAndHandBasePoseCommand(ObjectUniformPoseCommand):
 
     @property
     def command(self) -> torch.Tensor:
-        self._command_b[:, :7] = self.pose_command_b
+        self._command_b[:, :7] = self._object_pose_command_hand_base_b()
         self._command_b[:, 7:14] = self.hand_base_pose_command_b
         return self._command_b
 
@@ -283,6 +288,15 @@ class ObjectAndHandBasePoseCommand(ObjectUniformPoseCommand):
             target_anchor_quat=self.cfg.target_anchor_quat,
             anchor_clearance=self.cfg.anchor_clearance,
         )
+
+    def _object_pose_command_hand_base_b(self) -> torch.Tensor:
+        object_pos_h, object_quat_h = subtract_frame_transforms(
+            self.hand_base_pose_command_b[:, :3],
+            self.hand_base_pose_command_b[:, 3:7],
+            self.pose_command_b[:, :3],
+            self.pose_command_b[:, 3:7],
+        )
+        return torch.cat((object_pos_h, object_quat_h), dim=1)
 
 
 class PickInsertTrajectoryObjectAndHandBasePoseCommand(ObjectAndHandBasePoseCommand):
@@ -314,12 +328,7 @@ class PickInsertTrajectoryObjectAndHandBasePoseCommand(ObjectAndHandBasePoseComm
 
     def _update_metrics(self):
         super()._update_metrics()
-        hand_base_pos_b, hand_base_quat_b = subtract_frame_transforms(
-            self.robot.data.root_pos_w,
-            self.robot.data.root_quat_w,
-            self.robot.data.body_pos_w[:, self._hand_base_body_idx],
-            self.robot.data.body_quat_w[:, self._hand_base_body_idx],
-        )
+        hand_base_pos_b, hand_base_quat_b = self._current_hand_base_pose_b()
         hand_base_pos_error, hand_base_rot_error = compute_pose_error(
             self.hand_base_pose_command_b[:, :3],
             self.hand_base_pose_command_b[:, 3:7],
@@ -366,13 +375,16 @@ class PickInsertTrajectoryObjectAndHandBasePoseCommand(ObjectAndHandBasePoseComm
         self._object_pose_trajectory_b[env_ids_tensor] = torch.stack(trajectories, dim=0)
         self._trajectory_step[env_ids_tensor] = 0
         self.pose_command_b[env_ids_tensor] = self._object_pose_trajectory_b[env_ids_tensor, 0]
-        self._update_hand_base_pose_command(env_ids_tensor)
+        hand_base_pos_b, hand_base_quat_b = self._current_hand_base_pose_b(env_ids_tensor)
+        self.hand_base_pose_command_b[env_ids_tensor] = torch.cat((hand_base_pos_b, hand_base_quat_b), dim=1)
         self._trajectory_command_achieved[env_ids_tensor] = False
 
     def _update_command(self):
         advance_env_ids = self._trajectory_command_achieved.nonzero().flatten()
         if advance_env_ids.numel() == 0:
-            self._update_hand_base_pose_command()
+            active_env_ids = (self._trajectory_step > 0).nonzero().flatten()
+            if active_env_ids.numel() > 0:
+                self._update_hand_base_pose_command(active_env_ids)
             return
         self._trajectory_step[advance_env_ids] = torch.clamp(
             self._trajectory_step[advance_env_ids] + 1,
@@ -382,12 +394,25 @@ class PickInsertTrajectoryObjectAndHandBasePoseCommand(ObjectAndHandBasePoseComm
             advance_env_ids,
             self._trajectory_step[advance_env_ids],
         ]
-        self._update_hand_base_pose_command()
+        active_env_ids = (self._trajectory_step > 0).nonzero().flatten()
+        if active_env_ids.numel() > 0:
+            self._update_hand_base_pose_command(active_env_ids)
 
     def _env_ids_tensor(self, env_ids: Sequence[int]) -> torch.Tensor:
         if isinstance(env_ids, slice):
             return torch.arange(self.num_envs, device=self.device)
         return torch.as_tensor(env_ids, dtype=torch.long, device=self.device)
+
+    def _current_hand_base_pose_b(
+        self,
+        env_ids: Sequence[int] | slice = slice(None),
+    ) -> tuple[torch.Tensor, torch.Tensor]:
+        return subtract_frame_transforms(
+            self.robot.data.root_pos_w[env_ids],
+            self.robot.data.root_quat_w[env_ids],
+            self.robot.data.body_pos_w[env_ids, self._hand_base_body_idx],
+            self.robot.data.body_quat_w[env_ids, self._hand_base_body_idx],
+        )
 
 
 #############
@@ -513,10 +538,10 @@ class PickInsertTrajectoryObjectAndHandBasePoseCommandCfg(ObjectAndHandBasePoseC
     approach_height: float = 0.08
     """Height above the insertion pose used before final descent."""
 
-    object_position_tolerance: float = 0.02
+    object_position_tolerance: float = 0.03
     """Object position tolerance in meters for advancing the command trajectory."""
 
-    object_orientation_tolerance: float = 0.2
+    object_orientation_tolerance: float = 0.3
     """Object orientation tolerance in radians for advancing the command trajectory."""
 
     hand_base_position_tolerance: float = 0.02

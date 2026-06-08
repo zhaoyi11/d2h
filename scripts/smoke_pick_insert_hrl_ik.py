@@ -31,7 +31,7 @@ parser.add_argument(
 parser.add_argument(
     "--low_level_checkpoint",
     type=str,
-    default="/home/yizhao/yi/D2H/logs/rsl_rl/anyreorient/model_14999.pt",
+    default="/home/yizhao/yi/D2H/logs/rsl_rl/anyreorient/exported/policy.pt",
     help="RSL-RL actor checkpoint for hand control.",
 )
 parser.add_argument(
@@ -147,15 +147,8 @@ def _object_pose_in_hand_base_b(env) -> torch.Tensor:
 
 
 def _target_object_pose_in_hand_base_b(env) -> torch.Tensor:
-    object_pos_w, object_quat_w, *_ = _command_poses_w(env)
-    hand_pos_w, hand_quat_w, _ = _hand_base_pose_w(env)
-    target_pos_b, target_quat_b = subtract_frame_transforms(
-        hand_pos_w,
-        hand_quat_w,
-        object_pos_w,
-        object_quat_w,
-    )
-    return torch.cat((target_pos_b, target_quat_b), dim=1)
+    command = env.command_manager.get_command("object_pose")
+    return command[:, :7]
 
 
 def _low_level_obs(env) -> torch.Tensor:
@@ -212,29 +205,36 @@ def _command_poses_w(env) -> tuple[torch.Tensor, torch.Tensor, torch.Tensor, tor
     command = env.command_manager.get_command("object_pose")
     command_term = env.command_manager.get_term("object_pose")
     robot = env.scene["robot"]
-    object_pos_w, object_quat_w = combine_frame_transforms(
-        robot.data.root_pos_w,
-        robot.data.root_quat_w,
-        command[:, :3],
-        command[:, 3:7],
-    )
-    anchor_pos_b = command[:, :3].clone()
-    anchor_pos_b[:, 2] += command.new_tensor(command_term.cfg.anchor_clearance)
-    anchor_quat_b = torch.tensor(command_term.cfg.target_anchor_quat, device=command.device).repeat(
-        command.shape[0],
-        1,
-    )
-    anchor_pos_w, anchor_quat_w = combine_frame_transforms(
-        robot.data.root_pos_w,
-        robot.data.root_quat_w,
-        anchor_pos_b,
-        anchor_quat_b,
-    )
+
     base_pos_w, base_quat_w = combine_frame_transforms(
         robot.data.root_pos_w,
         robot.data.root_quat_w,
         command[:, 7:10],
         command[:, 10:14],
+    )
+    object_pos_w, object_quat_w = combine_frame_transforms(
+        base_pos_w,
+        base_quat_w,
+        command[:, :3],
+        command[:, 3:7],
+    )
+    object_pos_b, _ = combine_frame_transforms(
+        command[:, 7:10],
+        command[:, 10:14],
+        command[:, :3],
+        command[:, 3:7],
+    )
+    anchor_quat_b = torch.tensor(command_term.cfg.target_anchor_quat, device=command.device).repeat(
+        command.shape[0],
+        1,
+    )
+    anchor_pos_b = object_pos_b.clone()
+    anchor_pos_b[:, 2] += command.new_tensor(command_term.cfg.anchor_clearance)
+    anchor_pos_w, anchor_quat_w = combine_frame_transforms(
+        robot.data.root_pos_w,
+        robot.data.root_quat_w,
+        anchor_pos_b,
+        anchor_quat_b,
     )
     return object_pos_w, object_quat_w, anchor_pos_w, anchor_quat_w, base_pos_w, base_quat_w
 
@@ -279,11 +279,11 @@ def _print_snapshot(env, step: int) -> None:
     current_hand_base_b, body_name = _hand_base_pose_b(env)
     current_object_in_hand_b = _object_pose_in_hand_base_b(env)
     target_object_in_hand_b = _target_object_pose_in_hand_base_b(env)
-    print(f"[STEP {step:04d}]: target object pose b    {_as_list(command[0, :7])}", flush=True)
-    print(f"[STEP {step:04d}]: target hand base pose b {_as_list(command[0, 7:14])}", flush=True)
+    print(f"[STEP {step:04d}]: target object pose h       {_as_list(command[0, :7])}", flush=True)
+    print(f"[STEP {step:04d}]: target hand base pose root {_as_list(command[0, 7:14])}", flush=True)
     print(f"[STEP {step:04d}]: current {body_name} pose b {_as_list(current_hand_base_b[0])}", flush=True)
     print(f"[STEP {step:04d}]: object pose in {body_name} b {_as_list(current_object_in_hand_b[0])}", flush=True)
-    print(f"[STEP {step:04d}]: target object in {body_name} b {_as_list(target_object_in_hand_b[0])}", flush=True)
+    print(f"[STEP {step:04d}]: target object in target {body_name} b {_as_list(target_object_in_hand_b[0])}", flush=True)
 
 
 def main() -> None:
@@ -307,13 +307,14 @@ def main() -> None:
         action_dim = int(env_unwrapped.action_manager.total_action_dim)
         low_level_policy = None
         if not args_cli.zero_hand_action:
+            actual_obs = int(_low_level_obs(env_unwrapped).shape[-1])
             low_level_policy = load_low_level_rsl_rl_policy(
                 args_cli.low_level_checkpoint,
                 device=env_unwrapped.device,
+                expected_obs_dim=actual_obs,
                 expected_action_dim=action_dim,
             )
             expected_obs = int(low_level_policy.obs_dim)
-            actual_obs = int(_low_level_obs(env_unwrapped).shape[-1])
             if actual_obs != expected_obs:
                 raise RuntimeError(f"Expected low-level obs dim {expected_obs}, got {actual_obs}.")
             print(
