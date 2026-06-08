@@ -7,7 +7,6 @@ import importlib.util
 import sys
 import time
 import traceback
-from collections.abc import Sequence
 from pathlib import Path
 from types import ModuleType
 
@@ -42,7 +41,6 @@ from isaaclab.markers import VisualizationMarkers, VisualizationMarkersCfg  # no
 from isaaclab.scene import InteractiveScene  # noqa: E402
 from isaaclab.sim import SimulationContext  # noqa: E402
 from isaaclab.utils.assets import ISAAC_NUCLEUS_DIR  # noqa: E402
-from isaaclab.utils.math import combine_frame_transforms, subtract_frame_transforms  # noqa: E402
 
 
 def _load_module(module_name: str, path: Path) -> ModuleType:
@@ -55,29 +53,15 @@ def _load_module(module_name: str, path: Path) -> ModuleType:
     return module
 
 
-def _current_object_pose_b(scene: InteractiveScene) -> torch.Tensor:
-    robot = scene["robot"]
+def _make_robotless_scene_cfg(env_cfg_module: ModuleType):
+    scene_cfg = env_cfg_module.SceneCfg(num_envs=1, env_spacing=2.0, replicate_physics=False)
+    scene_cfg.robot = None
+    return scene_cfg
+
+
+def _current_object_pose_w(scene: InteractiveScene) -> torch.Tensor:
     obj = scene["object"]
-    pos_b, quat_b = subtract_frame_transforms(
-        robot.data.root_pos_w,
-        robot.data.root_quat_w,
-        obj.data.root_pos_w,
-        obj.data.root_quat_w,
-    )
-    return torch.cat((pos_b[0], quat_b[0]), dim=0)
-
-
-def _trajectory_b_to_w(scene: InteractiveScene, trajectory_b: torch.Tensor) -> torch.Tensor:
-    robot = scene["robot"]
-    root_pos_w = robot.data.root_pos_w[0:1].repeat(trajectory_b.shape[0], 1)
-    root_quat_w = robot.data.root_quat_w[0:1].repeat(trajectory_b.shape[0], 1)
-    pos_w, quat_w = combine_frame_transforms(
-        root_pos_w,
-        root_quat_w,
-        trajectory_b[:, :3],
-        trajectory_b[:, 3:7],
-    )
-    return torch.cat((pos_w, quat_w), dim=1)
+    return torch.cat((obj.data.root_pos_w[0], obj.data.root_quat_w[0]), dim=0)
 
 
 def _make_anchor_marker() -> VisualizationMarkers:
@@ -95,34 +79,10 @@ def _make_anchor_marker() -> VisualizationMarkers:
     return markers
 
 
-def _leap_joint_names(scene: InteractiveScene) -> list[str]:
-    names = [name for name in scene["robot"].joint_names if name.startswith("a_")]
-    if not names:
-        raise RuntimeError("Could not find LEAP joints matching 'a_*' on scene['robot'].")
-    return names
-
-
-def _joint_indices(scene: InteractiveScene, joint_names: Sequence[str]) -> list[int]:
-    name_to_index = {name: index for index, name in enumerate(scene["robot"].joint_names)}
-    return [name_to_index[name] for name in joint_names]
-
-
-def _write_demo_frame(
-    scene: InteractiveScene,
-    object_pose_w: torch.Tensor,
-    leap_joint_indices: Sequence[int],
-    leap_joint_pos: torch.Tensor,
-) -> None:
+def _write_demo_frame(scene: InteractiveScene, object_pose_w: torch.Tensor) -> None:
     obj = scene["object"]
     obj.write_root_pose_to_sim(object_pose_w.unsqueeze(0))
     obj.write_root_velocity_to_sim(torch.zeros(1, 6, device=object_pose_w.device, dtype=object_pose_w.dtype))
-
-    robot = scene["robot"]
-    joint_pos = robot.data.joint_pos[0].clone()
-    joint_vel = robot.data.joint_vel[0].clone()
-    joint_pos[list(leap_joint_indices)] = leap_joint_pos.to(device=joint_pos.device, dtype=joint_pos.dtype)
-    joint_vel[list(leap_joint_indices)] = 0.0
-    robot.write_joint_state_to_sim(joint_pos.unsqueeze(0), joint_vel.unsqueeze(0))
     scene.write_data_to_sim()
 
 
@@ -139,7 +99,7 @@ def main() -> None:
     sim_cfg = sim_utils.SimulationCfg(device=args_cli.device)
     sim = SimulationContext(sim_cfg)
     print("[INFO]: Creating demo InteractiveScene.", flush=True)
-    scene = InteractiveScene(env_cfg_module.SceneCfg(num_envs=1, env_spacing=2.0, replicate_physics=False))
+    scene = InteractiveScene(_make_robotless_scene_cfg(env_cfg_module))
     print("[INFO]: Resetting simulation and scene.", flush=True)
     sim.reset()
     scene.reset()
@@ -147,18 +107,14 @@ def main() -> None:
     print("[INFO]: Updating SimulationApp once after reset.", flush=True)
     simulation_app.update()
 
-    print("[INFO]: Building object, hand, and anchor trajectories.", flush=True)
-    current_pose_b = _current_object_pose_b(scene)
+    print("[INFO]: Building object and anchor trajectories.", flush=True)
+    current_pose_w = _current_object_pose_w(scene)
     segment_steps = tuple(args_cli.segment_steps or trajectory_module.DEFAULT_SEGMENT_STEPS)
-    leap_joint_names = _leap_joint_names(scene)
-    leap_joint_indices = _joint_indices(scene, leap_joint_names)
-    motion_b = trajectory_module.build_pick_insert_demo_motion(
-        current_pose_b,
-        leap_joint_names,
+    trajectory_w = trajectory_module.build_pick_insert_object_pose_sequence(
+        current_pose_w,
         segment_steps=segment_steps,
     )
-    trajectory_w = _trajectory_b_to_w(scene, motion_b["object_pose_b"])
-    anchor_trajectory_w = _trajectory_b_to_w(scene, motion_b["anchor_pose_b"])
+    anchor_trajectory_w = trajectory_module.build_anchor_pose_sequence(trajectory_w)
 
     anchor_marker = _make_anchor_marker()
 
@@ -173,12 +129,7 @@ def main() -> None:
     )
     frame = 0
     while not simulation_app.is_exiting():
-        _write_demo_frame(
-            scene,
-            trajectory_w[frame],
-            leap_joint_indices,
-            motion_b["leap_joint_pos"][frame],
-        )
+        _write_demo_frame(scene, trajectory_w[frame])
         anchor_marker.visualize(
             anchor_trajectory_w[frame : frame + 1, :3],
             anchor_trajectory_w[frame : frame + 1, 3:7],
