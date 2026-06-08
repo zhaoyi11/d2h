@@ -28,14 +28,14 @@ parser.add_argument("--seed", type=int, default=None, help="Seed used for the en
 parser.add_argument(
     "--low_level_checkpoint",
     type=str,
-    required=True,
-    help="Path to the frozen low-level VAE checkpoint.",
+    default="/home/yizhao/yi/D2H/logs/rsl_rl/anyreorient/model_14999.pt",
+    help="Path to the frozen low-level RSL-RL checkpoint.",
 )
 parser.add_argument(
     "--low_level_obs_group",
     type=str,
     default="low_level",
-    help="Observation group used as the VAE low-level state.",
+    help="Observation group used as the low-level RSL-RL policy observation.",
 )
 parser.add_argument(
     "--use_last_checkpoint",
@@ -67,7 +67,7 @@ from isaaclab_tasks.utils.hydra import hydra_task_config  # noqa: E402
 
 import isaaclab_tasks  # noqa: F401, E402
 import src.tasks  # noqa: F401, E402
-from src.policy.hl_policy import HierarchicalChunkEnvWrapper, load_low_level_vae  # noqa: E402
+from src.policy.hl_policy import DirectLowLevelEnvWrapper, load_low_level_rsl_rl_policy  # noqa: E402
 from src.policy.hl_policy.rsl_rl_wrapper import HrlRslRlVecEnvWrapper  # noqa: E402
 
 
@@ -131,15 +131,17 @@ def main(env_cfg: ManagerBasedRLEnvCfg, agent_cfg: RslRlBaseRunnerCfg):
         env = gym.wrappers.RecordVideo(env, **video_kwargs)
 
     hand_action_dim = int(env.unwrapped.action_manager.get_term("hand_action").action_dim)
-    low_level_policy = load_low_level_vae(
+    wrist_action_dim = int(env.unwrapped.action_manager.total_action_dim) - hand_action_dim
+    low_level_policy = load_low_level_rsl_rl_policy(
         args_cli.low_level_checkpoint,
         device=env.unwrapped.device,
         expected_action_dim=hand_action_dim,
     )
-    env = HierarchicalChunkEnvWrapper(
+    env = DirectLowLevelEnvWrapper(
         env,
         low_level_policy=low_level_policy,
         low_level_obs_group=args_cli.low_level_obs_group,
+        wrist_action_dim=wrist_action_dim,
     )
     env = HrlRslRlVecEnvWrapper(env, clip_actions=agent_cfg.clip_actions)
 

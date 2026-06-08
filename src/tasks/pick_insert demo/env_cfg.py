@@ -10,7 +10,6 @@ import torch
 from isaaclab.assets import ArticulationCfg, AssetBaseCfg, RigidObjectCfg
 from isaaclab.controllers.differential_ik_cfg import DifferentialIKControllerCfg
 from isaaclab.envs import ManagerBasedRLEnvCfg, ViewerCfg
-from isaaclab.envs.mdp.actions import DifferentialInverseKinematicsActionCfg
 from isaaclab.actuators.actuator_cfg import ImplicitActuatorCfg
 from isaaclab.managers import EventTermCfg as EventTerm
 from isaaclab.managers import ObservationGroupCfg as ObsGroup
@@ -105,12 +104,12 @@ class SceneCfg(InteractiveSceneCfg):
 class CommandsCfg:
     """Command terms for the MDP."""
 
-    object_pose = mdp.ObjectUniformPoseCommandCfg(
+    object_pose = mdp.PickInsertTrajectoryObjectAndHandBasePoseCommandCfg(
         asset_name="robot",
         object_name="object",
         resampling_time_range=(10.0, 10.0),
         debug_vis=True,
-        ranges=mdp.ObjectUniformPoseCommandCfg.Ranges(
+        ranges=mdp.PickInsertTrajectoryObjectAndHandBasePoseCommandCfg.Ranges(
             pos_x=(0.35, 0.35),
             pos_y=(0.0, 0.0),
             pos_z=(0.30, 0.30),
@@ -136,7 +135,7 @@ class ObservationsCfg:
             func=mdp.object_quat_b, noise=Unoise(n_min=-0.0, n_max=0.0)
         )
         target_object_pose_b = ObsTerm(
-            func=mdp.generated_commands, params={"command_name": "object_pose"}
+            func=mdp.command_object_pose_b, params={"command_name": "object_pose"}
         )
         actions = ObsTerm(func=mdp.last_action)
 
@@ -203,14 +202,14 @@ class ObservationsCfg:
             params={"asset_cfg": SceneEntityCfg("robot", joint_names=["a_.*"])},
         )
         fingertip_pose = ObsTerm(
-            func=mdp.body_state_b,
+            func=mdp.body_state_body_b,
             params={
                 "body_asset_cfg": SceneEntityCfg("robot", body_names=".*fingertip.*"),
-                "base_asset_cfg": SceneEntityCfg("robot"),
+                "base_body_asset_cfg": SceneEntityCfg("robot", body_names="base"),
             },
         )
         fingertip_contact_force_b = ObsTerm(
-            func=mdp.fingers_contact_force_b,
+            func=mdp.fingers_contact_force_body_b,
             params={
                 "contact_sensor_names": [
                     "thumb_fingertip_object_s",
@@ -218,6 +217,7 @@ class ObservationsCfg:
                     "fingertip_2_object_s",
                     "fingertip_3_object_s",
                 ],
+                "base_body_asset_cfg": SceneEntityCfg("robot", body_names="base"),
             },
         )
         contact_mask = ObsTerm(
@@ -258,41 +258,58 @@ class ObservationsCfg:
             },
         )
         object_pos = ObsTerm(
-            func=mdp.object_pos_b,
+            func=mdp.object_pos_body_b,
             noise=Gnoise(std=0.002),
-            params={"robot_cfg": SceneEntityCfg("robot"), "object_cfg": SceneEntityCfg("object")},
+            params={
+                "body_asset_cfg": SceneEntityCfg("robot", body_names="base"),
+                "object_cfg": SceneEntityCfg("object"),
+            },
         )
         object_quat = ObsTerm(
-            func=mdp.object_quat_b,
-            params={"robot_cfg": SceneEntityCfg("robot"), "object_cfg": SceneEntityCfg("object")},
+            func=mdp.object_quat_body_b,
+            params={
+                "body_asset_cfg": SceneEntityCfg("robot", body_names="base"),
+                "object_cfg": SceneEntityCfg("object"),
+            },
         )
         object_lin_vel = ObsTerm(
-            func=task_mdps.object_lin_vel_robot_b,
+            func=mdp.object_lin_vel_body_b,
             noise=Gnoise(std=0.002),
-            params={"robot_cfg": SceneEntityCfg("robot"), "object_cfg": SceneEntityCfg("object")},
+            params={
+                "body_asset_cfg": SceneEntityCfg("robot", body_names="base"),
+                "object_cfg": SceneEntityCfg("object"),
+            },
         )
         object_ang_vel = ObsTerm(
-            func=task_mdps.object_ang_vel_robot_b,
+            func=mdp.object_ang_vel_body_b,
             scale=0.2,
             noise=Gnoise(std=0.002),
-            params={"robot_cfg": SceneEntityCfg("robot"), "object_cfg": SceneEntityCfg("object")},
+            params={
+                "body_asset_cfg": SceneEntityCfg("robot", body_names="base"),
+                "object_cfg": SceneEntityCfg("object"),
+            },
         )
-        gravity_dir = ObsTerm(func=task_mdps.gravity_dir_b, params={"base_asset_cfg": SceneEntityCfg("robot")})
+        gravity_dir = ObsTerm(
+            func=mdp.gravity_dir_body_b,
+            params={"body_asset_cfg": SceneEntityCfg("robot", body_names="base")},
+        )
         goal_pos_diff = ObsTerm(
-            func=mdp.goal_pos_diff,
+            func=mdp.goal_pos_diff_body_b,
             params={
                 "asset_cfg": SceneEntityCfg("object"),
                 "command_name": "object_pose",
-                "robot_cfg": SceneEntityCfg("robot"),
+                "body_asset_cfg": SceneEntityCfg("robot", body_names="base"),
+                "command_asset_cfg": SceneEntityCfg("robot"),
             },
         )
         goal_quat_diff = ObsTerm(
-            func=mdp.goal_quat_diff,
+            func=mdp.goal_quat_diff_body_b,
             params={
                 "asset_cfg": SceneEntityCfg("object"),
                 "command_name": "object_pose",
                 "make_quat_unique": False,
-                "robot_cfg": SceneEntityCfg("robot"),
+                "body_asset_cfg": SceneEntityCfg("robot", body_names="base"),
+                "command_asset_cfg": SceneEntityCfg("robot"),
             },
         )
         last_action = ObsTerm(func=mdp.last_action, params={"action_name": "hand_action"})
@@ -385,22 +402,7 @@ class EventCfg:
         },
     )
 
-    reset_object = EventTerm(
-        func=mdp.reset_root_state_uniform,
-        mode="reset",
-        params={
-            "pose_range": {
-                "x": [-0.005, 0.005],
-                "y": [-0.005, 0.005],
-                "z": [-0.005, 0.005],
-                "roll": [-torch.pi, torch.pi],
-                "pitch": [-torch.pi, torch.pi],
-                "yaw": [-torch.pi, torch.pi],
-            },
-            "velocity_range": {"x": [-0.0, 0.0], "y": [-0.0, 0.0], "z": [-0.0, 0.0]},
-            "asset_cfg": SceneEntityCfg("object"),
-        },
-    )
+    reset_object: EventTerm | None = None
 
     reset_root = EventTerm(
         func=mdp.reset_root_state_uniform,
@@ -418,6 +420,17 @@ class EventCfg:
         params={
             "position_range": [-0.50, 0.50],
             "velocity_range": [0.0, 0.0],
+        },
+    )
+
+    reset_object_relative_to_hand = EventTerm(
+        func=mdp.reset_object_pose_relative_to_body,
+        mode="reset",
+        params={
+            "asset_cfg": SceneEntityCfg("object"),
+            "body_asset_cfg": SceneEntityCfg("robot", body_names="base"),
+            "local_pos": (0.12, 0.0, 0.08),
+            "random_orientation": True,
         },
     )
 
@@ -448,10 +461,11 @@ class ActionsCfg:
 class HrlActionsCfg:
     """Low-level action interface consumed by the HRL chunk wrapper."""
 
-    arm_action = DifferentialInverseKinematicsActionCfg(
+    arm_action = mdp.CommandHandBaseIKActionCfg(
         asset_name="robot",
         joint_names=["panda_joint.*"],
         body_name="base",
+        command_name="object_pose",
         controller=DifferentialIKControllerCfg(
             command_type="pose",
             use_relative_mode=True,

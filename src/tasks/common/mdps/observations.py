@@ -13,6 +13,7 @@ from isaaclab.envs import ManagerBasedRLEnv
 from isaaclab.assets import Articulation, RigidObject
 from isaaclab.managers import ManagerTermBase, SceneEntityCfg
 from isaaclab.utils.math import (
+    combine_frame_transforms,
     quat_apply,
     quat_apply_inverse,
     quat_inv,
@@ -131,6 +132,70 @@ def object_pose_b(
     )
 
 
+def object_pos_body_b(
+    env: ManagerBasedRLEnv,
+    body_asset_cfg: SceneEntityCfg = SceneEntityCfg("robot", body_names="base"),
+    object_cfg: SceneEntityCfg = SceneEntityCfg("object"),
+) -> torch.Tensor:
+    """Object position expressed in a selected articulated body frame."""
+    object_pos_b, _ = _object_pose_body_b(env, body_asset_cfg, object_cfg)
+    return object_pos_b
+
+
+def object_quat_body_b(
+    env: ManagerBasedRLEnv,
+    body_asset_cfg: SceneEntityCfg = SceneEntityCfg("robot", body_names="base"),
+    object_cfg: SceneEntityCfg = SceneEntityCfg("object"),
+) -> torch.Tensor:
+    """Object orientation expressed in a selected articulated body frame."""
+    _, object_quat_b = _object_pose_body_b(env, body_asset_cfg, object_cfg)
+    return object_quat_b
+
+
+def object_pose_body_b(
+    env: ManagerBasedRLEnv,
+    body_asset_cfg: SceneEntityCfg = SceneEntityCfg("robot", body_names="base"),
+    object_cfg: SceneEntityCfg = SceneEntityCfg("object"),
+) -> torch.Tensor:
+    """Object pose in a selected articulated body frame as ``[position, quaternion]``."""
+    object_pos_b, object_quat_b = _object_pose_body_b(env, body_asset_cfg, object_cfg)
+    return torch.cat((object_pos_b, object_quat_b), dim=1)
+
+
+def object_lin_vel_body_b(
+    env: ManagerBasedRLEnv,
+    body_asset_cfg: SceneEntityCfg = SceneEntityCfg("robot", body_names="base"),
+    object_cfg: SceneEntityCfg = SceneEntityCfg("object"),
+) -> torch.Tensor:
+    """Object linear velocity relative to a selected body, expressed in that body frame."""
+    object: RigidObject = env.scene[object_cfg.name]
+    _, body_quat_w, body_lin_vel_w, _ = _single_body_state_w(env, body_asset_cfg)
+    rel_vel_w = object.data.root_lin_vel_w - body_lin_vel_w
+    return quat_apply_inverse(body_quat_w, rel_vel_w)
+
+
+def object_ang_vel_body_b(
+    env: ManagerBasedRLEnv,
+    body_asset_cfg: SceneEntityCfg = SceneEntityCfg("robot", body_names="base"),
+    object_cfg: SceneEntityCfg = SceneEntityCfg("object"),
+) -> torch.Tensor:
+    """Object angular velocity relative to a selected body, expressed in that body frame."""
+    object: RigidObject = env.scene[object_cfg.name]
+    _, body_quat_w, _, body_ang_vel_w = _single_body_state_w(env, body_asset_cfg)
+    rel_ang_vel_w = object.data.root_ang_vel_w - body_ang_vel_w
+    return quat_apply_inverse(body_quat_w, rel_ang_vel_w)
+
+
+def command_object_pose_b(env: ManagerBasedRLEnv, command_name: str) -> torch.Tensor:
+    """Target object pose from a command that may contain additional target frames."""
+    return env.command_manager.get_command(command_name)[:, :7]
+
+
+def command_hand_base_pose_b(env: ManagerBasedRLEnv, command_name: str) -> torch.Tensor:
+    """Target robot hand-base pose from an object-and-hand-base command."""
+    return env.command_manager.get_command(command_name)[:, 7:14]
+
+
 def body_state_b(
     env: ManagerBasedRLEnv,
     body_asset_cfg: SceneEntityCfg,
@@ -151,6 +216,19 @@ def body_state_b(
     """
     body_pos_b, body_quat_b, body_lin_vel_b, body_ang_vel_b = _body_state_components_b(
         env, body_asset_cfg, base_asset_cfg
+    )
+    out = torch.cat((body_pos_b, body_quat_b, body_lin_vel_b, body_ang_vel_b), dim=-1)
+    return out.reshape(env.num_envs, -1)
+
+
+def body_state_body_b(
+    env: ManagerBasedRLEnv,
+    body_asset_cfg: SceneEntityCfg,
+    base_body_asset_cfg: SceneEntityCfg,
+) -> torch.Tensor:
+    """Body state relative to one selected body frame."""
+    body_pos_b, body_quat_b, body_lin_vel_b, body_ang_vel_b = _body_state_components_body_b(
+        env, body_asset_cfg, base_body_asset_cfg
     )
     out = torch.cat((body_pos_b, body_quat_b, body_lin_vel_b, body_ang_vel_b), dim=-1)
     return out.reshape(env.num_envs, -1)
@@ -246,6 +324,81 @@ def _body_state_components_b(
         body_lin_vel_b.reshape(env.num_envs, num_bodies, 3),
         body_ang_vel_b.reshape(env.num_envs, num_bodies, 3),
     )
+
+
+def _body_state_components_body_b(
+    env: ManagerBasedRLEnv,
+    body_asset_cfg: SceneEntityCfg,
+    base_body_asset_cfg: SceneEntityCfg,
+) -> tuple[torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor]:
+    """Return body state components shaped ``(num_envs, num_bodies, dim)`` in one body frame."""
+    body_asset: Articulation = env.scene[body_asset_cfg.name]
+    body_pos_w = body_asset.data.body_pos_w[:, _resolve_body_ids(body_asset, body_asset_cfg)]
+    body_quat_w = body_asset.data.body_quat_w[:, _resolve_body_ids(body_asset, body_asset_cfg)]
+    body_lin_vel_w = body_asset.data.body_lin_vel_w[:, _resolve_body_ids(body_asset, body_asset_cfg)]
+    body_ang_vel_w = body_asset.data.body_ang_vel_w[:, _resolve_body_ids(body_asset, body_asset_cfg)]
+    if body_pos_w.ndim == 2:
+        body_pos_w = body_pos_w.unsqueeze(1)
+        body_quat_w = body_quat_w.unsqueeze(1)
+        body_lin_vel_w = body_lin_vel_w.unsqueeze(1)
+        body_ang_vel_w = body_ang_vel_w.unsqueeze(1)
+
+    num_bodies = body_pos_w.shape[1]
+    base_pos_w, base_quat_w, base_lin_vel_w, base_ang_vel_w = _single_body_state_w(env, base_body_asset_cfg)
+    base_pos_w = base_pos_w.unsqueeze(1).repeat(1, num_bodies, 1)
+    base_quat_w = base_quat_w.unsqueeze(1).repeat(1, num_bodies, 1)
+    base_lin_vel_w = base_lin_vel_w.unsqueeze(1).repeat(1, num_bodies, 1)
+    base_ang_vel_w = base_ang_vel_w.unsqueeze(1).repeat(1, num_bodies, 1)
+
+    body_pos_b, body_quat_b = subtract_frame_transforms(base_pos_w, base_quat_w, body_pos_w, body_quat_w)
+    body_lin_vel_b = quat_apply_inverse(base_quat_w, body_lin_vel_w - base_lin_vel_w)
+    body_ang_vel_b = quat_apply_inverse(base_quat_w, body_ang_vel_w - base_ang_vel_w)
+    return body_pos_b, body_quat_b, body_lin_vel_b, body_ang_vel_b
+
+
+def _object_pose_body_b(
+    env: ManagerBasedRLEnv,
+    body_asset_cfg: SceneEntityCfg,
+    object_cfg: SceneEntityCfg,
+) -> tuple[torch.Tensor, torch.Tensor]:
+    object: RigidObject = env.scene[object_cfg.name]
+    body_pos_w, body_quat_w, _, _ = _single_body_state_w(env, body_asset_cfg)
+    return subtract_frame_transforms(
+        body_pos_w,
+        body_quat_w,
+        object.data.root_pos_w,
+        object.data.root_quat_w,
+    )
+
+
+def _single_body_state_w(
+    env: ManagerBasedRLEnv,
+    body_asset_cfg: SceneEntityCfg,
+) -> tuple[torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor]:
+    body_asset: Articulation = env.scene[body_asset_cfg.name]
+    body_ids = _resolve_body_ids(body_asset, body_asset_cfg)
+    body_pos_w = body_asset.data.body_pos_w[:, body_ids]
+    body_quat_w = body_asset.data.body_quat_w[:, body_ids]
+    body_lin_vel_data = getattr(body_asset.data, "body_lin_vel_w", None)
+    body_ang_vel_data = getattr(body_asset.data, "body_ang_vel_w", None)
+    body_lin_vel_w = body_lin_vel_data[:, body_ids] if body_lin_vel_data is not None else torch.zeros_like(body_pos_w)
+    body_ang_vel_w = body_ang_vel_data[:, body_ids] if body_ang_vel_data is not None else torch.zeros_like(body_pos_w)
+    if body_pos_w.ndim == 2:
+        body_pos_w = body_pos_w.unsqueeze(1)
+        body_quat_w = body_quat_w.unsqueeze(1)
+        body_lin_vel_w = body_lin_vel_w.unsqueeze(1)
+        body_ang_vel_w = body_ang_vel_w.unsqueeze(1)
+    if body_pos_w.shape[1] != 1:
+        raise ValueError(f"Expected one body frame for {body_asset_cfg.name}, found {body_pos_w.shape[1]}.")
+    return body_pos_w[:, 0], body_quat_w[:, 0], body_lin_vel_w[:, 0], body_ang_vel_w[:, 0]
+
+
+def _resolve_body_ids(body_asset: Articulation, body_asset_cfg: SceneEntityCfg):
+    body_ids = getattr(body_asset_cfg, "body_ids", None)
+    if body_ids is None:
+        body_names = getattr(body_asset_cfg, "body_names", None)
+        body_ids, _ = body_asset.find_bodies(body_names)
+    return body_ids
 
 
 class object_point_cloud_b(ManagerTermBase):
@@ -380,6 +533,87 @@ def fingers_contact_force_b(
         robot.data.root_link_quat_w.unsqueeze(1).repeat(1, force_w.shape[1], 1), force_w
     )
     return forces_b.view(env.num_envs, -1)
+
+
+def fingers_contact_force_body_b(
+    env: ManagerBasedRLEnv,
+    contact_sensor_names: list[str],
+    base_body_asset_cfg: SceneEntityCfg = SceneEntityCfg("robot", body_names="base"),
+) -> torch.Tensor:
+    """Contact forces from listed sensors, expressed in one selected body frame."""
+    forces_w = []
+    for name in contact_sensor_names:
+        sensor = env.scene.sensors[name]
+        fm = getattr(sensor.data, "force_matrix_w", None)
+        if fm is not None and fm.numel() > 0:
+            f_w = torch.nan_to_num(fm, nan=0.0).sum(dim=(1, 2))
+        else:
+            net = getattr(sensor.data, "net_forces_w", None)
+            if net is None:
+                net = sensor.data.force_matrix_w
+            f_w = torch.nan_to_num(net, nan=0.0).sum(dim=1)
+        forces_w.append(f_w)
+    force_w = torch.stack(forces_w, dim=1)
+
+    _, base_quat_w, _, _ = _single_body_state_w(env, base_body_asset_cfg)
+    forces_b = quat_apply_inverse(base_quat_w.unsqueeze(1).repeat(1, force_w.shape[1], 1), force_w)
+    return forces_b.view(env.num_envs, -1)
+
+
+def gravity_dir_body_b(
+    env: ManagerBasedRLEnv,
+    body_asset_cfg: SceneEntityCfg = SceneEntityCfg("robot", body_names="base"),
+) -> torch.Tensor:
+    """Unit gravity vector expressed in one selected body frame."""
+    _, body_quat_w, _, _ = _single_body_state_w(env, body_asset_cfg)
+    gravity_w = torch.tensor([0.0, 0.0, -1.0], dtype=body_quat_w.dtype, device=body_quat_w.device)
+    return quat_apply_inverse(body_quat_w, gravity_w.expand(env.num_envs, -1))
+
+
+def goal_pos_diff_body_b(
+    env: ManagerBasedRLEnv,
+    asset_cfg: SceneEntityCfg,
+    command_name: str,
+    body_asset_cfg: SceneEntityCfg = SceneEntityCfg("robot", body_names="base"),
+    command_asset_cfg: SceneEntityCfg = SceneEntityCfg("robot"),
+) -> torch.Tensor:
+    """Position from the goal to the asset, expressed in one selected body frame."""
+    asset_pos_b, _ = _object_pose_body_b(env, body_asset_cfg, asset_cfg)
+    goal_pos_b, _ = _command_object_pose_body_b(env, command_name, body_asset_cfg, command_asset_cfg)
+    return asset_pos_b - goal_pos_b
+
+
+def goal_quat_diff_body_b(
+    env: ManagerBasedRLEnv,
+    asset_cfg: SceneEntityCfg,
+    command_name: str,
+    make_quat_unique: bool,
+    body_asset_cfg: SceneEntityCfg = SceneEntityCfg("robot", body_names="base"),
+    command_asset_cfg: SceneEntityCfg = SceneEntityCfg("robot"),
+) -> torch.Tensor:
+    """Rotation from the goal orientation to the asset orientation in one selected body frame."""
+    _, asset_quat_b = _object_pose_body_b(env, body_asset_cfg, asset_cfg)
+    _, goal_quat_b = _command_object_pose_body_b(env, command_name, body_asset_cfg, command_asset_cfg)
+    quat = math_utils.quat_mul(asset_quat_b, math_utils.quat_conjugate(goal_quat_b))
+    return math_utils.quat_unique(quat) if make_quat_unique else quat
+
+
+def _command_object_pose_body_b(
+    env: ManagerBasedRLEnv,
+    command_name: str,
+    body_asset_cfg: SceneEntityCfg,
+    command_asset_cfg: SceneEntityCfg,
+) -> tuple[torch.Tensor, torch.Tensor]:
+    command = env.command_manager.get_command(command_name)
+    command_asset: Articulation = env.scene[command_asset_cfg.name]
+    goal_pos_w, goal_quat_w = combine_frame_transforms(
+        command_asset.data.root_pos_w,
+        command_asset.data.root_quat_w,
+        command[:, :3],
+        command[:, 3:7],
+    )
+    body_pos_w, body_quat_w, _, _ = _single_body_state_w(env, body_asset_cfg)
+    return subtract_frame_transforms(body_pos_w, body_quat_w, goal_pos_w, goal_quat_w)
 
 
 def goal_quat_diff(

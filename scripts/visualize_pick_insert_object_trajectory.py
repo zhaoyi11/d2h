@@ -41,6 +41,7 @@ from isaaclab.markers import VisualizationMarkers, VisualizationMarkersCfg  # no
 from isaaclab.scene import InteractiveScene  # noqa: E402
 from isaaclab.sim import SimulationContext  # noqa: E402
 from isaaclab.utils.assets import ISAAC_NUCLEUS_DIR  # noqa: E402
+from isaaclab.utils.math import combine_frame_transforms, subtract_frame_transforms  # noqa: E402
 
 
 def _load_module(module_name: str, path: Path) -> ModuleType:
@@ -64,9 +65,9 @@ def _current_object_pose_w(scene: InteractiveScene) -> torch.Tensor:
     return torch.cat((obj.data.root_pos_w[0], obj.data.root_quat_w[0]), dim=0)
 
 
-def _make_anchor_marker() -> VisualizationMarkers:
+def _make_frame_marker(prim_path: str) -> VisualizationMarkers:
     cfg = VisualizationMarkersCfg(
-        prim_path="/Visuals/PickInsertObjectTrajectory/AnchorFrame",
+        prim_path=prim_path,
         markers={
             "frame": sim_utils.UsdFileCfg(
                 usd_path=f"{ISAAC_NUCLEUS_DIR}/Props/UIElements/frame_prim.usd",
@@ -77,6 +78,21 @@ def _make_anchor_marker() -> VisualizationMarkers:
     markers = VisualizationMarkers(cfg)
     markers.set_visibility(True)
     return markers
+
+
+def _base_trajectory_from_anchor(anchor_trajectory_w: torch.Tensor, anchor_pose_b: torch.Tensor) -> torch.Tensor:
+    base_to_anchor = anchor_pose_b.to(dtype=anchor_trajectory_w.dtype, device=anchor_trajectory_w.device).unsqueeze(0)
+    anchor_to_base_pos, anchor_to_base_quat = subtract_frame_transforms(
+        base_to_anchor[:, :3],
+        base_to_anchor[:, 3:7],
+    )
+    base_pos_w, base_quat_w = combine_frame_transforms(
+        anchor_trajectory_w[:, :3],
+        anchor_trajectory_w[:, 3:7],
+        anchor_to_base_pos.repeat(anchor_trajectory_w.shape[0], 1),
+        anchor_to_base_quat.repeat(anchor_trajectory_w.shape[0], 1),
+    )
+    return torch.cat((base_pos_w, base_quat_w), dim=1)
 
 
 def _write_demo_frame(scene: InteractiveScene, object_pose_w: torch.Tensor) -> None:
@@ -115,8 +131,11 @@ def main() -> None:
         segment_steps=segment_steps,
     )
     anchor_trajectory_w = trajectory_module.build_anchor_pose_sequence(trajectory_w)
+    anchor_pose_b = torch.tensor(trajectory_module.DEFAULT_ANCHOR_POSE_B)
+    base_trajectory_w = _base_trajectory_from_anchor(anchor_trajectory_w, anchor_pose_b)
 
-    anchor_marker = _make_anchor_marker()
+    anchor_marker = _make_frame_marker("/Visuals/PickInsertObjectTrajectory/AnchorFrame")
+    base_marker = _make_frame_marker("/Visuals/PickInsertObjectTrajectory/BaseFrame")
 
     sim.set_camera_view(eye=(1.0, -1.2, 0.75), target=(0.35, 0.0, 0.33))
 
@@ -133,6 +152,10 @@ def main() -> None:
         anchor_marker.visualize(
             anchor_trajectory_w[frame : frame + 1, :3],
             anchor_trajectory_w[frame : frame + 1, 3:7],
+        )
+        base_marker.visualize(
+            base_trajectory_w[frame : frame + 1, :3],
+            base_trajectory_w[frame : frame + 1, 3:7],
         )
         sim.render()
         scene.update(sim.get_physics_dt())

@@ -1,15 +1,240 @@
 from __future__ import annotations
 
+from dataclasses import MISSING
 import torch
 from typing import TYPE_CHECKING
 
-from isaaclab.assets import RigidObject
-from isaaclab.managers import SceneEntityCfg
-from isaaclab.utils.math import quat_apply
+import isaaclab.utils.math as math_utils
+from isaaclab.assets import Articulation, RigidObject
+from isaaclab.controllers.differential_ik import DifferentialIKController
+from isaaclab.controllers.differential_ik_cfg import DifferentialIKControllerCfg
+from isaaclab.managers import ActionTerm, ActionTermCfg, SceneEntityCfg
+from isaaclab.utils import configclass
+from isaaclab.utils.math import (
+    combine_frame_transforms,
+    compute_pose_error,
+    matrix_from_quat,
+    quat_apply,
+    quat_inv,
+    subtract_frame_transforms,
+)
 
 if TYPE_CHECKING:
     from isaaclab.envs import ManagerBasedRLEnv
     from isaaclab.sensors import ContactSensor
+
+
+class CommandHandBaseIKAction(ActionTerm):
+    """Automatic IK action that tracks the hand-base pose stored in a command."""
+
+    cfg: CommandHandBaseIKActionCfg
+    _asset: Articulation
+
+    def __init__(self, cfg: CommandHandBaseIKActionCfg, env: ManagerBasedRLEnv):
+        super().__init__(cfg, env)
+
+        self._joint_ids, self._joint_names = self._asset.find_joints(self.cfg.joint_names)
+        self._num_joints = len(self._joint_ids)
+        body_ids, body_names = self._asset.find_bodies(self.cfg.body_name)
+        if len(body_ids) != 1:
+            raise ValueError(
+                f"Expected one match for the body name: {self.cfg.body_name}. Found {len(body_ids)}: {body_names}."
+            )
+        self._body_idx = body_ids[0]
+        self._body_name = body_names[0]
+
+        if self._asset.is_fixed_base:
+            self._jacobi_body_idx = self._body_idx - 1
+            self._jacobi_joint_ids = self._joint_ids
+        else:
+            self._jacobi_body_idx = self._body_idx
+            self._jacobi_joint_ids = [i + 6 for i in self._joint_ids]
+        if self._num_joints == self._asset.num_joints:
+            self._joint_ids = slice(None)
+
+        self._ik_controller = DifferentialIKController(
+            cfg=self.cfg.controller, num_envs=self.num_envs, device=self.device
+        )
+        self._raw_actions = torch.zeros(self.num_envs, 0, device=self.device)
+        self._processed_actions = torch.zeros(self.num_envs, self._ik_controller.action_dim, device=self.device)
+        self._target_pose_b = torch.zeros(self.num_envs, 7, device=self.device)
+        self._target_pose_b[:, 3] = 1.0
+        self._step_limit = torch.tensor(self.cfg.scale, device=self.device).repeat(self.num_envs, 1)
+
+    @property
+    def action_dim(self) -> int:
+        return 0
+
+    @property
+    def raw_actions(self) -> torch.Tensor:
+        return self._raw_actions
+
+    @property
+    def processed_actions(self) -> torch.Tensor:
+        return self._processed_actions
+
+    @property
+    def target_pose_b(self) -> torch.Tensor:
+        return self._target_pose_b
+
+    @property
+    def jacobian_w(self) -> torch.Tensor:
+        return self._asset.root_physx_view.get_jacobians()[:, self._jacobi_body_idx, :, self._jacobi_joint_ids]
+
+    @property
+    def jacobian_b(self) -> torch.Tensor:
+        jacobian = self.jacobian_w
+        base_rot_matrix = matrix_from_quat(quat_inv(self._asset.data.root_quat_w))
+        jacobian[:, :3, :] = torch.bmm(base_rot_matrix, jacobian[:, :3, :])
+        jacobian[:, 3:, :] = torch.bmm(base_rot_matrix, jacobian[:, 3:, :])
+        return jacobian
+
+    def process_actions(self, actions: torch.Tensor):
+        if actions.shape[-1] != 0:
+            raise ValueError(f"Expected zero external arm action dims, got {actions.shape[-1]}.")
+
+        command = self._env.command_manager.get_command(self.cfg.command_name)
+        command_end = self.cfg.command_start + 7
+        if command.shape[-1] < command_end:
+            raise ValueError(
+                f"Command {self.cfg.command_name!r} must contain hand-base pose slice "
+                f"{self.cfg.command_start}:{command_end}, got shape {tuple(command.shape)}."
+            )
+        self._target_pose_b[:] = command[:, self.cfg.command_start : command_end]
+
+        ee_pos_curr, ee_quat_curr = self._compute_frame_pose()
+        pos_error, axis_angle_error = compute_pose_error(
+            ee_pos_curr,
+            ee_quat_curr,
+            self._target_pose_b[:, :3],
+            self._target_pose_b[:, 3:7],
+            rot_error_type="axis_angle",
+        )
+        relative_command = torch.cat((pos_error, axis_angle_error), dim=1)
+        self._processed_actions[:] = torch.clamp(relative_command, -self._step_limit, self._step_limit)
+        self._ik_controller.set_command(self._processed_actions, ee_pos_curr, ee_quat_curr)
+
+    def apply_actions(self):
+        ee_pos_curr, ee_quat_curr = self._compute_frame_pose()
+        joint_pos = self._asset.data.joint_pos[:, self._joint_ids]
+        if ee_quat_curr.norm() != 0:
+            jacobian = self.jacobian_b
+            joint_pos_des = self._ik_controller.compute(ee_pos_curr, ee_quat_curr, jacobian, joint_pos)
+        else:
+            joint_pos_des = joint_pos.clone()
+        self._asset.set_joint_position_target(joint_pos_des, self._joint_ids)
+
+    def reset(self, env_ids=None) -> None:
+        if env_ids is None:
+            env_ids = slice(None)
+        self._raw_actions[env_ids] = 0.0
+        self._processed_actions[env_ids] = 0.0
+        self._ik_controller.reset(env_ids=env_ids)
+
+    def _compute_frame_pose(self) -> tuple[torch.Tensor, torch.Tensor]:
+        ee_pos_w = self._asset.data.body_pos_w[:, self._body_idx]
+        ee_quat_w = self._asset.data.body_quat_w[:, self._body_idx]
+        return subtract_frame_transforms(
+            self._asset.data.root_pos_w,
+            self._asset.data.root_quat_w,
+            ee_pos_w,
+            ee_quat_w,
+        )
+
+
+@configclass
+class CommandHandBaseIKActionCfg(ActionTermCfg):
+    """Configuration for command-driven hand-base IK tracking."""
+
+    class_type: type[ActionTerm] = CommandHandBaseIKAction
+
+    joint_names: list[str] = MISSING
+    """List of joint names or regex expressions controlled by IK."""
+
+    body_name: str = MISSING
+    """Body name to track with IK."""
+
+    command_name: str = "object_pose"
+    """Command term containing the target hand-base pose."""
+
+    command_start: int = 7
+    """Start index of the target hand-base pose in the command tensor."""
+
+    scale: tuple[float, float, float, float, float, float] = (0.05, 0.05, 0.05, 0.25, 0.25, 0.25)
+    """Maximum relative IK command per environment step."""
+
+    controller: DifferentialIKControllerCfg = MISSING
+    """Differential IK controller configuration."""
+
+
+def reset_object_pose_relative_to_body(
+    env: ManagerBasedRLEnv,
+    env_ids: torch.Tensor,
+    asset_cfg: SceneEntityCfg = SceneEntityCfg("object"),
+    body_asset_cfg: SceneEntityCfg = SceneEntityCfg("robot", body_names="base"),
+    local_pos: tuple[float, float, float] = (0.12, 0.0, 0.08),
+    local_rot: tuple[float, float, float, float] = (1.0, 0.0, 0.0, 0.0),
+    random_orientation: bool = False,
+    velocity: tuple[float, float, float, float, float, float] = (0.0, 0.0, 0.0, 0.0, 0.0, 0.0),
+):
+    """Reset an object to a pose expressed relative to one articulated body."""
+    asset: RigidObject = env.scene[asset_cfg.name]
+    body_asset: Articulation = env.scene[body_asset_cfg.name]
+
+    env_ids = _env_ids_tensor(env, env_ids, device=asset.device)
+    body_pos_w, body_quat_w = _single_body_state_w(body_asset, body_asset_cfg, env_ids)[:2]
+
+    local_pos_t = torch.tensor(local_pos, dtype=torch.float32, device=asset.device).repeat(len(env_ids), 1)
+    if random_orientation:
+        local_rot_t = math_utils.random_orientation(len(env_ids), device=asset.device)
+    else:
+        local_rot_t = torch.tensor(local_rot, dtype=torch.float32, device=asset.device).repeat(len(env_ids), 1)
+
+    object_pos_w, object_quat_w = combine_frame_transforms(body_pos_w, body_quat_w, local_pos_t, local_rot_t)
+    object_velocity = torch.tensor(velocity, dtype=torch.float32, device=asset.device).repeat(len(env_ids), 1)
+
+    asset.write_root_pose_to_sim(torch.cat((object_pos_w, object_quat_w), dim=-1), env_ids=env_ids)
+    asset.write_root_velocity_to_sim(object_velocity, env_ids=env_ids)
+
+
+def _env_ids_tensor(env: ManagerBasedRLEnv, env_ids, device: str) -> torch.Tensor:
+    if env_ids is None or isinstance(env_ids, slice):
+        return torch.arange(env.num_envs, device=device)
+    return torch.as_tensor(env_ids, dtype=torch.long, device=device)
+
+
+def _single_body_state_w(
+    asset: Articulation,
+    asset_cfg: SceneEntityCfg,
+    env_ids: torch.Tensor,
+) -> tuple[torch.Tensor, torch.Tensor, torch.Tensor | None, torch.Tensor | None]:
+    body_ids = getattr(asset_cfg, "body_ids", None)
+    if body_ids is None:
+        body_names = getattr(asset_cfg, "body_names", None)
+        body_ids, body_names = asset.find_bodies(body_names)
+        if len(body_ids) != 1:
+            raise ValueError(f"Expected one body matching {body_names}, found {len(body_ids)}.")
+
+    body_pos_w = asset.data.body_pos_w[env_ids][:, body_ids]
+    body_quat_w = asset.data.body_quat_w[env_ids][:, body_ids]
+    if body_pos_w.ndim == 2:
+        body_pos_w = body_pos_w.unsqueeze(1)
+        body_quat_w = body_quat_w.unsqueeze(1)
+    if body_pos_w.shape[1] != 1:
+        raise ValueError(f"Expected one body id for {asset_cfg.name}, found {body_pos_w.shape[1]}.")
+
+    body_lin_vel_w = getattr(asset.data, "body_lin_vel_w", None)
+    body_ang_vel_w = getattr(asset.data, "body_ang_vel_w", None)
+    if body_lin_vel_w is not None:
+        body_lin_vel_w = body_lin_vel_w[env_ids][:, body_ids]
+        if body_lin_vel_w.ndim == 2:
+            body_lin_vel_w = body_lin_vel_w.unsqueeze(1)
+    if body_ang_vel_w is not None:
+        body_ang_vel_w = body_ang_vel_w[env_ids][:, body_ids]
+        if body_ang_vel_w.ndim == 2:
+            body_ang_vel_w = body_ang_vel_w.unsqueeze(1)
+
+    return body_pos_w[:, 0], body_quat_w[:, 0], body_lin_vel_w, body_ang_vel_w
 
 
 def object_lifted_above_table(
