@@ -424,6 +424,7 @@ class apply_gravity_compensation_assist(ManagerTermBase):
         env_ids: torch.Tensor | None,
         asset_cfg: SceneEntityCfg = SceneEntityCfg("object"),
         contact_threshold: float = 1.0,
+        contact_sensor_names: Sequence[str] | None = None,
         contact_pose_range_deg: float = 50.0,
         min_good_contacts: int = 2,
         decay_ratio: float = 0.95,  # 0.95^120 (1s) ~ 0, so decays to 0 in ~1s
@@ -449,7 +450,15 @@ class apply_gravity_compensation_assist(ManagerTermBase):
         #                        contact_pose_range_deg=contact_pose_range_deg)
         #     >= min_good_contacts
         # )                                                          # (num_envs,) bool
-        contact = contacts(env, threshold=contact_threshold, mode='any')
+        if contact_sensor_names is None:
+            contact = contacts(env, threshold=contact_threshold, mode='any')
+        else:
+            contact_mags = []
+            for sensor_name in contact_sensor_names:
+                contact_sensor = env.scene.sensors[sensor_name]
+                contact_force = contact_sensor.data.force_matrix_w.view(env.num_envs, 3)
+                contact_mags.append(torch.norm(contact_force, dim=-1) > contact_threshold)
+            contact = torch.stack(contact_mags, dim=-1).sum(dim=-1) >= min_good_contacts
         self._assist_scale[env_ids_t] = torch.where(
             contact[env_ids_t],
             (self._assist_scale[env_ids_t] * decay_ratio).round(decimals=4),

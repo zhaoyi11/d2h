@@ -146,7 +146,7 @@ def _object_pose_in_hand_base_b(env) -> torch.Tensor:
     return torch.cat((object_pos_b, object_quat_b), dim=1)
 
 
-def _target_object_pose_in_hand_base_b(env) -> torch.Tensor:
+def _target_object_pose_in_desired_hand_base_b(env) -> torch.Tensor:
     command = env.command_manager.get_command("object_pose")
     return command[:, :7]
 
@@ -278,12 +278,12 @@ def _print_snapshot(env, step: int) -> None:
     command = env.command_manager.get_command("object_pose")
     current_hand_base_b, body_name = _hand_base_pose_b(env)
     current_object_in_hand_b = _object_pose_in_hand_base_b(env)
-    target_object_in_hand_b = _target_object_pose_in_hand_base_b(env)
-    print(f"[STEP {step:04d}]: target object pose h       {_as_list(command[0, :7])}", flush=True)
+    target_object_in_desired_hand_b = _target_object_pose_in_desired_hand_base_b(env)
+    print(f"[STEP {step:04d}]: target object desired hand-local {_as_list(command[0, :7])}", flush=True)
     print(f"[STEP {step:04d}]: target hand base pose root {_as_list(command[0, 7:14])}", flush=True)
     print(f"[STEP {step:04d}]: current {body_name} pose b {_as_list(current_hand_base_b[0])}", flush=True)
     print(f"[STEP {step:04d}]: object pose in {body_name} b {_as_list(current_object_in_hand_b[0])}", flush=True)
-    print(f"[STEP {step:04d}]: target object in target {body_name} b {_as_list(target_object_in_hand_b[0])}", flush=True)
+    print(f"[STEP {step:04d}]: low-level object goal local {_as_list(target_object_in_desired_hand_b[0])}", flush=True)
 
 
 def main() -> None:

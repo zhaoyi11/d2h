@@ -19,6 +19,7 @@ from isaaclab.managers import SceneEntityCfg
 from isaaclab.managers import TerminationTermCfg as DoneTerm
 from isaaclab.scene import InteractiveSceneCfg
 from isaaclab.sim import CapsuleCfg, ConeCfg, CuboidCfg, RigidBodyMaterialCfg, SphereCfg
+from isaaclab.sim.simulation_cfg import SimulationCfg
 from isaaclab.utils import configclass
 from isaaclab.utils.assets import ISAAC_NUCLEUS_DIR
 from isaaclab.utils.noise import AdditiveGaussianNoiseCfg as Gnoise
@@ -43,7 +44,7 @@ class SceneCfg(InteractiveSceneCfg):
         prim_path="{ENV_REGEX_NS}/Object",
         spawn=sim_utils.UsdFileCfg(
             usd_path=f"{UWLAB_CLOUD_ASSETS_DIR}/Props/Custom/Peg/peg.usd",
-            scale=(1.5, 1.5, 1.5),
+            scale=(1.8, 1.8, 1.8),
             rigid_props=sim_utils.RigidBodyPropertiesCfg(
                 solver_position_iteration_count=4,
                 solver_velocity_iteration_count=0,
@@ -448,6 +449,25 @@ class EventCfg:
         },
     )
 
+    # Fires every step per-env; must be declared after variable_gravity so the
+    # event manager applies it after gravity has been updated.
+    gravity_compensation_assist = EventTerm(
+        func=task_mdps.apply_gravity_compensation_assist,
+        mode="interval",
+        interval_range_s=(0.0, 0.0),
+        params={
+            "asset_cfg": SceneEntityCfg("object"),
+            "contact_threshold": 1.0,
+            "contact_sensor_names": [
+                "thumb_fingertip_object_s",
+                "fingertip_object_s",
+                "fingertip_2_object_s",
+                "fingertip_3_object_s",
+            ],
+            "decay_ratio": 0.9,
+        },
+    )
+
 
 @configclass
 class ActionsCfg:
@@ -595,6 +615,8 @@ class DexsuiteInsertPegEnvCfg(ManagerBasedRLEnvCfg):
         eye=(2.25, 0.0, 0.75), lookat=(0.0, 0.0, 0.45), origin_type="env"
     )
     scene: SceneCfg = SceneCfg(num_envs=4096, env_spacing=3, replicate_physics=False)
+    # Simulation settings
+    sim: SimulationCfg = SimulationCfg(gravity=(0.0, 0.0, -9.81))
     # Basic settings
     observations: ObservationsCfg = ObservationsCfg()
     actions: ActionsCfg = ActionsCfg()

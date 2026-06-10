@@ -606,6 +606,9 @@ def _command_object_pose_body_b(
 ) -> tuple[torch.Tensor, torch.Tensor]:
     command = env.command_manager.get_command(command_name)
     if command.shape[-1] >= 14:
+        # For object-and-hand-base commands, command[:7] is the desired in-hand
+        # object pose. The arm IK owns command[7:14], so the low-level hand
+        # policy should not chase the target hand-base transit error.
         return command[:, :3], command[:, 3:7]
 
     command_asset: Articulation = env.scene[command_asset_cfg.name]
