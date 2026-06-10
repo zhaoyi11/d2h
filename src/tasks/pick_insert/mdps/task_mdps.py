@@ -8,6 +8,8 @@ import isaaclab.utils.math as math_utils
 from isaaclab.assets import Articulation, RigidObject
 from isaaclab.controllers.differential_ik import DifferentialIKController
 from isaaclab.controllers.differential_ik_cfg import DifferentialIKControllerCfg
+from isaaclab.controllers.operational_space import OperationalSpaceController
+from isaaclab.controllers.operational_space_cfg import OperationalSpaceControllerCfg
 from isaaclab.managers import ActionTerm, ActionTermCfg, SceneEntityCfg
 from isaaclab.utils import configclass
 from isaaclab.utils.math import (
@@ -15,6 +17,7 @@ from isaaclab.utils.math import (
     compute_pose_error,
     matrix_from_quat,
     quat_apply,
+    quat_apply_inverse,
     quat_inv,
     subtract_frame_transforms,
 )
@@ -165,6 +168,260 @@ class CommandHandBaseIKActionCfg(ActionTermCfg):
 
     controller: DifferentialIKControllerCfg = MISSING
     """Differential IK controller configuration."""
+
+
+class CommandHandBaseOSCAction(ActionTerm):
+    """Variable-impedance OSC action that holds the hand base at the command anchor pose.
+
+    The arm is driven by an :class:`OperationalSpaceController` whose equilibrium is the
+    target hand-base pose carried in the command (``command[:, command_start:command_start+7]``,
+    expressed in the robot root frame). The task-space stiffness behaves as the *cost* of
+    deviating from that anchor: it is high in free motion (precise anchor tracking) and is
+    automatically reduced when the wrist meets resistance, so the arm compliantly yields to
+    let contact (e.g. a peg entering a hole) guide the motion. Rotational stiffness is kept
+    higher than translational, encoding the requirement that rotating away from the anchor
+    costs more than translating.
+
+    The resistance signal is the wrist force/torque read from the articulation's built-in
+    joint-reaction wrench at the controlled body (``body_incoming_joint_wrench_b``). A slow
+    EMA of the free-motion wrench is used as a baseline so only the *external/contact*
+    component drives the softening; a deadband plus stiffness EMA keep the loop stable.
+
+    Like :class:`CommandHandBaseIKAction`, this term consumes zero external action dims; the
+    high-level behavior is fully determined by the command and the internal stiffness law.
+    """
+
+    cfg: CommandHandBaseOSCActionCfg
+    _asset: Articulation
+
+    def __init__(self, cfg: CommandHandBaseOSCActionCfg, env: ManagerBasedRLEnv):
+        super().__init__(cfg, env)
+
+        self._joint_ids, self._joint_names = self._asset.find_joints(self.cfg.joint_names)
+        self._num_dof = len(self._joint_ids)
+        body_ids, body_names = self._asset.find_bodies(self.cfg.body_name)
+        if len(body_ids) != 1:
+            raise ValueError(
+                f"Expected one match for the body name: {self.cfg.body_name}. Found {len(body_ids)}: {body_names}."
+            )
+        self._body_idx = body_ids[0]
+        self._body_name = body_names[0]
+
+        if self._asset.is_fixed_base:
+            self._jacobi_body_idx = self._body_idx - 1
+            self._jacobi_joint_ids = self._joint_ids
+        else:
+            self._jacobi_body_idx = self._body_idx
+            self._jacobi_joint_ids = [i + 6 for i in self._joint_ids]
+        # Keep an explicit joint-id list for indexing dynamic quantities; only collapse the
+        # control index to a slice when this term owns every joint of the articulation.
+        self._dyn_joint_ids = self._joint_ids
+        if self._num_dof == self._asset.num_joints:
+            self._joint_ids = slice(None)
+
+        self._osc = OperationalSpaceController(cfg=self.cfg.controller_cfg, num_envs=self.num_envs, device=self.device)
+
+        # buffers
+        self._raw_actions = torch.zeros(self.num_envs, 0, device=self.device)
+        self._target_pose_b = torch.zeros(self.num_envs, 7, device=self.device)
+        self._target_pose_b[:, 3] = 1.0
+        self._jacobian_b = torch.zeros(self.num_envs, 6, self._num_dof, device=self.device)
+        self._mass_matrix = torch.zeros(self.num_envs, self._num_dof, self._num_dof, device=self.device)
+        self._gravity = torch.zeros(self.num_envs, self._num_dof, device=self.device)
+        self._ee_pose_b = torch.zeros(self.num_envs, 7, device=self.device)
+        self._ee_vel_b = torch.zeros(self.num_envs, 6, device=self.device)
+        self._joint_pos = torch.zeros(self.num_envs, self._num_dof, device=self.device)
+        self._joint_vel = torch.zeros(self.num_envs, self._num_dof, device=self.device)
+        self._joint_efforts = torch.zeros(self.num_envs, self._num_dof, device=self.device)
+
+        # variable-impedance state: stiffness (per task axis) and slow wrench baseline.
+        self._stiffness = torch.zeros(self.num_envs, 6, device=self.device)
+        self._wrench_baseline = torch.zeros(self.num_envs, 6, device=self.device)
+        self._reset_stiffness(slice(None))
+
+        if self.cfg.controller_cfg.nullspace_control == "position":
+            self._nullspace_joint_pos_target = torch.mean(
+                self._asset.data.soft_joint_pos_limits[:, self._dyn_joint_ids, :], dim=-1
+            )
+        else:
+            self._nullspace_joint_pos_target = None
+
+    @property
+    def action_dim(self) -> int:
+        return 0
+
+    @property
+    def raw_actions(self) -> torch.Tensor:
+        return self._raw_actions
+
+    @property
+    def processed_actions(self) -> torch.Tensor:
+        return self._raw_actions
+
+    @property
+    def stiffness(self) -> torch.Tensor:
+        return self._stiffness
+
+    @property
+    def jacobian_w(self) -> torch.Tensor:
+        return self._asset.root_physx_view.get_jacobians()[:, self._jacobi_body_idx, :, self._jacobi_joint_ids]
+
+    @property
+    def jacobian_b(self) -> torch.Tensor:
+        jacobian = self.jacobian_w
+        base_rot_matrix = matrix_from_quat(quat_inv(self._asset.data.root_quat_w))
+        jacobian[:, :3, :] = torch.bmm(base_rot_matrix, jacobian[:, :3, :])
+        jacobian[:, 3:, :] = torch.bmm(base_rot_matrix, jacobian[:, 3:, :])
+        return jacobian
+
+    def process_actions(self, actions: torch.Tensor):
+        if actions.shape[-1] != 0:
+            raise ValueError(f"Expected zero external arm action dims, got {actions.shape[-1]}.")
+
+        command = self._env.command_manager.get_command(self.cfg.command_name)
+        command_end = self.cfg.command_start + 7
+        if command.shape[-1] < command_end:
+            raise ValueError(
+                f"Command {self.cfg.command_name!r} must contain hand-base pose slice "
+                f"{self.cfg.command_start}:{command_end}, got shape {tuple(command.shape)}."
+            )
+        self._target_pose_b[:] = command[:, self.cfg.command_start : command_end]
+
+        self._compute_ee_pose()
+        self._update_variable_stiffness()
+
+        osc_command = torch.cat((self._target_pose_b, self._stiffness), dim=-1)
+        self._osc.set_command(command=osc_command, current_ee_pose_b=self._ee_pose_b, current_task_frame_pose_b=None)
+
+    def apply_actions(self):
+        self._compute_dynamic_quantities()
+        self._jacobian_b[:] = self.jacobian_b
+        self._compute_ee_pose()
+        self._compute_ee_velocity()
+        self._joint_pos[:] = self._asset.data.joint_pos[:, self._joint_ids]
+        self._joint_vel[:] = self._asset.data.joint_vel[:, self._joint_ids]
+        self._joint_efforts[:] = self._osc.compute(
+            jacobian_b=self._jacobian_b,
+            current_ee_pose_b=self._ee_pose_b,
+            current_ee_vel_b=self._ee_vel_b,
+            current_ee_force_b=None,
+            mass_matrix=self._mass_matrix,
+            gravity=self._gravity,
+            current_joint_pos=self._joint_pos,
+            current_joint_vel=self._joint_vel,
+            nullspace_joint_pos_target=self._nullspace_joint_pos_target,
+        )
+        self._asset.set_joint_effort_target(self._joint_efforts, joint_ids=self._joint_ids)
+
+    def reset(self, env_ids=None) -> None:
+        if env_ids is None:
+            env_ids = slice(None)
+        self._osc.reset()
+        self._wrench_baseline[env_ids] = 0.0
+        self._reset_stiffness(env_ids)
+
+    def _reset_stiffness(self, env_ids) -> None:
+        self._stiffness[env_ids, :3] = self.cfg.stiffness_max_trans
+        self._stiffness[env_ids, 3:] = self.cfg.stiffness_max_rot
+
+    def _update_variable_stiffness(self) -> None:
+        """Lower task-space stiffness on axes where the wrist meets sustained resistance."""
+        wrench = self._asset.data.body_incoming_joint_wrench_b[:, self._body_idx]
+        wrench_ext = wrench - self._wrench_baseline
+
+        force_mag = torch.norm(wrench_ext[:, :3], dim=-1, keepdim=True)
+        torque_mag = torch.norm(wrench_ext[:, 3:], dim=-1, keepdim=True)
+        force_excess = torch.clamp(force_mag - self.cfg.force_deadband, min=0.0)
+        torque_excess = torch.clamp(torque_mag - self.cfg.torque_deadband, min=0.0)
+
+        # soften in [0, 1]: 0 keeps full stiffness, 1 collapses to the floor.
+        soften_trans = torch.clamp(force_excess / self.cfg.force_scale, max=1.0)
+        soften_rot = torch.clamp(torque_excess / self.cfg.torque_scale, max=1.0)
+        k_trans = self.cfg.stiffness_max_trans - (self.cfg.stiffness_max_trans - self.cfg.stiffness_min) * soften_trans
+        k_rot = self.cfg.stiffness_max_rot - (self.cfg.stiffness_max_rot - self.cfg.stiffness_min) * soften_rot
+        target = torch.cat((k_trans.expand(-1, 3), k_rot.expand(-1, 3)), dim=-1)
+
+        beta = self.cfg.stiffness_ema
+        self._stiffness[:] = (1.0 - beta) * self._stiffness + beta * target
+
+        # Only learn the free-motion baseline while there is no detected contact; freeze it
+        # during contact so the external estimate does not bleed away.
+        in_free = (force_excess <= 0.0) & (torque_excess <= 0.0)
+        update = in_free.to(wrench.dtype) * self.cfg.wrench_baseline_ema
+        self._wrench_baseline[:] = (1.0 - update) * self._wrench_baseline + update * wrench
+
+    def _compute_dynamic_quantities(self) -> None:
+        self._mass_matrix[:] = self._asset.root_physx_view.get_generalized_mass_matrices()[
+            :, self._dyn_joint_ids, :
+        ][:, :, self._dyn_joint_ids]
+        self._gravity[:] = self._asset.root_physx_view.get_gravity_compensation_forces()[:, self._dyn_joint_ids]
+
+    def _compute_ee_pose(self) -> None:
+        ee_pos_w = self._asset.data.body_pos_w[:, self._body_idx]
+        ee_quat_w = self._asset.data.body_quat_w[:, self._body_idx]
+        self._ee_pose_b[:, :3], self._ee_pose_b[:, 3:] = subtract_frame_transforms(
+            self._asset.data.root_pos_w,
+            self._asset.data.root_quat_w,
+            ee_pos_w,
+            ee_quat_w,
+        )
+
+    def _compute_ee_velocity(self) -> None:
+        ee_vel_w = self._asset.data.body_vel_w[:, self._body_idx, :]
+        relative_vel_w = ee_vel_w - self._asset.data.root_vel_w
+        self._ee_vel_b[:, 0:3] = quat_apply_inverse(self._asset.data.root_quat_w, relative_vel_w[:, 0:3])
+        self._ee_vel_b[:, 3:6] = quat_apply_inverse(self._asset.data.root_quat_w, relative_vel_w[:, 3:6])
+
+
+@configclass
+class CommandHandBaseOSCActionCfg(ActionTermCfg):
+    """Configuration for command-driven hand-base variable-impedance OSC control."""
+
+    class_type: type[ActionTerm] = CommandHandBaseOSCAction
+
+    joint_names: list[str] = MISSING
+    """List of arm joint names or regex expressions controlled by OSC (effort control)."""
+
+    body_name: str = MISSING
+    """Body name whose pose is regulated to the command anchor pose."""
+
+    command_name: str = "object_pose"
+    """Command term containing the target hand-base (anchor) pose."""
+
+    command_start: int = 7
+    """Start index of the target hand-base pose in the command tensor."""
+
+    controller_cfg: OperationalSpaceControllerCfg = MISSING
+    """Operational-space controller configuration. Use ``impedance_mode="variable_kp"`` and
+    ``target_types=["pose_abs"]`` so the term can supply a per-step 6-axis stiffness."""
+
+    stiffness_max_trans: float = 500.0
+    """Free-motion translational task-space stiffness (precise anchor tracking)."""
+
+    stiffness_max_rot: float = 500.0
+    """Free-motion rotational task-space stiffness. Higher than translation so rotating away
+    from the anchor costs more."""
+
+    stiffness_min: float = 30.0
+    """Stiffness floor reached under strong sustained resistance (maximally compliant)."""
+
+    force_deadband: float = 3.0
+    """External wrist force (N) below which no translational softening occurs."""
+
+    force_scale: float = 20.0
+    """External force (N) above the deadband that drives translational stiffness to the floor."""
+
+    torque_deadband: float = 0.5
+    """External wrist torque (Nm) below which no rotational softening occurs."""
+
+    torque_scale: float = 3.0
+    """External torque (Nm) above the deadband that drives rotational stiffness to the floor."""
+
+    stiffness_ema: float = 0.05
+    """EMA factor for the per-step stiffness update (smaller = slower, more hysteresis)."""
+
+    wrench_baseline_ema: float = 0.02
+    """EMA factor for learning the free-motion wrench baseline (frozen during contact)."""
 
 
 def reset_object_pose_relative_to_body(

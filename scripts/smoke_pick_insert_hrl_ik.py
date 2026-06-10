@@ -20,7 +20,7 @@ if str(REPO_ROOT) not in sys.path:
 parser = argparse.ArgumentParser(description="Smoke-test pick-insert HRL hand-base IK tracking.")
 parser.add_argument("--task", type=str, default="Pick_Insert_HRL-v0", help="Registered Gym task to launch.")
 parser.add_argument("--num_envs", type=int, default=1, help="Number of environments to run.")
-parser.add_argument("--steps", type=int, default=120, help="Number of environment steps to simulate.")
+parser.add_argument("--steps", type=int, default=1200, help="Number of environment steps to simulate.")
 parser.add_argument("--print_every", type=int, default=30, help="Print pose diagnostics every N steps.")
 parser.add_argument("--demo_cfg", action="store_true", help="Use src/tasks/pick_insert demo/env_cfg.py.")
 parser.add_argument(

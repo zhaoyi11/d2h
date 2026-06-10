@@ -9,6 +9,7 @@ import isaaclab.sim as sim_utils
 import torch
 from isaaclab.assets import ArticulationCfg, AssetBaseCfg, RigidObjectCfg
 from isaaclab.controllers.differential_ik_cfg import DifferentialIKControllerCfg
+from isaaclab.controllers.operational_space_cfg import OperationalSpaceControllerCfg
 from isaaclab.envs import ManagerBasedRLEnvCfg, ViewerCfg
 from isaaclab.actuators.actuator_cfg import ImplicitActuatorCfg
 from isaaclab.managers import EventTermCfg as EventTerm
@@ -44,14 +45,16 @@ class SceneCfg(InteractiveSceneCfg):
         prim_path="{ENV_REGEX_NS}/Object",
         spawn=sim_utils.UsdFileCfg(
             usd_path=f"{UWLAB_CLOUD_ASSETS_DIR}/Props/Custom/Peg/peg.usd",
-            scale=(1.8, 1.8, 1.8),
+            scale=(1.5, 1.5, 1.5),
             rigid_props=sim_utils.RigidBodyPropertiesCfg(
-                solver_position_iteration_count=4,
-                solver_velocity_iteration_count=0,
+                solver_position_iteration_count=16,
+                solver_velocity_iteration_count=1,
                 disable_gravity=False,
                 kinematic_enabled=False,
+                max_depenetration_velocity=1.0,
+                # enable_ccd=True,
             ),
-            mass_props=sim_utils.MassPropertiesCfg(mass=0.2),
+            mass_props=sim_utils.MassPropertiesCfg(mass=0.02),
         ),
         init_state=RigidObjectCfg.InitialStateCfg(pos=(0.45, 0.2, 0.3), rot=(0.7071068, 0.0, 0.7071068, 0.0)),
     )
@@ -60,12 +63,14 @@ class SceneCfg(InteractiveSceneCfg):
         prim_path="{ENV_REGEX_NS}/ReceptiveObject",
         spawn=sim_utils.UsdFileCfg(
             usd_path=f"{UWLAB_CLOUD_ASSETS_DIR}/Props/Custom/PegHole/peg_hole.usd",
-            scale=(2.2, 2.2, 2.2),
+            scale=(1.8, 1.8, 1.0),
             rigid_props=sim_utils.RigidBodyPropertiesCfg(
-                solver_position_iteration_count=4,
-                solver_velocity_iteration_count=0,
+                solver_position_iteration_count=16,
+                solver_velocity_iteration_count=1,
                 disable_gravity=False,
                 kinematic_enabled=True,
+                max_depenetration_velocity=1.0,
+                # enable_ccd=True,
             ),
             mass_props=sim_utils.MassPropertiesCfg(mass=0.5),
         ),
@@ -481,17 +486,32 @@ class ActionsCfg:
 class HrlActionsCfg:
     """Low-level action interface consumed by the HRL chunk wrapper."""
 
-    arm_action = mdp.CommandHandBaseIKActionCfg(
+    arm_action = mdp.CommandHandBaseOSCActionCfg(
         asset_name="robot",
         joint_names=["panda_joint.*"],
         body_name="base",
         command_name="object_pose",
-        controller=DifferentialIKControllerCfg(
-            command_type="pose",
-            use_relative_mode=True,
-            ik_method="dls",
+        controller_cfg=OperationalSpaceControllerCfg(
+            target_types=["pose_abs"],
+            impedance_mode="variable_kp",
+            inertial_dynamics_decoupling=True,
+            partial_inertial_dynamics_decoupling=True,
+            # Arm articulation has gravity disabled (see FRANKA_LEAP_HAND_CFG), so no
+            # joint-space gravity compensation is needed; the grasped object's weight shows
+            # up as an external wrist wrench and is handled by the impedance loop.
+            gravity_compensation=False,
+            motion_stiffness_task=200.0,
+            motion_damping_ratio_task=1.0,
+            # Wide limits: the action term supplies the live per-axis stiffness in physical
+            # units (see stiffness_min / stiffness_max_*), which is clipped to this range.
+            motion_stiffness_limits_task=(0.0, 1000.0),
+            nullspace_control="position",
         ),
-        scale=(0.05, 0.05, 0.05, 0.25, 0.25, 0.25),
+        # Cost of leaving the anchor: stiff (precise) in free space, compliant under contact;
+        # rotation kept stiffer than translation so rotating away from the anchor costs more.
+        stiffness_max_trans=200.0,
+        stiffness_max_rot=500.0,
+        stiffness_min=30.0,
     )
     hand_action = mdp.EMAJointPositionToLimitsActionCfg(
         asset_name="robot",
@@ -657,11 +677,34 @@ class DexsuiteInsertPegEnvCfg(ManagerBasedRLEnvCfg):
 
         # simulation settings
         self.sim.dt = 1 / 120
-        self.sim.render_interval = self.decimation
-        self.sim.physx.bounce_threshold_velocity = 0.2
-        self.sim.physx.bounce_threshold_velocity = 0.01
-        self.sim.physx.gpu_max_rigid_patch_count = 4 * 5 * 2**15
-        self.sim.physx.gpu_collision_stack_size = 2**28
+
+        # Contact and solver settings
+        self.sim.physx.solver_type = 1
+        self.sim.physx.max_position_iteration_count = 192
+        self.sim.physx.max_velocity_iteration_count = 1
+        self.sim.physx.bounce_threshold_velocity = 0.02
+        self.sim.physx.friction_offset_threshold = 0.01
+        self.sim.physx.friction_correlation_distance = 0.0005
+
+        self.sim.physx.gpu_found_lost_aggregate_pairs_capacity = 1024 * 1024 * 4
+        self.sim.physx.gpu_total_aggregate_pairs_capacity = 2**23
+        self.sim.physx.gpu_max_rigid_contact_count = 2**23
+        self.sim.physx.gpu_max_rigid_patch_count = 2**23
+        self.sim.physx.gpu_collision_stack_size = 2**30
+
+        # # Render settings
+        # self.sim.render.enable_dlssg = True
+        # self.sim.render.enable_ambient_occlusion = True
+        # self.sim.render.enable_reflections = True
+        # self.sim.render.enable_dl_denoiser = True
+        
+        
+        ''' Note: the following settings are used previously. Compare whether this is the cause of penetration. '''
+        # self.sim.render_interval = self.decimation
+        # self.sim.physx.bounce_threshold_velocity = 0.2
+        # self.sim.physx.bounce_threshold_velocity = 0.01
+        # self.sim.physx.gpu_max_rigid_patch_count = 4 * 5 * 2**15
+        # self.sim.physx.gpu_collision_stack_size = 2**28
 
         if self.curriculum is not None:
             self.curriculum.adr.params["pos_tol"] = self.rewards.success.params["pos_tol"]
@@ -798,3 +841,7 @@ class DexsuiteFrankaLeapInsertHrlEnvCfg(FrankaLeapMixinCfg, DexsuiteInsertEnvCfg
     def __post_init__(self):
         self.observations.low_level = ObservationsCfg.LowLevelObsCfg()
         super().__post_init__()
+        # Effort-control the arm joints so the operational-space controller can apply joint
+        # torques directly; the LEAP hand ("fingers") stays position-controlled.
+        self.scene.robot.actuators["joints"].stiffness = 0.0
+        self.scene.robot.actuators["joints"].damping = 0.0
