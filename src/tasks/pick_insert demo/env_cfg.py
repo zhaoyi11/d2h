@@ -59,11 +59,40 @@ class SceneCfg(InteractiveSceneCfg):
         init_state=RigidObjectCfg.InitialStateCfg(pos=(0.45, 0.2, 0.3), rot=(0.7071068, 0.0, 0.7071068, 0.0)),
     )
 
+    # # insertive_object: rounded capsule peg (long axis = local Z, matches insertion rewards)
+    # object: RigidObjectCfg = RigidObjectCfg(
+    #     prim_path="{ENV_REGEX_NS}/Object",
+    #     spawn=sim_utils.CapsuleCfg(
+    #         radius=0.025,  # ⌀ 3 cm
+    #         height=0.04,  # cylinder segment; total length = height + 2*radius ≈ 8 cm
+    #         axis="Z",
+    #         rigid_props=sim_utils.RigidBodyPropertiesCfg(
+    #             solver_position_iteration_count=16,
+    #             solver_velocity_iteration_count=1,
+    #             disable_gravity=False,
+    #             kinematic_enabled=False,
+    #             max_depenetration_velocity=1.0,
+    #             # enable_ccd=True,
+    #         ),
+    #         mass_props=sim_utils.MassPropertiesCfg(mass=0.02),
+    #         collision_props=sim_utils.CollisionPropertiesCfg(),
+    #         physics_material=sim_utils.RigidBodyMaterialCfg(
+    #             static_friction=1.0,
+    #             dynamic_friction=1.0,
+    #             restitution=0.0,
+    #         ),
+    #         visual_material=sim_utils.PreviewSurfaceCfg(
+    #             diffuse_color=(0.2, 0.4, 0.8), roughness=0.5
+    #         ),
+    #     ),
+    #     init_state=RigidObjectCfg.InitialStateCfg(pos=(0.45, 0.2, 0.3), rot=(0.7071068, 0.0, 0.7071068, 0.0)),
+    # )
+
     receptive_object: RigidObjectCfg = RigidObjectCfg(
         prim_path="{ENV_REGEX_NS}/ReceptiveObject",
         spawn=sim_utils.UsdFileCfg(
             usd_path=f"{UWLAB_CLOUD_ASSETS_DIR}/Props/Custom/PegHole/peg_hole.usd",
-            scale=(1.8, 1.8, 1.0),
+            scale=(2.0, 2.0, 1.0),
             rigid_props=sim_utils.RigidBodyPropertiesCfg(
                 solver_position_iteration_count=16,
                 solver_velocity_iteration_count=1,
@@ -74,7 +103,7 @@ class SceneCfg(InteractiveSceneCfg):
             ),
             mass_props=sim_utils.MassPropertiesCfg(mass=0.5),
         ),
-        init_state=RigidObjectCfg.InitialStateCfg(pos=(0.35, 0.0, 0.285), rot=(1.0, 0.0, 0.0, 0.0)),
+        init_state=RigidObjectCfg.InitialStateCfg(pos=(0.35, 0.0, 0.275), rot=(1.0, 0.0, 0.0, 0.0)),
     )
     
     # table
@@ -464,7 +493,7 @@ class EventCfg:
         func=mdp.randomize_physics_scene_gravity,
         mode="reset",
         params={
-            "gravity_distribution_params": ([0.0, 0.0, 0.0], [0.0, 0.0, 0.0]),
+            "gravity_distribution_params": ([0.0, 0.0, -1.81], [0.0, 0.0, -1.81]),
             "operation": "abs",
         },
     )

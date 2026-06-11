@@ -42,9 +42,9 @@ DEFAULT_HAND_BASE_TO_ANCHOR_POSE = (0.10623648, 0.01035594, 0.07579897, 1.0, 0.0
 # Anchor pose offset in the robot root frame as (x, y, z, qw, qx, qy, qz).
 # Position (0, 0, -0.01) is a fixed -1 cm z-offset in root; orientation (√2/2, 0, √2/2, 0) is 90° rotation about root +Y axis.
 DEFAULT_OBJECT_TO_ANCHOR_POSE = (0.0, 0.0, -0.01, 0.70710678, 0.0, 0.70710678, 0.0)
-DEFAULT_PICK_INSERT_RECEPTIVE_POSE = (0.35, 0.0, 0.285, 1.0, 0.0, 0.0, 0.0)
-DEFAULT_PICK_INSERT_SEGMENT_STEPS = (20, 20, 10, 50, 20)
-
+DEFAULT_PICK_INSERT_RECEPTIVE_POSE = (0.35, 0.0, 0.27, 1.0, 0.0, 0.0, 0.0)
+# DEFAULT_PICK_INSERT_SEGMENT_STEPS = (20, 20, 10, 50, 20)
+DEFAULT_PICK_INSERT_SEGMENT_STEPS = (2, 1, 1, 1, 1)
 
 def _load_pick_insert_object_trajectory_module():
     module_name = "pick_insert_demo_object_trajectory_for_command"
@@ -798,19 +798,19 @@ class PickInsertTrajectoryObjectAndHandBasePoseCommandCfg(ObjectAndHandBasePoseC
     trajectory_segment_steps: tuple[int, int, int, int, int] = DEFAULT_PICK_INSERT_SEGMENT_STEPS
     """Interpolation samples for move, align, approach, insert, and hold segments."""
 
-    above_offset: float = 0.15
+    above_offset: float = 0.10
     """Height above the receptacle for the initial move and orientation alignment."""
 
-    insertion_depth: float = 0.015
+    insertion_depth: float = 0.06
     """Inserted object height offset above the receptacle pose."""
 
-    approach_height: float = 0.08
+    approach_height: float = 0.01
     """Height above the insertion pose used before final descent."""
 
-    object_position_tolerance: float = 0.03
+    object_position_tolerance: float = 0.01
     """Object position tolerance in meters for advancing the command trajectory."""
 
-    object_orientation_tolerance: float = 0.3
+    object_orientation_tolerance: float = 0.2
     """Object orientation tolerance in radians for advancing the command trajectory."""
 
     hand_base_position_tolerance: float = 0.02
