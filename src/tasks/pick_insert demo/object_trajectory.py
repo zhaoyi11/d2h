@@ -4,12 +4,14 @@ from collections.abc import Sequence
 
 import torch
 
+from isaaclab.utils.math import combine_frame_transforms
+
 
 DEFAULT_RECEPTIVE_POSE = (0.35, 0.0, 0.285, 1.0, 0.0, 0.0, 0.0)
 DEFAULT_SEGMENT_STEPS = (20, 20, 10, 20, 5)
 DEFAULT_ANCHOR_POSE_B = (0.10623648, 0.01035594, 0.07579897, 1.0, 0.0, 0.0, 0.0)
-DEFAULT_TARGET_ANCHOR_QUAT = (0.70710678, 0.0, 0.70710678, 0.0)
-DEFAULT_ANCHOR_CLEARANCE = 0.02
+# Anchor pose relative to the object-goal frame as (x, y, z, qw, qx, qy, qz).
+DEFAULT_OBJECT_TO_ANCHOR_POSE = (0.0, 0.0, -0.01, 1.0, 0.0, 0.0, 0.0)
 DEFAULT_LEAP_OPEN_JOINT_POS = {f"a_{joint_id}": 0.0 for joint_id in range(16)}
 DEFAULT_LEAP_GRASP_JOINT_POS = {
     "a_0": -0.250,
@@ -142,14 +144,14 @@ def build_leap_hand_joint_pose_sequence(
 def build_anchor_pose_sequence(
     object_pose_b: torch.Tensor | Sequence[Sequence[float]],
     anchor_pose_b: torch.Tensor | Sequence[float] = DEFAULT_ANCHOR_POSE_B,
-    anchor_clearance: float = DEFAULT_ANCHOR_CLEARANCE,
-    target_anchor_quat: torch.Tensor | Sequence[float] = DEFAULT_TARGET_ANCHOR_QUAT,
+    object_to_anchor_pose: torch.Tensor | Sequence[float] = DEFAULT_OBJECT_TO_ANCHOR_POSE,
 ) -> torch.Tensor:
     """Build anchor pose targets for the demo.
 
-    ``anchor_pose_b`` is the fixed hand-base to anchor transform. The target
-    anchor position is placed above the object pose by ``anchor_clearance``,
-    while ``target_anchor_quat`` supplies the target anchor-frame orientation.
+    ``anchor_pose_b`` is the fixed hand-base to anchor transform (kept for caller
+    compatibility). The anchor is placed at ``object_pose ⊕ object_to_anchor_pose`` -- a
+    relative pose expressed in the object-goal frame, so the anchor tracks the object's
+    orientation.
     """
 
     object_pose = _as_pose_sequence_tensor(object_pose_b)
@@ -158,18 +160,16 @@ def build_anchor_pose_sequence(
         dtype=object_pose.dtype,
         device=object_pose.device,
     )
-    target_anchor_quat_tensor = _normalize_quat(
-        _as_quat_tensor(
-            target_anchor_quat,
-            dtype=object_pose.dtype,
-            device=object_pose.device,
-        )
-    )
+    offset = _as_pose_tensor(
+        object_to_anchor_pose,
+        dtype=object_pose.dtype,
+        device=object_pose.device,
+    ).unsqueeze(0).expand(object_pose.shape[0], -1)
 
-    anchor_pose = object_pose.clone()
-    anchor_pose[:, 2] += object_pose.new_tensor(anchor_clearance)
-    anchor_pose[:, 3:7] = target_anchor_quat_tensor
-    return anchor_pose
+    anchor_pos, anchor_quat = combine_frame_transforms(
+        object_pose[:, :3], object_pose[:, 3:7], offset[:, :3], offset[:, 3:7]
+    )
+    return torch.cat((anchor_pos, anchor_quat), dim=1)
 
 
 def build_pick_insert_demo_motion(
@@ -181,8 +181,7 @@ def build_pick_insert_demo_motion(
     insertion_depth: float = 0.015,
     approach_height: float = 0.08,
     anchor_pose_b: torch.Tensor | Sequence[float] = DEFAULT_ANCHOR_POSE_B,
-    anchor_clearance: float = DEFAULT_ANCHOR_CLEARANCE,
-    target_anchor_quat: torch.Tensor | Sequence[float] = DEFAULT_TARGET_ANCHOR_QUAT,
+    object_to_anchor_pose: torch.Tensor | Sequence[float] = DEFAULT_OBJECT_TO_ANCHOR_POSE,
 ) -> dict[str, torch.Tensor]:
     """Build object, LEAP hand, and anchor-frame motion for the pick-insert demo."""
 
@@ -203,8 +202,7 @@ def build_pick_insert_demo_motion(
     anchor_pose_sequence_b = build_anchor_pose_sequence(
         object_pose_b,
         anchor_pose_b=anchor_pose_b,
-        anchor_clearance=anchor_clearance,
-        target_anchor_quat=target_anchor_quat,
+        object_to_anchor_pose=object_to_anchor_pose,
     )
     return {
         "object_pose_b": object_pose_b,
@@ -318,9 +316,8 @@ def _slerp(start: torch.Tensor, end: torch.Tensor, alpha: torch.Tensor) -> torch
 
 
 __all__ = [
-    "DEFAULT_ANCHOR_CLEARANCE",
     "DEFAULT_ANCHOR_POSE_B",
-    "DEFAULT_TARGET_ANCHOR_QUAT",
+    "DEFAULT_OBJECT_TO_ANCHOR_POSE",
     "DEFAULT_LEAP_GRASP_JOINT_POS",
     "DEFAULT_LEAP_OPEN_JOINT_POS",
     "DEFAULT_RECEPTIVE_POSE",

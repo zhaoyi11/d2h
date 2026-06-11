@@ -128,6 +128,17 @@ class CommandsCfg:
         # in-hand policy alone cannot; cost-regularized (rotation costs more than position),
         # complementing the OSC variable-impedance arm.
         enable_object_goal_correction=True,
+        # Bounded but memoryless: clamped pure-P correction toward the CURRENT command anchor.
+        corr_slew_pos=1.0,  # large -> slew never limits, correction is fresh each step
+        corr_slew_rot=10.0,
+        corr_max_pos=0.05,  # keep the 5 cm bound (default, made explicit)
+        corr_max_rot=0.2,  # keep the ~10 deg bound (default, made explicit)
+        # Gate: only activate correction when arm is settled AND object has stalled.
+        corr_anchor_achieved_pos=0.01,  # hand-base position tolerance (m)
+        corr_anchor_achieved_rot=0.05,  # hand-base orientation tolerance (rad)
+        corr_stall_window=5,  # steps for object to stall before arm corrects
+        corr_stall_delta_pos=0.003,  # position improvement threshold (m)
+        corr_stall_delta_rot=0.01,  # orientation improvement threshold (rad)
     )
 
 @configclass
@@ -514,7 +525,7 @@ class HrlActionsCfg:
         # Cost of leaving the anchor: stiff (precise) in free space, compliant under contact;
         # rotation kept stiffer than translation so rotating away from the anchor costs more.
         stiffness_max_trans=200.0,
-        stiffness_max_rot=500.0,
+        stiffness_max_rot=200.0,
         stiffness_min=30.0,
     )
     hand_action = mdp.EMAJointPositionToLimitsActionCfg(

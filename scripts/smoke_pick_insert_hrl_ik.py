@@ -60,7 +60,11 @@ import torch  # noqa: E402
 from isaaclab.markers import VisualizationMarkers, VisualizationMarkersCfg  # noqa: E402
 from isaaclab_tasks.utils import parse_env_cfg  # noqa: E402
 from isaaclab.utils.assets import ISAAC_NUCLEUS_DIR  # noqa: E402
-from isaaclab.utils.math import combine_frame_transforms, subtract_frame_transforms  # noqa: E402
+from isaaclab.utils.math import (  # noqa: E402
+    combine_frame_transforms,
+    compute_pose_error,
+    subtract_frame_transforms,
+)
 from src.policy.hl_policy import load_low_level_rsl_rl_policy  # noqa: E402
 
 
@@ -218,18 +222,18 @@ def _command_poses_w(env) -> tuple[torch.Tensor, torch.Tensor, torch.Tensor, tor
         command[:, :3],
         command[:, 3:7],
     )
-    object_pos_b, _ = combine_frame_transforms(
-        command[:, 7:10],
-        command[:, 10:14],
-        command[:, :3],
-        command[:, 3:7],
-    )
-    anchor_quat_b = torch.tensor(command_term.cfg.target_anchor_quat, device=command.device).repeat(
+    # Reconstruct the (correction-included) anchor from the hand-base target and the fixed
+    # hand-base->anchor transform: anchor = hand_base_command ⊕ hand_base_to_anchor_pose.
+    hand_base_to_anchor = torch.tensor(command_term.cfg.hand_base_to_anchor_pose, device=command.device).repeat(
         command.shape[0],
         1,
     )
-    anchor_pos_b = object_pos_b.clone()
-    anchor_pos_b[:, 2] += command.new_tensor(command_term.cfg.anchor_clearance)
+    anchor_pos_b, anchor_quat_b = combine_frame_transforms(
+        command[:, 7:10],
+        command[:, 10:14],
+        hand_base_to_anchor[:, :3],
+        hand_base_to_anchor[:, 3:7],
+    )
     anchor_pos_w, anchor_quat_w = combine_frame_transforms(
         robot.data.root_pos_w,
         robot.data.root_quat_w,
@@ -274,6 +278,35 @@ def _validate_managers(env) -> None:
     print(f"[INFO]: object_pose command shape={tuple(command.shape)}", flush=True)
 
 
+def _object_goal_error(env) -> tuple[float, float] | None:
+    """Object->goal error in robot root frame: (position norm [m], orientation norm [rad])."""
+    command_term = env.command_manager.get_term("object_pose")
+    goal_b = getattr(command_term, "pose_command_b", None)
+    if goal_b is None:
+        return None
+    robot = env.scene["robot"]
+    object_asset = env.scene["object"]
+    object_pos_b, object_quat_b = subtract_frame_transforms(
+        robot.data.root_pos_w,
+        robot.data.root_quat_w,
+        object_asset.data.root_pos_w,
+        object_asset.data.root_quat_w,
+    )
+    pos_error, rot_error = compute_pose_error(
+        object_pos_b, object_quat_b, goal_b[:, :3], goal_b[:, 3:7], rot_error_type="axis_angle"
+    )
+    return float(pos_error[0].norm()), float(rot_error[0].norm())
+
+
+def _correction_norms(env) -> tuple[float, float] | None:
+    """Norms of the applied object->anchor correction: (position [m], rotation [rad])."""
+    command_term = env.command_manager.get_term("object_pose")
+    correction = getattr(command_term, "objanchor_correction", None)
+    if correction is None:
+        return None
+    return float(correction[0, :3].norm()), float(correction[0, 3:].norm())
+
+
 def _print_snapshot(env, step: int) -> None:
     command = env.command_manager.get_command("object_pose")
     current_hand_base_b, body_name = _hand_base_pose_b(env)
@@ -284,6 +317,18 @@ def _print_snapshot(env, step: int) -> None:
     print(f"[STEP {step:04d}]: current {body_name} pose b {_as_list(current_hand_base_b[0])}", flush=True)
     print(f"[STEP {step:04d}]: object pose in {body_name} b {_as_list(current_object_in_hand_b[0])}", flush=True)
     print(f"[STEP {step:04d}]: low-level object goal local {_as_list(target_object_in_desired_hand_b[0])}", flush=True)
+    goal_error = _object_goal_error(env)
+    if goal_error is not None:
+        print(
+            f"[STEP {step:04d}]: object->goal error root  pos={goal_error[0]:.5f} m  rot={goal_error[1]:.5f} rad",
+            flush=True,
+        )
+    correction = _correction_norms(env)
+    if correction is not None:
+        print(
+            f"[STEP {step:04d}]: objgoal correction norm   pos={correction[0]:.5f} m  rot={correction[1]:.5f} rad",
+            flush=True,
+        )
 
 
 def main() -> None:
@@ -340,5 +385,12 @@ def main() -> None:
 if __name__ == "__main__":
     try:
         main()
+    except BaseException:
+        import traceback
+
+        traceback.print_exc()
+        sys.stdout.flush()
+        sys.stderr.flush()
+        raise
     finally:
         simulation_app.close()
