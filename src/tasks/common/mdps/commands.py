@@ -20,6 +20,7 @@ from isaaclab.assets import Articulation, RigidObject
 from isaaclab.managers import CommandTerm
 from isaaclab.markers import VisualizationMarkers
 from isaaclab.utils.math import (
+    apply_delta_pose,
     combine_frame_transforms,
     compute_pose_error,
     quat_from_euler_xyz,
@@ -318,6 +319,9 @@ class PickInsertTrajectoryObjectAndHandBasePoseCommand(ObjectAndHandBasePoseComm
         self._object_pose_trajectory_b = torch.zeros(self.num_envs, self._trajectory_length, 7, device=self.device)
         self._object_pose_trajectory_b[:, :, 3] = 1.0
         self._trajectory_command_achieved = torch.zeros(self.num_envs, dtype=torch.bool, device=self.device)
+        # EMA-smoothed object-goal correction applied to the hand-base anchor target
+        # (pos[3], axis-angle[3], in robot root frame). Zero = sit at the bare anchor.
+        self._objgoal_correction = torch.zeros(self.num_envs, 6, device=self.device)
         self.metrics["hand_base_position_error"] = torch.zeros(self.num_envs, device=self.device)
         self.metrics["hand_base_orientation_error"] = torch.zeros(self.num_envs, device=self.device)
         self.metrics["trajectory_command_achieved"] = torch.zeros(self.num_envs, device=self.device)
@@ -377,6 +381,7 @@ class PickInsertTrajectoryObjectAndHandBasePoseCommand(ObjectAndHandBasePoseComm
         self.pose_command_b[env_ids_tensor] = self._object_pose_trajectory_b[env_ids_tensor, 0]
         hand_base_pos_b, hand_base_quat_b = self._current_hand_base_pose_b(env_ids_tensor)
         self.hand_base_pose_command_b[env_ids_tensor] = torch.cat((hand_base_pos_b, hand_base_quat_b), dim=1)
+        self._objgoal_correction[env_ids_tensor] = 0.0
         self._trajectory_command_achieved[env_ids_tensor] = False
 
     def _update_command(self):
@@ -385,6 +390,7 @@ class PickInsertTrajectoryObjectAndHandBasePoseCommand(ObjectAndHandBasePoseComm
             active_env_ids = (self._trajectory_step > 0).nonzero().flatten()
             if active_env_ids.numel() > 0:
                 self._update_hand_base_pose_command(active_env_ids)
+                self._apply_object_goal_correction(active_env_ids)
             return
         self._trajectory_step[advance_env_ids] = torch.clamp(
             self._trajectory_step[advance_env_ids] + 1,
@@ -397,6 +403,74 @@ class PickInsertTrajectoryObjectAndHandBasePoseCommand(ObjectAndHandBasePoseComm
         active_env_ids = (self._trajectory_step > 0).nonzero().flatten()
         if active_env_ids.numel() > 0:
             self._update_hand_base_pose_command(active_env_ids)
+            self._apply_object_goal_correction(active_env_ids)
+
+    def _apply_object_goal_correction(self, env_ids: torch.Tensor) -> None:
+        """Nudge the hand-base anchor target so the *measured* object reaches its goal pose.
+
+        Cost-regularized: a per-axis deadband keeps the arm at the anchor for small errors,
+        a per-axis gain (rotation cheaper-to-suppress than translation) and a norm clamp bound
+        the deviation, and a slow EMA means only a *persistent* object error (the hand has
+        plateaued) actually moves the arm. The corrected target flows into ``command[:, 7:14]``
+        (the OSC equilibrium) and, via :meth:`_object_pose_command_hand_base_b`, into
+        ``command[:, :7]`` (the in-hand target the LEAP policy chases), so arm and hand share
+        the object-goal error cooperatively instead of fighting.
+        """
+        if not self.cfg.enable_object_goal_correction or env_ids.numel() == 0:
+            return
+
+        # Nominal anchor target (pre-correction) for the active envs.
+        anchor_pos = self.hand_base_pose_command_b[env_ids, :3]
+        anchor_quat = self.hand_base_pose_command_b[env_ids, 3:7]
+
+        # Measured object pose and actual hand-base pose, both in the robot root frame.
+        hand_base_pos_b, hand_base_quat_b = self._current_hand_base_pose_b(env_ids)
+        object_pos_b, object_quat_b = subtract_frame_transforms(
+            self.robot.data.root_pos_w[env_ids],
+            self.robot.data.root_quat_w[env_ids],
+            self.object.data.root_pos_w[env_ids],
+            self.object.data.root_quat_w[env_ids],
+        )
+        # Hand base expressed in the object frame == inverse of the current grasp transform.
+        grasp_inv_pos, grasp_inv_quat = subtract_frame_transforms(
+            object_pos_b, object_quat_b, hand_base_pos_b, hand_base_quat_b
+        )
+        # Closed-loop hand base that would place the current grasp at the object goal.
+        closed_loop_pos, closed_loop_quat = combine_frame_transforms(
+            self.pose_command_b[env_ids, :3],
+            self.pose_command_b[env_ids, 3:7],
+            grasp_inv_pos,
+            grasp_inv_quat,
+        )
+        # Deviation of that target from the bare anchor (root frame, axis-angle rotation).
+        delta_pos, delta_rot = compute_pose_error(
+            anchor_pos, anchor_quat, closed_loop_pos, closed_loop_quat, rot_error_type="axis_angle"
+        )
+
+        # Per-axis soft-threshold (deadband) + gain. Rotation is more costly to deviate.
+        corr_pos = torch.sign(delta_pos) * torch.clamp(delta_pos.abs() - self.cfg.corr_deadband_pos, min=0.0)
+        corr_pos = corr_pos * self.cfg.corr_gain_pos
+        corr_rot = torch.sign(delta_rot) * torch.clamp(delta_rot.abs() - self.cfg.corr_deadband_rot, min=0.0)
+        corr_rot = corr_rot * self.cfg.corr_gain_rot
+        corr_pos = self._clamp_norm(corr_pos, self.cfg.corr_max_pos)
+        corr_rot = self._clamp_norm(corr_rot, self.cfg.corr_max_rot)
+
+        # Slow EMA so the arm only commits to persistent deviations.
+        target = torch.cat((corr_pos, corr_rot), dim=-1)
+        beta = self.cfg.corr_ema
+        correction = (1.0 - beta) * self._objgoal_correction[env_ids] + beta * target
+        self._objgoal_correction[env_ids] = correction
+
+        # Compose the (regularized) correction onto the anchor target.
+        new_pos, new_quat = apply_delta_pose(anchor_pos, anchor_quat, correction)
+        self.hand_base_pose_command_b[env_ids, :3] = new_pos
+        self.hand_base_pose_command_b[env_ids, 3:7] = new_quat
+
+    @staticmethod
+    def _clamp_norm(vec: torch.Tensor, max_norm: float) -> torch.Tensor:
+        norm = torch.norm(vec, dim=-1, keepdim=True)
+        scale = torch.clamp(max_norm / torch.clamp(norm, min=1e-8), max=1.0)
+        return vec * scale
 
     def _env_ids_tensor(self, env_ids: Sequence[int]) -> torch.Tensor:
         if isinstance(env_ids, slice):
@@ -549,3 +623,30 @@ class PickInsertTrajectoryObjectAndHandBasePoseCommandCfg(ObjectAndHandBasePoseC
 
     hand_base_orientation_tolerance: float = 0.2
     """Hand-base orientation tolerance in radians for advancing the command trajectory."""
+
+    # -- Object-goal correction (nudge the hand-base anchor so the object reaches its goal) --
+    enable_object_goal_correction: bool = False
+    """Whether to nudge the hand-base anchor target so the measured object reaches its goal
+    pose. When False the command exposes the bare anchor (default, backward compatible)."""
+
+    corr_deadband_pos: float = 0.00
+    """Per-axis position deadband (m): below this the arm stays at the anchor."""
+
+    corr_deadband_rot: float = 0.0
+    """Per-axis rotation deadband (rad): wider than position so rotating costs more."""
+
+    corr_gain_pos: float = 1.0
+    """Fraction of the (above-deadband) position deviation the arm takes per update."""
+
+    corr_gain_rot: float = 0.5
+    """Fraction of the (above-deadband) rotation deviation the arm takes (smaller than
+    position so the in-hand policy does most of the reorientation)."""
+
+    corr_max_pos: float = 0.05
+    """Maximum position deviation (m) of the corrected target from the anchor."""
+
+    corr_max_rot: float = 0.3
+    """Maximum rotation deviation (rad) of the corrected target from the anchor."""
+
+    corr_ema: float = 0.05
+    """EMA factor for the correction (smaller = slower, only persistent errors move the arm)."""

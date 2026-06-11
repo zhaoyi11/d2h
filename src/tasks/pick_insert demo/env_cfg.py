@@ -124,6 +124,10 @@ class CommandsCfg:
             yaw=(0.0, 0.0),
         ),
         success_vis_asset_name="table",
+        # Actively nudge the hand-base anchor so the object reaches its goal pose when the
+        # in-hand policy alone cannot; cost-regularized (rotation costs more than position),
+        # complementing the OSC variable-impedance arm.
+        enable_object_goal_correction=True,
     )
 
 @configclass
