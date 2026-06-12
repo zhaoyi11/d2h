@@ -10,6 +10,7 @@ from __future__ import annotations
 
 from dataclasses import MISSING
 import importlib.util
+import math
 from pathlib import Path
 import sys
 import torch
@@ -47,7 +48,7 @@ DEFAULT_PICK_INSERT_RECEPTIVE_POSE = (0.35, 0.0, 0.27, 1.0, 0.0, 0.0, 0.0)
 DEFAULT_PICK_INSERT_SEGMENT_STEPS = (2, 1, 1, 1, 1)
 
 
-class StageObjectTolerance(NamedTuple):
+class StageObjTol(NamedTuple):
     """Per-stage object tolerances for advancing the pick-insert trajectory."""
 
     object_position: float
@@ -55,12 +56,42 @@ class StageObjectTolerance(NamedTuple):
 
 
 DEFAULT_PICK_INSERT_STAGE_OBJECT_TOLERANCES = (
-    StageObjectTolerance(0.02, 0.3),  # move
-    StageObjectTolerance(0.02, 0.2),  # align
-    StageObjectTolerance(0.01, 0.2),  # approach
-    StageObjectTolerance(0.005, 0.1),  # insert
-    StageObjectTolerance(0.005, 0.1),  # hold
+    StageObjTol(0.02, 0.3),  # move
+    StageObjTol(0.02, 0.2),  # align
+    StageObjTol(0.01, 0.2),  # approach
+    StageObjTol(0.005, 0.1),  # insert
+    StageObjTol(0.005, 0.1),  # hold
 )
+
+
+def _stage_obj_tor_tensors(
+    stage_obj_tors: Sequence[StageObjTol],
+    expected_count: int,
+    device: str,
+) -> tuple[torch.Tensor, torch.Tensor]:
+    if len(stage_obj_tors) != expected_count:
+        raise ValueError(
+            "stage_object_tolerances must have one entry per trajectory segment "
+            f"({expected_count}); got {len(stage_obj_tors)}."
+        )
+
+    values = []
+    for stage_idx, stage_obj_tor in enumerate(stage_obj_tors):
+        if not isinstance(stage_obj_tor, StageObjTol):
+            raise TypeError(
+                f"stage_object_tolerances[{stage_idx}] must be a StageObjTol; "
+                f"got {type(stage_obj_tor).__name__}."
+            )
+        position = float(stage_obj_tor.object_position)
+        orientation = float(stage_obj_tor.object_orientation)
+        if not math.isfinite(position) or not math.isfinite(orientation):
+            raise ValueError(f"stage_object_tolerances[{stage_idx}] values must be finite.")
+        if position < 0.0 or orientation < 0.0:
+            raise ValueError(f"stage_object_tolerances[{stage_idx}] values must be non-negative.")
+        values.append((position, orientation))
+
+    stage_obj_tor_tensor = torch.tensor(values, device=device)
+    return stage_obj_tor_tensor[:, 0], stage_obj_tor_tensor[:, 1]
 
 
 def _load_pick_insert_object_trajectory_module():
@@ -415,17 +446,14 @@ class PickInsertTrajectoryObjectAndHandBasePoseCommand(ObjectAndHandBasePoseComm
             stage_ids.extend([stage_idx] * steps)
         self._step_to_stage = torch.tensor(stage_ids, dtype=torch.long, device=self.device)
 
-        if len(self.cfg.stage_object_tolerances) != len(self.cfg.trajectory_segment_steps):
-            raise ValueError(
-                "stage_object_tolerances must have one entry per trajectory segment "
-                f"({len(self.cfg.trajectory_segment_steps)}); got {len(self.cfg.stage_object_tolerances)}."
-            )
-        stage_tolerances = torch.tensor(
-            [[t.object_position, t.object_orientation] for t in self.cfg.stage_object_tolerances],
-            device=self.device,
+        (
+            self._stage_object_position_tolerance,
+            self._stage_object_orientation_tolerance,
+        ) = _stage_obj_tor_tensors(
+            self.cfg.stage_object_tolerances,
+            len(self.cfg.trajectory_segment_steps),
+            self.device,
         )
-        self._stage_object_position_tolerance = stage_tolerances[:, 0]
-        self._stage_object_orientation_tolerance = stage_tolerances[:, 1]
         self._trajectory_step = torch.zeros(self.num_envs, dtype=torch.long, device=self.device)
         self._object_pose_trajectory_b = torch.zeros(self.num_envs, self._trajectory_length, 7, device=self.device)
         self._object_pose_trajectory_b[:, :, 3] = 1.0
@@ -464,14 +492,18 @@ class PickInsertTrajectoryObjectAndHandBasePoseCommand(ObjectAndHandBasePoseComm
         self.metrics["hand_base_position_error"] = torch.norm(hand_base_pos_error, dim=-1)
         self.metrics["hand_base_orientation_error"] = torch.norm(hand_base_rot_error, dim=-1)
 
-        stage = self._step_to_stage[self._trajectory_step]
-        object_achieved = self.metrics["position_error"] < self._stage_object_position_tolerance[stage]
-        if not self.cfg.position_only:
-            object_achieved &= self.metrics["orientation_error"] < self._stage_object_orientation_tolerance[stage]
+        object_achieved = self._object_target_achieved()
         hand_base_achieved = self.metrics["hand_base_position_error"] < self.cfg.hand_base_position_tolerance
         hand_base_achieved &= self.metrics["hand_base_orientation_error"] < self.cfg.hand_base_orientation_tolerance
         self._trajectory_command_achieved[:] = object_achieved & hand_base_achieved
         self.metrics["trajectory_command_achieved"] = self._trajectory_command_achieved.float()
+
+    def _object_target_achieved(self) -> torch.Tensor:
+        stage = self._step_to_stage[self._trajectory_step]
+        achieved = self.metrics["position_error"] < self._stage_object_position_tolerance[stage]
+        if not self.cfg.position_only:
+            achieved &= self.metrics["orientation_error"] < self._stage_object_orientation_tolerance[stage]
+        return achieved
 
     def _resample_command(self, env_ids: Sequence[int]):
         env_ids_tensor = self._env_ids_tensor(env_ids)
@@ -841,7 +873,7 @@ class PickInsertTrajectoryObjectAndHandBasePoseCommandCfg(ObjectAndHandBasePoseC
     approach_height: float = 0.01
     """Height above the insertion pose used before final descent."""
 
-    stage_object_tolerances: tuple[StageObjectTolerance, ...] = DEFAULT_PICK_INSERT_STAGE_OBJECT_TOLERANCES
+    stage_object_tolerances: tuple[StageObjTol, ...] = DEFAULT_PICK_INSERT_STAGE_OBJECT_TOLERANCES
     """Per-stage object position and orientation tolerances for advancing the command trajectory.
 
     One entry is required for each trajectory segment: move, align, approach, insert, and hold.
