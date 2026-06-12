@@ -237,6 +237,9 @@ class CommandHandBaseOSCAction(ActionTerm):
         # variable-impedance state: stiffness (per task axis) and slow wrench baseline.
         self._stiffness = torch.zeros(self.num_envs, 6, device=self.device)
         self._wrench_baseline = torch.zeros(self.num_envs, 6, device=self.device)
+        # Logging-only buffers: last raw wrist wrench and its external (contact) component.
+        self._wrench_raw = torch.zeros(self.num_envs, 6, device=self.device)
+        self._wrench_ext = torch.zeros(self.num_envs, 6, device=self.device)
         self._reset_stiffness(slice(None))
 
         if self.cfg.controller_cfg.nullspace_control == "position":
@@ -261,6 +264,18 @@ class CommandHandBaseOSCAction(ActionTerm):
     @property
     def stiffness(self) -> torch.Tensor:
         return self._stiffness
+
+    @property
+    def external_wrench(self) -> torch.Tensor:
+        """Last external (contact) wrist wrench driving the softening: force ``[:, :3]``,
+        torque ``[:, 3:]`` (raw wrench minus the free-motion baseline)."""
+        return self._wrench_ext
+
+    @property
+    def raw_wrench(self) -> torch.Tensor:
+        """Last raw wrist reaction wrench at the controlled body: force ``[:, :3]``,
+        torque ``[:, 3:]``."""
+        return self._wrench_raw
 
     @property
     def jacobian_w(self) -> torch.Tensor:
@@ -328,6 +343,9 @@ class CommandHandBaseOSCAction(ActionTerm):
         """Lower task-space stiffness on axes where the wrist meets sustained resistance."""
         wrench = self._asset.data.body_incoming_joint_wrench_b[:, self._body_idx]
         wrench_ext = wrench - self._wrench_baseline
+        # Stash for diagnostics (logging-only; does not affect the control law).
+        self._wrench_raw[:] = wrench
+        self._wrench_ext[:] = wrench_ext
 
         force_mag = torch.norm(wrench_ext[:, :3], dim=-1, keepdim=True)
         torque_mag = torch.norm(wrench_ext[:, 3:], dim=-1, keepdim=True)

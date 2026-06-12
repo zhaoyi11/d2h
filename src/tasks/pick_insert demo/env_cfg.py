@@ -553,8 +553,8 @@ class HrlActionsCfg:
         ),
         # Cost of leaving the anchor: stiff (precise) in free space, compliant under contact;
         # rotation kept stiffer than translation so rotating away from the anchor costs more.
-        stiffness_max_trans=200.0,
-        stiffness_max_rot=200.0,
+        stiffness_max_trans=500.0,
+        stiffness_max_rot=500.0,
         stiffness_min=30.0,
     )
     hand_action = mdp.EMAJointPositionToLimitsActionCfg(

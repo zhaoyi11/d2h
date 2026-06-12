@@ -329,6 +329,33 @@ def _print_snapshot(env, step: int) -> None:
             f"[STEP {step:04d}]: objgoal correction norm   pos={correction[0]:.5f} m  rot={correction[1]:.5f} rad",
             flush=True,
         )
+    _print_arm_impedance(env, step)
+
+
+def _print_arm_impedance(env, step: int) -> None:
+    """Log the OSC per-axis stiffness and the wrist wrench driving its softening."""
+    try:
+        arm_action = env.action_manager.get_term("arm_action")
+    except (KeyError, ValueError):
+        return
+    stiffness = getattr(arm_action, "stiffness", None)
+    if stiffness is None:
+        return
+    print(f"[STEP {step:04d}]: arm stiffness [kx,ky,kz,krx,kry,krz] {_as_list(stiffness[0])}", flush=True)
+    ext = getattr(arm_action, "external_wrench", None)
+    raw = getattr(arm_action, "raw_wrench", None)
+    if ext is not None:
+        ext_force, ext_torque = ext[0, :3], ext[0, 3:]
+        raw_force_norm = float(raw[0, :3].norm()) if raw is not None else float("nan")
+        raw_torque_norm = float(raw[0, 3:].norm()) if raw is not None else float("nan")
+        print(
+            f"[STEP {step:04d}]: ext force {_as_list(ext_force)} |F|={float(ext_force.norm()):.3f}N (raw|F|={raw_force_norm:.3f}N)",
+            flush=True,
+        )
+        print(
+            f"[STEP {step:04d}]: ext torque {_as_list(ext_torque)} |T|={float(ext_torque.norm()):.3f}Nm (raw|T|={raw_torque_norm:.3f}Nm)",
+            flush=True,
+        )
 
 
 def main() -> None:
