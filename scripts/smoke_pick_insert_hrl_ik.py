@@ -8,6 +8,10 @@ import sys
 from pathlib import Path
 from types import ModuleType
 
+# Import Warp BEFORE the Isaac app so the site-packages Warp (1.14, required by cuRobo 0.8) is
+# cached in sys.modules and Isaac's bundled omni.warp.core (1.8.2) does not shadow it.
+import warp  # noqa: F401
+
 from isaaclab.app import AppLauncher
 
 

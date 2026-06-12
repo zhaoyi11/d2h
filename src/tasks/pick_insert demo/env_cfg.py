@@ -4,6 +4,7 @@
 # SPDX-License-Identifier: BSD-3-Clause
 
 from dataclasses import MISSING
+from pathlib import Path
 
 import isaaclab.sim as sim_utils
 import torch
@@ -530,32 +531,21 @@ class ActionsCfg:
 class HrlActionsCfg:
     """Low-level action interface consumed by the HRL chunk wrapper."""
 
-    arm_action = mdp.CommandHandBaseOSCActionCfg(
+    # cuRobo reactive MPC: drives the hand `base` to the command anchor while the full Franka+LEAP
+    # collision model avoids the table. The receptacle is intentionally NOT an obstacle so the peg
+    # can still reach the bore (MPC is position-controlled, no compliance — insertion is stiff).
+    arm_action = mdp.CommandHandBaseCuroboMpcActionCfg(
         asset_name="robot",
         joint_names=["panda_joint.*"],
         body_name="base",
         command_name="object_pose",
-        controller_cfg=OperationalSpaceControllerCfg(
-            target_types=["pose_abs"],
-            impedance_mode="variable_kp",
-            inertial_dynamics_decoupling=True,
-            partial_inertial_dynamics_decoupling=True,
-            # Arm articulation has gravity disabled (see FRANKA_LEAP_HAND_CFG), so no
-            # joint-space gravity compensation is needed; the grasped object's weight shows
-            # up as an external wrist wrench and is handled by the impedance loop.
-            gravity_compensation=False,
-            motion_stiffness_task=200.0,
-            motion_damping_ratio_task=1.0,
-            # Wide limits: the action term supplies the live per-axis stiffness in physical
-            # units (see stiffness_min / stiffness_max_*), which is clipped to this range.
-            motion_stiffness_limits_task=(0.0, 1000.0),
-            nullspace_control="position",
+        robot_config_file=(
+            f"{Path(__file__).resolve().parents[2]}/assets/franka_leap_hand/curobo/franka_leap.yml"
         ),
-        # Cost of leaving the anchor: stiff (precise) in free space, compliant under contact;
-        # rotation kept stiffer than translation so rotating away from the anchor costs more.
-        stiffness_max_trans=500.0,
-        stiffness_max_rot=500.0,
-        stiffness_min=30.0,
+        # Table in the robot base frame (env table: dims (0.8,1.5,0.04), pos (0.55,0,0.235)).
+        obstacle_cuboids={"table": {"dims": [0.8, 1.5, 0.04], "pose": [0.55, 0.0, 0.235, 1, 0, 0, 0]}},
+        collision_activation_distance=0.08,
+        use_cuda_graph=True,
     )
     hand_action = mdp.EMAJointPositionToLimitsActionCfg(
         asset_name="robot",

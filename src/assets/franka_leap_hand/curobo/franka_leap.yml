@@ -1,0 +1,377 @@
+robot_cfg:
+  kinematics:
+    format_version: 2.0
+    urdf_path: /home/yizhao/yi/D2H/src/assets/franka_leap_hand/curobo/franka_leap.urdf
+    asset_root_path: /home/yizhao/yi/D2H/src/assets/franka_leap_hand/curobo
+    base_link: panda_link0
+    tool_frames: [base]
+    collision_link_names: [panda_link0, panda_link1, panda_link2, panda_link3, panda_link4,
+      panda_link5, panda_link6, panda_link7, palm_lower, mcp_joint, pip, dip, fingertip,
+      mcp_joint_2, pip_2, dip_2, fingertip_2, mcp_joint_3, pip_3, dip_3, fingertip_3,
+      thumb_temp_base, thumb_pip, thumb_dip, thumb_fingertip]
+    collision_spheres:
+      panda_link0:
+      - center: [0.0, 0.0, 0.085]
+        radius: 0.03
+      - center: [-0.1, -0.0, 0.085]
+        radius: 0.03
+      panda_link1:
+      - center: [0.0, -0.08, 0.0]
+        radius: 0.055
+      - center: [0.0, -0.03, 0.0]
+        radius: 0.06
+      - center: [0.0, 0.0, -0.12]
+        radius: 0.06
+      - center: [0.0, 0.0, -0.17]
+        radius: 0.06
+      panda_link2:
+      - center: [0.0, 0.0, 0.03]
+        radius: 0.055
+      - center: [0.0, 0.0, 0.08]
+        radius: 0.055
+      - center: [0.0, -0.12, 0.0]
+        radius: 0.055
+      - center: [0.0, -0.17, 0.0]
+        radius: 0.055
+      panda_link3:
+      - center: [0.0, 0.0, -0.06]
+        radius: 0.05
+      - center: [0.0, 0.0, -0.1]
+        radius: 0.06
+      - center: [0.08, 0.06, 0.0]
+        radius: 0.052
+      - center: [0.08, 0.02, 0.0]
+        radius: 0.052
+      panda_link4:
+      - center: [0.0, 0.0, 0.02]
+        radius: 0.052
+      - center: [0.0, 0.0, 0.06]
+        radius: 0.052
+      - center: [-0.08, 0.095, 0.0]
+        radius: 0.055
+      - center: [-0.08, 0.06, 0.0]
+        radius: 0.052
+      panda_link5:
+      - center: [0.0, 0.03, 0.0]
+        radius: 0.05
+      - center: [0.0, 0.082, 0.0]
+        radius: 0.05
+      - center: [0.0, 0.0, -0.22]
+        radius: 0.05
+      - center: [0.0, 0.052, -0.18]
+        radius: 0.04
+      - center: [0.01, 0.08, -0.14]
+        radius: 0.022
+      - center: [0.01, 0.085, -0.11]
+        radius: 0.022
+      - center: [0.01, 0.09, -0.08]
+        radius: 0.022
+      - center: [0.01, 0.095, -0.05]
+        radius: 0.022
+      - center: [-0.01, 0.08, -0.14]
+        radius: 0.022
+      - center: [-0.01, 0.085, -0.11]
+        radius: 0.022
+      - center: [-0.01, 0.09, -0.08]
+        radius: 0.022
+      - center: [-0.01, 0.095, -0.05]
+        radius: 0.022
+      - center: [0.0, -0.009, 0.0]
+        radius: 0.05
+      panda_link6:
+      - center: [0.085, 0.035, 0.0]
+        radius: 0.045
+      - center: [0.085, 0.0, 0.0]
+        radius: 0.045
+      - center: [0.085, -0.015, 0.0]
+        radius: 0.045
+      panda_link7:
+      - center: [0.0, 0.0, 0.07]
+        radius: 0.045
+      - center: [0.02, 0.04, 0.08]
+        radius: 0.024
+      - center: [0.04, 0.02, 0.08]
+        radius: 0.024
+      - center: [0.04, 0.06, 0.085]
+        radius: 0.02
+      - center: [0.06, 0.04, 0.085]
+        radius: 0.02
+      palm_lower:
+      - center: [-0.009, 0.008, -0.011]
+        radius: 0.013
+      - center: [-0.009, -0.037, -0.011]
+        radius: 0.013
+      - center: [-0.009, -0.082, -0.011]
+        radius: 0.013
+      - center: [-0.066, -0.078, -0.0115]
+        radius: 0.023
+      - center: [-0.03, -0.08, -0.003]
+        radius: 0.015
+      - center: [-0.03, 0.01, -0.003]
+        radius: 0.015
+      - center: [-0.032, -0.085, -0.024]
+        radius: 0.01
+      - center: [-0.032, 0.015, -0.024]
+        radius: 0.01
+      - center: [-0.048, -0.068, -0.0115]
+        radius: 0.023
+      - center: [-0.048, 0.002, -0.0115]
+        radius: 0.023
+      - center: [-0.078, -0.053, -0.0115]
+        radius: 0.023
+      - center: [-0.098, -0.009, -0.006]
+        radius: 0.017
+      - center: [-0.078, -0.003, 0.01]
+        radius: 0.022
+      mcp_joint:
+      - center: [0.0, 0.018, 0.0077]
+        radius: 0.01
+      - center: [0.0, 0.018, 0.0217]
+        radius: 0.01
+      - center: [-0.027, 0.042, 0.015]
+        radius: 0.014
+      - center: [-0.0332, 0.02, 0.0146]
+        radius: 0.01
+      - center: [-0.0192, 0.02, 0.0146]
+        radius: 0.01
+      - center: [-0.0295, 0.035, 0.029]
+        radius: 0.01
+      - center: [0.0, 0.005, 0.03]
+        radius: 0.008
+      - center: [0.0, 0.005, -0.001]
+        radius: 0.008
+      pip:
+      - center: [0.0075, -0.0002, -0.011]
+        radius: 0.013
+      dip:
+      - center: [0.0, -0.02, 0.01]
+        radius: 0.008
+      - center: [0.0, -0.02, 0.02]
+        radius: 0.008
+      - center: [0.0, -0.016, 0.008]
+        radius: 0.01
+      - center: [0.0, -0.016, 0.022]
+        radius: 0.01
+      - center: [0.0, -0.0045, 0.03]
+        radius: 0.008
+      - center: [0.0, -0.0045, 0.0]
+        radius: 0.008
+      - center: [0.0075, -0.035, 0.015]
+        radius: 0.013
+      fingertip:
+      - center: [0.0, -0.017, 0.01]
+        radius: 0.01
+      - center: [0.0, -0.017, 0.02]
+        radius: 0.01
+      - center: [0.0, -0.006, 0.03]
+        radius: 0.008
+      - center: [0.0, -0.006, -0.001]
+        radius: 0.008
+      mcp_joint_2:
+      - center: [0.0, 0.018, 0.0077]
+        radius: 0.01
+      - center: [0.0, 0.018, 0.0217]
+        radius: 0.01
+      - center: [-0.027, 0.042, 0.015]
+        radius: 0.014
+      - center: [-0.0332, 0.02, 0.0146]
+        radius: 0.01
+      - center: [-0.0192, 0.02, 0.0146]
+        radius: 0.01
+      - center: [-0.0295, 0.035, 0.029]
+        radius: 0.01
+      - center: [0.0, 0.005, 0.03]
+        radius: 0.008
+      - center: [0.0, 0.005, -0.001]
+        radius: 0.008
+      pip_2:
+      - center: [0.0075, -0.0002, -0.011]
+        radius: 0.013
+      dip_2:
+      - center: [0.0, -0.02, 0.01]
+        radius: 0.008
+      - center: [0.0, -0.02, 0.02]
+        radius: 0.008
+      - center: [0.0, -0.016, 0.008]
+        radius: 0.01
+      - center: [0.0, -0.016, 0.022]
+        radius: 0.01
+      - center: [0.0, -0.0045, 0.03]
+        radius: 0.008
+      - center: [0.0, -0.0045, 0.0]
+        radius: 0.008
+      - center: [0.0075, -0.035, 0.015]
+        radius: 0.013
+      fingertip_2:
+      - center: [0.0, -0.017, 0.01]
+        radius: 0.01
+      - center: [0.0, -0.017, 0.02]
+        radius: 0.01
+      - center: [0.0, -0.006, 0.03]
+        radius: 0.008
+      - center: [0.0, -0.006, -0.001]
+        radius: 0.008
+      mcp_joint_3:
+      - center: [0.0, 0.018, 0.0077]
+        radius: 0.01
+      - center: [0.0, 0.018, 0.0217]
+        radius: 0.01
+      - center: [-0.027, 0.042, 0.015]
+        radius: 0.014
+      - center: [-0.0332, 0.02, 0.0146]
+        radius: 0.01
+      - center: [-0.0192, 0.02, 0.0146]
+        radius: 0.01
+      - center: [-0.0295, 0.035, 0.029]
+        radius: 0.01
+      - center: [0.0, 0.005, 0.03]
+        radius: 0.008
+      - center: [0.0, 0.005, -0.001]
+        radius: 0.008
+      pip_3:
+      - center: [0.0075, -0.0002, -0.011]
+        radius: 0.013
+      dip_3:
+      - center: [0.0, -0.02, 0.01]
+        radius: 0.008
+      - center: [0.0, -0.02, 0.02]
+        radius: 0.008
+      - center: [0.0, -0.016, 0.008]
+        radius: 0.01
+      - center: [0.0, -0.016, 0.022]
+        radius: 0.01
+      - center: [0.0, -0.0045, 0.03]
+        radius: 0.008
+      - center: [0.0, -0.0045, 0.0]
+        radius: 0.008
+      - center: [0.0075, -0.035, 0.015]
+        radius: 0.013
+      fingertip_3:
+      - center: [0.0, -0.017, 0.01]
+        radius: 0.01
+      - center: [0.0, -0.017, 0.02]
+        radius: 0.01
+      - center: [0.0, -0.006, 0.03]
+        radius: 0.008
+      - center: [0.0, -0.006, -0.001]
+        radius: 0.008
+      thumb_temp_base:
+      - center: [0.0075, -0.0002, -0.011]
+        radius: 0.013
+      thumb_pip:
+      - center: [0.0, -0.0075, -0.0015]
+        radius: 0.009
+      - center: [0.0, 0.0075, -0.0015]
+        radius: 0.009
+      - center: [0.0, -0.015, -0.013]
+        radius: 0.008
+      - center: [0.0, 0.015, -0.013]
+        radius: 0.008
+      thumb_dip:
+      - center: [0.0, 0.0025, -0.014]
+        radius: 0.012
+      - center: [0.0, 0.0185, -0.014]
+        radius: 0.012
+      - center: [0.0, 0.031, -0.021]
+        radius: 0.01
+      - center: [0.0, 0.031, -0.009]
+        radius: 0.01
+      - center: [0.0, 0.042, 0.001]
+        radius: 0.008
+      - center: [0.0, 0.042, -0.029]
+        radius: 0.008
+      - center: [-0.0135, 0.0175, -0.0117]
+        radius: 0.009
+      thumb_fingertip:
+      - center: [0.0, -0.0085, -0.015]
+        radius: 0.012
+      - center: [0.0, -0.029, -0.019]
+        radius: 0.01
+      - center: [0.0, -0.029, -0.009]
+        radius: 0.01
+      - center: [0.015, -0.0175, -0.0115]
+        radius: 0.009
+    collision_sphere_buffer: 0.005
+    self_collision_ignore:
+      panda_link0: [panda_link1, panda_link2]
+      panda_link1: [panda_link2, panda_link3, panda_link4]
+      panda_link2: [panda_link3, panda_link4]
+      panda_link3: [panda_link4, panda_link6]
+      panda_link4: [panda_link5, panda_link6, panda_link7]
+      panda_link5: [panda_link6, panda_link7, palm_lower, mcp_joint, pip, dip, fingertip,
+        mcp_joint_2, pip_2, dip_2, fingertip_2, mcp_joint_3, pip_3, dip_3, fingertip_3,
+        thumb_temp_base, thumb_pip, thumb_dip, thumb_fingertip]
+      panda_link6: [panda_link7, palm_lower, mcp_joint, pip, dip, fingertip, mcp_joint_2,
+        pip_2, dip_2, fingertip_2, mcp_joint_3, pip_3, dip_3, fingertip_3, thumb_temp_base,
+        thumb_pip, thumb_dip, thumb_fingertip]
+      panda_link7: [palm_lower, mcp_joint, pip, dip, fingertip, mcp_joint_2, pip_2,
+        dip_2, fingertip_2, mcp_joint_3, pip_3, dip_3, fingertip_3, thumb_temp_base,
+        thumb_pip, thumb_dip, thumb_fingertip]
+      palm_lower: [mcp_joint, pip, dip, fingertip, mcp_joint_2, pip_2, dip_2, fingertip_2,
+        mcp_joint_3, pip_3, dip_3, fingertip_3, thumb_temp_base, thumb_pip, thumb_dip,
+        thumb_fingertip, panda_link5, panda_link6, panda_link7]
+      mcp_joint: [palm_lower, pip, dip, fingertip, mcp_joint_2, pip_2, dip_2, fingertip_2,
+        mcp_joint_3, pip_3, dip_3, fingertip_3, thumb_temp_base, thumb_pip, thumb_dip,
+        thumb_fingertip, panda_link5, panda_link6, panda_link7]
+      pip: [palm_lower, mcp_joint, dip, fingertip, mcp_joint_2, pip_2, dip_2, fingertip_2,
+        mcp_joint_3, pip_3, dip_3, fingertip_3, thumb_temp_base, thumb_pip, thumb_dip,
+        thumb_fingertip, panda_link5, panda_link6, panda_link7]
+      dip: [palm_lower, mcp_joint, pip, fingertip, mcp_joint_2, pip_2, dip_2, fingertip_2,
+        mcp_joint_3, pip_3, dip_3, fingertip_3, thumb_temp_base, thumb_pip, thumb_dip,
+        thumb_fingertip, panda_link5, panda_link6, panda_link7]
+      fingertip: [palm_lower, mcp_joint, pip, dip, mcp_joint_2, pip_2, dip_2, fingertip_2,
+        mcp_joint_3, pip_3, dip_3, fingertip_3, thumb_temp_base, thumb_pip, thumb_dip,
+        thumb_fingertip, panda_link5, panda_link6, panda_link7]
+      mcp_joint_2: [palm_lower, mcp_joint, pip, dip, fingertip, pip_2, dip_2, fingertip_2,
+        mcp_joint_3, pip_3, dip_3, fingertip_3, thumb_temp_base, thumb_pip, thumb_dip,
+        thumb_fingertip, panda_link5, panda_link6, panda_link7]
+      pip_2: [palm_lower, mcp_joint, pip, dip, fingertip, mcp_joint_2, dip_2, fingertip_2,
+        mcp_joint_3, pip_3, dip_3, fingertip_3, thumb_temp_base, thumb_pip, thumb_dip,
+        thumb_fingertip, panda_link5, panda_link6, panda_link7]
+      dip_2: [palm_lower, mcp_joint, pip, dip, fingertip, mcp_joint_2, pip_2, fingertip_2,
+        mcp_joint_3, pip_3, dip_3, fingertip_3, thumb_temp_base, thumb_pip, thumb_dip,
+        thumb_fingertip, panda_link5, panda_link6, panda_link7]
+      fingertip_2: [palm_lower, mcp_joint, pip, dip, fingertip, mcp_joint_2, pip_2,
+        dip_2, mcp_joint_3, pip_3, dip_3, fingertip_3, thumb_temp_base, thumb_pip,
+        thumb_dip, thumb_fingertip, panda_link5, panda_link6, panda_link7]
+      mcp_joint_3: [palm_lower, mcp_joint, pip, dip, fingertip, mcp_joint_2, pip_2,
+        dip_2, fingertip_2, pip_3, dip_3, fingertip_3, thumb_temp_base, thumb_pip,
+        thumb_dip, thumb_fingertip, panda_link5, panda_link6, panda_link7]
+      pip_3: [palm_lower, mcp_joint, pip, dip, fingertip, mcp_joint_2, pip_2, dip_2,
+        fingertip_2, mcp_joint_3, dip_3, fingertip_3, thumb_temp_base, thumb_pip,
+        thumb_dip, thumb_fingertip, panda_link5, panda_link6, panda_link7]
+      dip_3: [palm_lower, mcp_joint, pip, dip, fingertip, mcp_joint_2, pip_2, dip_2,
+        fingertip_2, mcp_joint_3, pip_3, fingertip_3, thumb_temp_base, thumb_pip,
+        thumb_dip, thumb_fingertip, panda_link5, panda_link6, panda_link7]
+      fingertip_3: [palm_lower, mcp_joint, pip, dip, fingertip, mcp_joint_2, pip_2,
+        dip_2, fingertip_2, mcp_joint_3, pip_3, dip_3, thumb_temp_base, thumb_pip,
+        thumb_dip, thumb_fingertip, panda_link5, panda_link6, panda_link7]
+      thumb_temp_base: [palm_lower, mcp_joint, pip, dip, fingertip, mcp_joint_2, pip_2,
+        dip_2, fingertip_2, mcp_joint_3, pip_3, dip_3, fingertip_3, thumb_pip, thumb_dip,
+        thumb_fingertip, panda_link5, panda_link6, panda_link7]
+      thumb_pip: [palm_lower, mcp_joint, pip, dip, fingertip, mcp_joint_2, pip_2,
+        dip_2, fingertip_2, mcp_joint_3, pip_3, dip_3, fingertip_3, thumb_temp_base,
+        thumb_dip, thumb_fingertip, panda_link5, panda_link6, panda_link7]
+      thumb_dip: [palm_lower, mcp_joint, pip, dip, fingertip, mcp_joint_2, pip_2,
+        dip_2, fingertip_2, mcp_joint_3, pip_3, dip_3, fingertip_3, thumb_temp_base,
+        thumb_pip, thumb_fingertip, panda_link5, panda_link6, panda_link7]
+      thumb_fingertip: [palm_lower, mcp_joint, pip, dip, fingertip, mcp_joint_2, pip_2,
+        dip_2, fingertip_2, mcp_joint_3, pip_3, dip_3, fingertip_3, thumb_temp_base,
+        thumb_pip, thumb_dip, panda_link5, panda_link6, panda_link7]
+    self_collision_buffer: {panda_link0: 0.0, panda_link1: 0.0, panda_link2: 0.0,
+      panda_link3: 0.0, panda_link4: 0.0, panda_link5: 0.0, panda_link6: 0.0, panda_link7: 0.0,
+      palm_lower: 0.0, mcp_joint: 0.0, pip: 0.0, dip: 0.0, fingertip: 0.0, mcp_joint_2: 0.0,
+      pip_2: 0.0, dip_2: 0.0, fingertip_2: 0.0, mcp_joint_3: 0.0, pip_3: 0.0, dip_3: 0.0,
+      fingertip_3: 0.0, thumb_temp_base: 0.0, thumb_pip: 0.0, thumb_dip: 0.0, thumb_fingertip: 0.0}
+    lock_joints: {'0': 0.0, '1': 0.0, '2': 0.0, '3': 0.0, '4': 0.0, '5': 0.0, '6': 0.0,
+      '7': 0.0, '8': 0.0, '9': 0.0, '10': 0.0, '11': 0.0, '12': 0.0, '13': 0.0, '14': 0.0,
+      '15': 0.0}
+    cspace:
+      joint_names: [panda_joint1, panda_joint2, panda_joint3, panda_joint4, panda_joint5,
+        panda_joint6, panda_joint7]
+      null_space_weight: [1, 1, 1, 1, 1, 1, 1]
+      cspace_distance_weight: [1, 1, 1, 1, 1, 1, 1]
+      max_acceleration: 15.0
+      max_jerk: 500.0
+      default_joint_position: [0.0, -0.569, 0.0, -2.81, 0.0, 3.037, 0.741]
+  load_dynamics: false
