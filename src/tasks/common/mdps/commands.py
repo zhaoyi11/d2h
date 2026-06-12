@@ -14,7 +14,7 @@ from pathlib import Path
 import sys
 import torch
 from collections.abc import Sequence
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, NamedTuple
 
 from isaaclab.assets import Articulation, RigidObject
 from isaaclab.managers import CommandTerm
@@ -45,6 +45,23 @@ DEFAULT_OBJECT_TO_ANCHOR_POSE = (0.0, 0.0, -0.01, 0.70710678, 0.0, 0.70710678, 0
 DEFAULT_PICK_INSERT_RECEPTIVE_POSE = (0.35, 0.0, 0.27, 1.0, 0.0, 0.0, 0.0)
 # DEFAULT_PICK_INSERT_SEGMENT_STEPS = (20, 20, 10, 50, 20)
 DEFAULT_PICK_INSERT_SEGMENT_STEPS = (2, 1, 1, 1, 1)
+
+
+class StageObjectTolerance(NamedTuple):
+    """Per-stage object tolerances for advancing the pick-insert trajectory."""
+
+    object_position: float
+    object_orientation: float
+
+
+DEFAULT_PICK_INSERT_STAGE_OBJECT_TOLERANCES = (
+    StageObjectTolerance(0.02, 0.3),  # move
+    StageObjectTolerance(0.02, 0.2),  # align
+    StageObjectTolerance(0.01, 0.2),  # approach
+    StageObjectTolerance(0.005, 0.1),  # insert
+    StageObjectTolerance(0.005, 0.1),  # hold
+)
+
 
 def _load_pick_insert_object_trajectory_module():
     module_name = "pick_insert_demo_object_trajectory_for_command"
@@ -393,6 +410,22 @@ class PickInsertTrajectoryObjectAndHandBasePoseCommand(ObjectAndHandBasePoseComm
             )
         self._hand_base_body_idx = body_ids[0]
         self._trajectory_length = 1 + sum(self.cfg.trajectory_segment_steps)
+        stage_ids = [0]
+        for stage_idx, steps in enumerate(self.cfg.trajectory_segment_steps):
+            stage_ids.extend([stage_idx] * steps)
+        self._step_to_stage = torch.tensor(stage_ids, dtype=torch.long, device=self.device)
+
+        if len(self.cfg.stage_object_tolerances) != len(self.cfg.trajectory_segment_steps):
+            raise ValueError(
+                "stage_object_tolerances must have one entry per trajectory segment "
+                f"({len(self.cfg.trajectory_segment_steps)}); got {len(self.cfg.stage_object_tolerances)}."
+            )
+        stage_tolerances = torch.tensor(
+            [[t.object_position, t.object_orientation] for t in self.cfg.stage_object_tolerances],
+            device=self.device,
+        )
+        self._stage_object_position_tolerance = stage_tolerances[:, 0]
+        self._stage_object_orientation_tolerance = stage_tolerances[:, 1]
         self._trajectory_step = torch.zeros(self.num_envs, dtype=torch.long, device=self.device)
         self._object_pose_trajectory_b = torch.zeros(self.num_envs, self._trajectory_length, 7, device=self.device)
         self._object_pose_trajectory_b[:, :, 3] = 1.0
@@ -431,9 +464,10 @@ class PickInsertTrajectoryObjectAndHandBasePoseCommand(ObjectAndHandBasePoseComm
         self.metrics["hand_base_position_error"] = torch.norm(hand_base_pos_error, dim=-1)
         self.metrics["hand_base_orientation_error"] = torch.norm(hand_base_rot_error, dim=-1)
 
-        object_achieved = self.metrics["position_error"] < self.cfg.object_position_tolerance
+        stage = self._step_to_stage[self._trajectory_step]
+        object_achieved = self.metrics["position_error"] < self._stage_object_position_tolerance[stage]
         if not self.cfg.position_only:
-            object_achieved &= self.metrics["orientation_error"] < self.cfg.object_orientation_tolerance
+            object_achieved &= self.metrics["orientation_error"] < self._stage_object_orientation_tolerance[stage]
         hand_base_achieved = self.metrics["hand_base_position_error"] < self.cfg.hand_base_position_tolerance
         hand_base_achieved &= self.metrics["hand_base_orientation_error"] < self.cfg.hand_base_orientation_tolerance
         self._trajectory_command_achieved[:] = object_achieved & hand_base_achieved
@@ -807,11 +841,11 @@ class PickInsertTrajectoryObjectAndHandBasePoseCommandCfg(ObjectAndHandBasePoseC
     approach_height: float = 0.01
     """Height above the insertion pose used before final descent."""
 
-    object_position_tolerance: float = 0.01
-    """Object position tolerance in meters for advancing the command trajectory."""
+    stage_object_tolerances: tuple[StageObjectTolerance, ...] = DEFAULT_PICK_INSERT_STAGE_OBJECT_TOLERANCES
+    """Per-stage object position and orientation tolerances for advancing the command trajectory.
 
-    object_orientation_tolerance: float = 0.2
-    """Object orientation tolerance in radians for advancing the command trajectory."""
+    One entry is required for each trajectory segment: move, align, approach, insert, and hold.
+    """
 
     hand_base_position_tolerance: float = 0.02
     """Hand-base position tolerance in meters for advancing the command trajectory."""
