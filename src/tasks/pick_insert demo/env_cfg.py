@@ -138,20 +138,21 @@ class SceneCfg(InteractiveSceneCfg):
         ),
     )
 
-    # dynamic obstacle: a box driven on a scripted Y-sinusoid each step (EventCfg.move_dynamic_obstacle).
-    # The arm action mirrors its live pose into the cuRobo world (dynamic_obstacle_assets). Visual-only.
-    dynamic_obstacle: RigidObjectCfg = RigidObjectCfg(
-        prim_path="{ENV_REGEX_NS}/DynamicObstacle",
-        spawn=sim_utils.CuboidCfg(
-            size=(0.06, 0.06, 0.06),
-            rigid_props=sim_utils.RigidBodyPropertiesCfg(kinematic_enabled=True),
-            visual_material=sim_utils.PreviewSurfaceCfg(diffuse_color=(0.85, 0.2, 0.2)),
-            visible=True,
-        ),
-        init_state=RigidObjectCfg.InitialStateCfg(
-            pos=(0.4, 0.05, 0.45), rot=(1.0, 0.0, 0.0, 0.0)
-        ),
-    )
+    # ###### DYNAMIC OBSTACLE ######
+    # # dynamic obstacle: a box driven on a scripted Y-sinusoid each step (EventCfg.move_dynamic_obstacle).
+    # # The arm action mirrors its live pose into the cuRobo world (dynamic_obstacle_assets). Visual-only.
+    # dynamic_obstacle: RigidObjectCfg = RigidObjectCfg(
+    #     prim_path="{ENV_REGEX_NS}/DynamicObstacle",
+    #     spawn=sim_utils.CuboidCfg(
+    #         size=(0.06, 0.06, 0.06),
+    #         rigid_props=sim_utils.RigidBodyPropertiesCfg(kinematic_enabled=True),
+    #         visual_material=sim_utils.PreviewSurfaceCfg(diffuse_color=(0.85, 0.2, 0.2)),
+    #         visible=True,
+    #     ),
+    #     init_state=RigidObjectCfg.InitialStateCfg(
+    #         pos=(0.4, 0.05, 0.45), rot=(1.0, 0.0, 0.0, 0.0)
+    #     ),
+    # )
 
     # plane
     plane = AssetBaseCfg(
@@ -549,21 +550,22 @@ class EventCfg:
         },
     )
 
-    # Drive the dynamic_obstacle prop along a scripted Y-sinusoid every step (kinematic). The arm
-    # action mirrors its live pose into the cuRobo collision world (dynamic_obstacle_assets), so the
-    # MPC re-plans around the moving box. Global-time phased so all envs stay in sync.
-    move_dynamic_obstacle = EventTerm(
-        func=mdp.move_dynamic_obstacle,
-        mode="interval",
-        interval_range_s=(0.0, 0.0),
-        params={
-            "asset_cfg": SceneEntityCfg("dynamic_obstacle"),
-            "center": (0.4, 0.05, 0.45),
-            "axis": (0.0, 1.0, 0.0),
-            "amplitude": 0.2,
-            "freq": 0.25,
-        },
-    )
+    # ##### DYNAMIC OBSTACLE #####
+    # # Drive the dynamic_obstacle prop along a scripted Y-sinusoid every step (kinematic). The arm
+    # # action mirrors its live pose into the cuRobo collision world (dynamic_obstacle_assets), so the
+    # # MPC re-plans around the moving box. Global-time phased so all envs stay in sync.
+    # move_dynamic_obstacle = EventTerm(
+    #     func=mdp.move_dynamic_obstacle,
+    #     mode="interval",
+    #     interval_range_s=(0.0, 0.0),
+    #     params={
+    #         "asset_cfg": SceneEntityCfg("dynamic_obstacle"),
+    #         "center": (0.4, 0.05, 0.45),
+    #         "axis": (0.0, 1.0, 0.0),
+    #         "amplitude": 0.2,
+    #         "freq": 0.25,
+    #     },
+    # )
 
 
 @configclass
@@ -595,17 +597,18 @@ class HrlActionsCfg:
         obstacle_cuboids={
             "table": {"dims": [0.8, 1.5, 0.04], "pose": [0.55, 0.0, 0.235, 1, 0, 0, 0]},
             "static_obstacle": {"dims": [0.05, 0.05, 0.25], "pose": [0.5, -0.25, 0.38, 1, 0, 0, 0]},
-            "dynamic_obstacle": {"dims": [0.06, 0.06, 0.06], "pose": [0.4, 0.05, 0.45, 1, 0, 0, 0]},
+            #### DYNAMIC OBSTACLE ####
+            # "dynamic_obstacle": {"dims": [0.06, 0.06, 0.06], "pose": [0.4, 0.05, 0.45, 1, 0, 0, 0]},
         },
 
-        ###### DYNAMIC OBSTACLE TRACKING ######
-        # Track the moving scene prop: its live pose is mirrored into the cuRobo world each step.
-        dynamic_obstacle_assets={"dynamic_obstacle": "dynamic_obstacle"},
-        # Avoidance tuning: react only when ~8cm from an obstacle and let the goal compete more with
-        # avoidance (weight 5000 vs the 10000 default) so the arm deviates less when near obstacles.
-        collision_activation_distance=0.08,
-        collision_weight=8000.0,
-        use_cuda_graph=True,
+        # ###### DYNAMIC OBSTACLE TRACKING ######
+        # # Track the moving scene prop: its live pose is mirrored into the cuRobo world each step.
+        # dynamic_obstacle_assets={"dynamic_obstacle": "dynamic_obstacle"},
+        # # Avoidance tuning: react only when ~8cm from an obstacle and let the goal compete more with
+        # # avoidance (weight 5000 vs the 10000 default) so the arm deviates less when near obstacles.
+        # collision_activation_distance=0.08,
+        # collision_weight=8000.0,
+        # use_cuda_graph=True,
     )
     hand_action = mdp.EMAJointPositionToLimitsActionCfg(
         asset_name="robot",
