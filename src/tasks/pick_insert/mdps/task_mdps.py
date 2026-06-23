@@ -1,6 +1,7 @@
 from __future__ import annotations
 
-from dataclasses import MISSING
+import math
+from dataclasses import MISSING, field
 import torch
 from typing import TYPE_CHECKING
 
@@ -472,6 +473,41 @@ def reset_object_pose_relative_to_body(
     asset.write_root_velocity_to_sim(object_velocity, env_ids=env_ids)
 
 
+def move_dynamic_obstacle(
+    env: ManagerBasedRLEnv,
+    env_ids: torch.Tensor,
+    asset_cfg: SceneEntityCfg = SceneEntityCfg("dynamic_obstacle"),
+    center: tuple[float, float, float] = (0.4, 0.05, 0.45),
+    axis: tuple[float, float, float] = (0.0, 1.0, 0.0),
+    amplitude: float = 0.2,
+    freq: float = 0.25,
+    phase: float = 0.0,
+) -> None:
+    """Kinematically drive a scene prop along a sinusoid for use as a moving MPC obstacle.
+
+    Per-env (identical across envs) world pose is
+        ``pos = env_origin + center + axis * amplitude * sin(2*pi*freq*t + phase)``
+    with ``t`` the GLOBAL sim time (``common_step_counter * step_dt``), so every env and the single
+    shared cuRobo collision world agree on the obstacle pose. Orientation is identity. Intended as
+    an every-step ``interval`` event (``interval_range_s=(0.0, 0.0)``). The matching cuRobo cuboid
+    is updated separately by :class:`CommandHandBaseCuroboMpcAction`, which reads this prop's live
+    pose each control step (see ``dynamic_obstacle_assets``).
+    """
+    asset: RigidObject = env.scene[asset_cfg.name]
+    env_ids = _env_ids_tensor(env, env_ids, device=asset.device)
+
+    t = float(env.common_step_counter) * env.step_dt
+    offset = math.sin(2.0 * math.pi * freq * t + phase) * amplitude
+    center_t = torch.tensor(center, dtype=torch.float32, device=asset.device)
+    axis_t = torch.tensor(axis, dtype=torch.float32, device=asset.device)
+    pos_local = center_t + axis_t * offset  # (3,) relative to each env origin
+
+    pos_w = env.scene.env_origins[env_ids] + pos_local  # (n, 3)
+    quat_w = torch.zeros(len(env_ids), 4, dtype=torch.float32, device=asset.device)
+    quat_w[:, 0] = 1.0  # identity orientation (w, x, y, z)
+    asset.write_root_pose_to_sim(torch.cat((pos_w, quat_w), dim=-1), env_ids=env_ids)
+
+
 def _env_ids_tensor(env: ManagerBasedRLEnv, env_ids, device: str) -> torch.Tensor:
     if env_ids is None or isinstance(env_ids, slice):
         return torch.arange(env.num_envs, device=device)
@@ -691,6 +727,36 @@ class CommandHandBaseCuroboMpcAction(ActionTerm):
         # Scene model: obstacle cuboids in the robot base frame (receptacle deliberately excluded).
         scene_model = {"cuboid": dict(self.cfg.obstacle_cuboids)}
 
+        # Dynamic obstacles: scene assets whose live pose is mirrored into the cuRobo world every
+        # control step. Each must have a pre-declared slot in obstacle_cuboids so a collision-world
+        # buffer exists at build time (the pose is then rewritten in-place, CUDA-graph safe).
+        for curobo_name in self.cfg.dynamic_obstacle_assets:
+            if curobo_name not in self.cfg.obstacle_cuboids:
+                raise ValueError(
+                    f"dynamic_obstacle_assets cuboid '{curobo_name}' must also be declared in "
+                    f"obstacle_cuboids (no collision-world slot exists otherwise)."
+                )
+        self._dyn_obstacles = {
+            curobo_name: self._env.scene[asset_name]
+            for curobo_name, asset_name in self.cfg.dynamic_obstacle_assets.items()
+        }
+
+        # Optimizer config: default is "mpc/lbfgs_mpc.yml". When a collision_weight override is set,
+        # patch a COPY of that config (leaving the shared cuRobo yaml untouched). Lower weight ->
+        # the arm prioritizes the goal over avoidance and deviates less near obstacles.
+        # Load via cuRobo's resolve_config (NOT yaml.safe_load): the configs use scientific notation
+        # like ``1e-3`` which the stock YAML resolver leaves as a *string*, crashing the CUDA kernel.
+        optimizer_configs = ["mpc/lbfgs_mpc.yml"]
+        if self.cfg.collision_weight is not None:
+            from curobo._src.util.config_io import join_path, resolve_config
+            from curobo.content import get_task_configs_path
+
+            opt_dict = resolve_config(join_path(get_task_configs_path(), "mpc/lbfgs_mpc.yml"))
+            opt_dict["rollout"]["constraint_cfg"]["scene_collision_cfg"]["weight"] = (
+                self.cfg.collision_weight
+            )
+            optimizer_configs = [opt_dict]
+
         # MPC planning timestep. Kept deliberately LARGER than the env control dt: with
         # optimization_dt == env.step_dt (~0.0166s) `optimize_next_action` advances the plan too
         # slowly to ever reach a moving goal. ~0.05-0.1 makes each control step command meaningful
@@ -698,6 +764,7 @@ class CommandHandBaseCuroboMpcAction(ActionTerm):
         mpc_cfg = ModelPredictiveControlCfg.create(
             robot=robot_dict,
             scene_model=scene_model,
+            optimizer_configs=optimizer_configs,
             optimization_dt=self.cfg.optimization_dt,
             interpolation_steps=self.cfg.interpolation_steps,
             use_cuda_graph=self.cfg.use_cuda_graph,
@@ -768,6 +835,23 @@ class CommandHandBaseCuroboMpcAction(ActionTerm):
         )
         self._mpc.update_goal_tool_poses(goal, run_ik=False)
 
+        # Mirror dynamic-obstacle scene props into the cuRobo world before optimizing. Pose is
+        # converted to the robot base frame; update_obstacle_pose is an in-place tensor write, so it
+        # is CUDA-graph safe. Single shared world (multi_env=False) -> env_idx=0 / first-env pose.
+        for curobo_name, asset in self._dyn_obstacles.items():
+            pos_b, quat_b = subtract_frame_transforms(
+                self._asset.data.root_pos_w,
+                self._asset.data.root_quat_w,
+                asset.data.root_pos_w,
+                asset.data.root_quat_w,
+            )
+            obstacle_pose = self._Pose(
+                position=pos_b[:1].contiguous(), quaternion=quat_b[:1].contiguous()
+            )
+            self._mpc.scene_collision_checker.update_obstacle_pose(
+                curobo_name, obstacle_pose, env_idx=0
+            )
+
         # Step the MPC from its own advancing reference state and command the next action; the real
         # arm tracks `_cmd_pos`/`_cmd_vel` via its joint PD.
         result = self._mpc.optimize_next_action(self._ref_js)
@@ -829,6 +913,14 @@ class CommandHandBaseCuroboMpcActionCfg(ActionTermCfg):
     ``{"table": {"dims": [0.8, 1.5, 0.04], "pose": [0.55, 0.0, 0.235, 1, 0, 0, 0]}}``.
     The receptacle is intentionally excluded so the peg can still reach the bore."""
 
+    dynamic_obstacle_assets: dict = field(default_factory=dict)
+    """Map of cuRobo-cuboid-name -> scene-asset-name. Each control step the action reads the named
+    scene asset's world pose, converts it to the robot base frame, and rewrites that cuRobo cuboid's
+    pose so the MPC avoids the moving prop (in-place update -> CUDA-graph safe). Every cuRobo name
+    here MUST also appear in ``obstacle_cuboids`` so a collision-world slot exists. Empty (default)
+    keeps a fully static world (current behavior). See :func:`move_dynamic_obstacle` for driving the
+    prop's pose. Note: with ``multi_env=False`` the obstacle is synced from env 0 only."""
+
     arm_stiffness: float = 800.0
     """Position-drive stiffness written to the arm joints so set_joint_position_target has authority
     (the env zeros these for the OSC effort controller)."""
@@ -845,8 +937,15 @@ class CommandHandBaseCuroboMpcActionCfg(ActionTermCfg):
     """MPC trajectory interpolation steps between optimization knots."""
 
     collision_activation_distance: float = 0.08
-    """World-collision activation distance (m). Use ~0.05-0.10; the cuRobo default 0.01 is too thin
-    and the optimizer tunnels through thin obstacles."""
+    """World-collision activation distance (m): how far from an obstacle the avoidance cost turns on.
+    Larger -> the arm starts deviating earlier/from farther away (bigger detours); too small (e.g.
+    the cuRobo default 0.01) lets the optimizer tunnel through thin obstacles. ~0.03-0.08 is sane."""
+
+    collision_weight: float | None = None
+    """World-collision cost weight in the MPC optimizer (``scene_collision_cfg.weight``). ``None``
+    keeps the optimizer-config default (10000). Lower it (e.g. 3000) so the goal cost competes more
+    with avoidance and the arm deviates less near obstacles (looser clearance); raise it for harder
+    avoidance. Patched into a copy of ``mpc/lbfgs_mpc.yml`` at build (shared yaml untouched)."""
 
     use_cuda_graph: bool = True
     """Capture the MPC step in a CUDA graph (fixed batch size = num_envs)."""

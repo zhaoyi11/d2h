@@ -1,8 +1,18 @@
 # cuRobo MPC — static + dynamic cuboid obstacles
 
 **Date:** 2026-06-13
-**Status:** Approved (design), pending implementation
+**Status:** Implemented (pending viewer validation)
 **Component:** `CommandHandBaseCuroboMpcAction` / `pick_insert demo`
+
+## Decisions carried in from review
+
+1. **Time base:** scripted motion is phased on `env.common_step_counter * env.step_dt` (global
+   sim time), not `env.sim.current_time` (which is unused in this repo).
+2. **Collision:** both obstacles are **visual-only** (no `CollisionPropertiesCfg`) — they exist
+   physically only in the cuRobo planning world, so a planner clip doesn't shove the arm in sim.
+   Flip by adding `collision_props=sim_utils.CollisionPropertiesCfg()` to the spawn.
+3. **Kinematic animation** of a `kinematic_enabled=True` body via `write_root_pose_to_sim` must be
+   confirmed in the viewer (no prior precedent in this repo of moving a kinematic body each step).
 
 ## Goal
 
@@ -44,10 +54,10 @@ placed.
 
 ### 1. Scene — two kinematic cuboid props
 
-In `SceneCfg` ([env_cfg.py](../../../src/tasks/pick_insert%20demo/env_cfg.py)), spawned exactly
-like the existing `table` prop (`CuboidCfg`, `RigidBodyPropertiesCfg(kinematic_enabled=True)`,
-`CollisionPropertiesCfg()`, `visible=True`) so physics never moves them and we set their pose
-explicitly.
+In `SceneCfg` ([env_cfg.py](../../../src/tasks/pick_insert%20demo/env_cfg.py)), spawned like the
+existing `table` prop (`CuboidCfg`, `RigidBodyPropertiesCfg(kinematic_enabled=True)`,
+`visible=True`) so physics never moves them and we set their pose explicitly — but **visual-only**
+(`PreviewSurfaceCfg` color, no `CollisionPropertiesCfg`; see Decision 2).
 
 - **`static_obstacle`** — `prim_path="{ENV_REGEX_NS}/StaticObstacle"`, size `(0.05, 0.05, 0.25)`,
   init pos `(0.5, -0.25, 0.38)`, identity rot. A pillar standing on the table off to the side of
@@ -117,9 +127,9 @@ def move_dynamic_obstacle(env, env_ids, asset_cfg, center, axis, amplitude, freq
     """Kinematically drive a prop along a sinusoid: pos = center + axis * amplitude * sin(2*pi*freq*t + phase)."""
 ```
 
-- Time base: a global sim phase so all envs and the cuRobo world agree. Use
-  `env.sim.current_time` (or `env.common_step_counter * env.step_dt`) — **not** per-env
-  `episode_length_buf`, which would desync envs from the single shared cuRobo world.
+- Time base: `env.common_step_counter * env.step_dt` (global sim phase) so all envs and the cuRobo
+  world agree — **not** per-env `episode_length_buf`, which would desync envs from the single
+  shared cuRobo world.
 - Writes the prop's root pose for every env via `write_root_pose_to_sim` (world poses =
   `env.scene.env_origins + center + axis*amplitude*sin(...)`, broadcast across envs).
 - Registered as an `EventTerm(mode="interval", interval_range_s=(0.0, 0.0), ...)` in `EventCfg` —
@@ -162,11 +172,24 @@ per-env-distinct obstacles, switch to `multi_env=True` and loop `update_obstacle
 
 ## Testing / verification
 
-- Launch the demo with a small `num_envs` and confirm in the viewer: the static pillar is fixed;
-  the dynamic box oscillates in Y; the arm routes around both and the peg still reaches the bore.
-- Sanity-check no CUDA-graph error at runtime with `use_cuda_graph=True` (validates the in-place
-  pose update path).
+Launch command (single env, viewer):
+
+```bash
+/home/yizhao/miniconda3/envs/env_isaaclab/bin/python \
+    scripts/smoke_pick_insert_hrl_ik.py --demo_cfg --num_envs 1
+```
+
+- **Kinematic-animation check (Decision 3, do first):** confirm the red `dynamic_obstacle` box
+  visibly oscillates in Y and the blue `static_obstacle` pillar stays put. If the kinematic body
+  does not move via `write_root_pose_to_sim`, fall back to a non-kinematic body with gravity
+  disabled or the kinematic-target API.
+- The arm routes around both obstacles and the peg still reaches the bore.
+- No CUDA-graph error at runtime with `use_cuda_graph=True` (validates the in-place pose update).
 - Regression: with `dynamic_obstacle_assets={}` the controller behaves exactly as before.
+
+Static checks already passed: both files parse (AST), `move_dynamic_obstacle` is exported via the
+`pick_insert.mdps` wildcard, and the `field(default_factory=dict)` default is isolated per cfg
+instance. Full import/runtime validation requires launching the Isaac app (GPU/display).
 
 ## Out of scope
 
