@@ -1,3 +1,6 @@
+logs/
+outputs/
+wandb/
 # C++
 **/cmake-build*/
 **/build*/

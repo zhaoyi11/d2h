@@ -98,6 +98,16 @@ gym.register(
     },
 )
 
+gym.register(
+    id="Pick_Insert_External_Force-v0",
+    entry_point="isaaclab.envs:ManagerBasedRLEnv",
+    disable_env_checker=True,
+    kwargs={
+        "env_cfg_entry_point": f"{__name__}.pick_insert_external_force.env_cfg:DexsuiteFrankaLeapInsertExternalForceHrlEnvCfg",
+        "rsl_rl_cfg_entry_point": "src.tasks.pick_insert_external_force.rsl_rl_ppo_cfg:PickInsertExternalForceRslRlPpoCfg",
+    },
+)
+
 # Pick Screw Environment
 gym.register(
     id="Pick_Screw-v0",
@@ -105,6 +115,16 @@ gym.register(
     disable_env_checker=True,
     kwargs={
         "env_cfg_entry_point": f"{__name__}.pick_screw.env_cfg:DexsuiteFrankaLeapScrewEnvCfg",
+        "rsl_rl_cfg_entry_point": "src.tasks.pick_screw.rsl_rl_ppo_cfg:PickScrewRslRlPpoCfg",
+    },
+)
+
+gym.register(
+    id="Pick_Screw_HRL-v0",
+    entry_point="isaaclab.envs:ManagerBasedRLEnv",
+    disable_env_checker=True,
+    kwargs={
+        "env_cfg_entry_point": f"{__name__}.pick_screw.env_cfg:DexsuiteFrankaLeapScrewHrlEnvCfg",
         "rsl_rl_cfg_entry_point": "src.tasks.pick_screw.rsl_rl_ppo_cfg:PickScrewRslRlPpoCfg",
     },
 )

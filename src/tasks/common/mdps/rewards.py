@@ -76,6 +76,19 @@ def track_orientation_inv_l2(
     return 1.0 / (dtheta + rot_eps)
 
     
+def _object_contact_force_w(sensor: ContactSensor, num_envs: int, device) -> torch.Tensor:
+    """Per-env object contact force (N, 3) for a fingertip sensor.
+
+    Selects only the object's contact-filter index (0) and sums over the sensor's bodies, so it
+    stays correct when external contact targets (receptacle, table, ...) add more filter columns
+    to ``force_matrix_w``. Backward compatible with single-filter sensors (index 0 == only filter).
+    """
+    fm = sensor.data.force_matrix_w
+    if fm is None or fm.numel() == 0 or fm.shape[2] < 1:
+        return torch.zeros(num_envs, 3, device=device)
+    return torch.nan_to_num(fm[:, :, 0, :], nan=0.0).sum(dim=1)
+
+
 def contacts(env: ManagerBasedRLEnv, threshold: float) -> torch.Tensor:
     """Penalize undesired contacts as the number of violations that are above a threshold."""
 
@@ -83,11 +96,11 @@ def contacts(env: ManagerBasedRLEnv, threshold: float) -> torch.Tensor:
     index_contact_sensor: ContactSensor = env.scene.sensors["fingertip_object_s"]
     middle_contact_sensor: ContactSensor = env.scene.sensors["fingertip_2_object_s"]
     ring_contact_sensor: ContactSensor = env.scene.sensors["fingertip_3_object_s"]
-    # check if contact force is above threshold
-    thumb_contact = thumb_contact_sensor.data.force_matrix_w.view(env.num_envs, 3)
-    index_contact = index_contact_sensor.data.force_matrix_w.view(env.num_envs, 3)
-    middle_contact = middle_contact_sensor.data.force_matrix_w.view(env.num_envs, 3)
-    ring_contact = ring_contact_sensor.data.force_matrix_w.view(env.num_envs, 3)
+    # check if object contact force is above threshold (object filter index 0 only)
+    thumb_contact = _object_contact_force_w(thumb_contact_sensor, env.num_envs, env.device)
+    index_contact = _object_contact_force_w(index_contact_sensor, env.num_envs, env.device)
+    middle_contact = _object_contact_force_w(middle_contact_sensor, env.num_envs, env.device)
+    ring_contact = _object_contact_force_w(ring_contact_sensor, env.num_envs, env.device)
     thumb_contact_mag = torch.norm(thumb_contact, dim=-1)
     index_contact_mag = torch.norm(index_contact, dim=-1)
     middle_contact_mag = torch.norm(middle_contact, dim=-1)

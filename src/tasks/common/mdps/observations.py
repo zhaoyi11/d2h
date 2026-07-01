@@ -500,12 +500,17 @@ def fingers_contact_force_b(
     env: ManagerBasedRLEnv,
     contact_sensor_names: list[str],
     asset_cfg: SceneEntityCfg = SceneEntityCfg("robot"),
+    filter_indices: list[int] | None = None,
 ) -> torch.Tensor:
     """base-frame contact forces from listed sensors, concatenated per env.
 
     Args:
         env: The environment.
         contact_sensor_names: Names of contact sensors in ``env.scene.sensors`` to read.
+        filter_indices: Which contact-filter indices to aggregate. ``None`` sums all
+            filters (default). Pass a subset (e.g. only the object's filter index) to
+            restrict the force to specific contact targets when a sensor has multiple
+            filters.
 
     Returns:
         Tensor of shape ``(num_envs, num_sensors, 3)`` with forces stacked along dimension 1 as
@@ -520,7 +525,11 @@ def fingers_contact_force_b(
         # Filtered matrix: (num_envs, num_bodies, num_filters, 3)
         fm = getattr(sensor.data, "force_matrix_w", None)
         if fm is not None and fm.numel() > 0:
-            f_w = torch.nan_to_num(fm, nan=0.0).sum(dim=(1, 2))
+            fm = torch.nan_to_num(fm, nan=0.0)
+            if filter_indices is not None:
+                valid = [k for k in filter_indices if 0 <= k < fm.shape[2]]
+                fm = fm[:, :, valid, :] if valid else fm[:, :, :0, :]
+            f_w = fm.sum(dim=(1, 2))
         else:
             # Net forces: (num_envs, num_bodies, 3)
             net = sensor.data.force_matrix_w
@@ -539,14 +548,24 @@ def fingers_contact_force_body_b(
     env: ManagerBasedRLEnv,
     contact_sensor_names: list[str],
     base_body_asset_cfg: SceneEntityCfg = SceneEntityCfg("robot", body_names="base"),
+    filter_indices: list[int] | None = None,
 ) -> torch.Tensor:
-    """Contact forces from listed sensors, expressed in one selected body frame."""
+    """Contact forces from listed sensors, expressed in one selected body frame.
+
+    ``filter_indices`` selects which contact-filter columns of ``force_matrix_w`` to
+    aggregate (``None`` sums all). Pass the object's filter index to keep the per-finger
+    object force channel clean when a sensor filters against multiple targets.
+    """
     forces_w = []
     for name in contact_sensor_names:
         sensor = env.scene.sensors[name]
         fm = getattr(sensor.data, "force_matrix_w", None)
         if fm is not None and fm.numel() > 0:
-            f_w = torch.nan_to_num(fm, nan=0.0).sum(dim=(1, 2))
+            fm = torch.nan_to_num(fm, nan=0.0)
+            if filter_indices is not None:
+                valid = [k for k in filter_indices if 0 <= k < fm.shape[2]]
+                fm = fm[:, :, valid, :] if valid else fm[:, :, :0, :]
+            f_w = fm.sum(dim=(1, 2))
         else:
             net = getattr(sensor.data, "net_forces_w", None)
             if net is None:

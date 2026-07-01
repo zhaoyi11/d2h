@@ -456,7 +456,14 @@ class apply_gravity_compensation_assist(ManagerTermBase):
             contact_mags = []
             for sensor_name in contact_sensor_names:
                 contact_sensor = env.scene.sensors[sensor_name]
-                contact_force = contact_sensor.data.force_matrix_w.view(env.num_envs, 3)
+                # Object contact force only (filter index 0), summed over the sensor's bodies.
+                # Robust to multi-filter sensors (receptacle/table add columns); for a single
+                # object filter this equals the old .view(num_envs, 3).
+                fm = contact_sensor.data.force_matrix_w
+                if fm is None or fm.numel() == 0:
+                    contact_force = torch.zeros(env.num_envs, 3, device=env.device)
+                else:
+                    contact_force = torch.nan_to_num(fm[:, :, 0, :], nan=0.0).sum(dim=1)
                 contact_mags.append(torch.norm(contact_force, dim=-1) > contact_threshold)
             contact = torch.stack(contact_mags, dim=-1).sum(dim=-1) >= min_good_contacts
         self._assist_scale[env_ids_t] = torch.where(
