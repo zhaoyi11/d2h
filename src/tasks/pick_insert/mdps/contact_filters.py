@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 # ---------------------------------------------------------------------------
-# Contact-sensing target registry (pick_insert_external_force)
+# Contact-sensing target registry (pick_insert)
 # ---------------------------------------------------------------------------
 # Ordered list of prim-path expressions that the fingertip contact sensors filter
 # against. The list *position* equals the filter index in

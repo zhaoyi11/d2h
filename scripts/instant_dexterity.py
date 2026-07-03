@@ -19,25 +19,15 @@ if str(REPO_ROOT) not in sys.path:
 
 
 parser = argparse.ArgumentParser(description="Instant dexterity from coarse demonstrations.")
-parser.add_argument("--task", type=str, default="Pick_Insert_External_Force-v0", help="Registered Gym task to launch.")
+parser.add_argument("--task", type=str, default="Pick_Insert_HRL-v0", help="Registered Gym task to launch.")
 parser.add_argument("--num_envs", type=int, default=1, help="Number of environments to run.")
 parser.add_argument("--steps", type=int, default=1200, help="Number of environment steps to simulate.")
 parser.add_argument("--print_every", type=int, default=30, help="Print pose diagnostics every N steps.")
 parser.add_argument(
-    "--deterministic_reset",
-    action="store_true",
-    help="Disable reset randomization for debugging the initial hand-object pose.",
-)
-parser.add_argument(
     "--low_level_checkpoint",
     type=str,
-    default="/home/yizhao/yi/D2H/logs/rsl_rl/anyreorient/exported/policy.pt",
+    default="/home/yizhao/yi/dex_reorient/logs/rsl_rl/reorient/2026-06-25_15-18-57/model_14999.pt",
     help="RSL-RL actor checkpoint for hand control.",
-)
-parser.add_argument(
-    "--zero_hand_action",
-    action="store_true",
-    help="Use zero hand actions instead of the low-level actor.",
 )
 parser.add_argument(
     "--gate_low_level",
@@ -49,12 +39,6 @@ parser.add_argument("--gate_dist", type=float, default=0.05, help="Max anchor<->
 parser.add_argument("--gate_contact_threshold", type=float, default=1.0, help="Object contact force (N) for the good-grasp gate.")
 parser.add_argument("--gate_anchor_pos", type=float, default=0.01, help="Hand-base position error (m) for anchor-reached.")
 parser.add_argument("--gate_anchor_rot", type=float, default=0.05, help="Hand-base orientation error (rad) for anchor-reached; negative => position only.")
-parser.add_argument(
-    "--disable_fabric",
-    action="store_true",
-    default=False,
-    help="Disable fabric and use USD I/O operations.",
-)
 AppLauncher.add_app_launcher_args(parser)
 args_cli = parser.parse_args()
 
@@ -82,73 +66,53 @@ from src.policy.hl_policy import (  # noqa: E402
 )
 
 
-def _apply_deterministic_reset(env_cfg) -> None:
-    reset_joints = getattr(env_cfg.events, "reset_robot_joints", None)
-    if reset_joints is not None:
-        reset_joints.params["position_range"] = [0.0, 0.0]
-
-    applied = False
-
-    # In-hand spawn variant: fix the object's local rotation to identity.
-    reset_in_hand = getattr(env_cfg.events, "reset_object_relative_to_hand", None)
-    if reset_in_hand is not None:
-        reset_in_hand.params["random_orientation"] = False
-        reset_in_hand.params["local_rot"] = (1.0, 0.0, 0.0, 0.0)
-        applied = True
-
-    # On-table spawn variant: zero the pose jitter so the peg lands at a fixed table pose.
-    reset_object = getattr(env_cfg.events, "reset_object", None)
-    if reset_object is not None:
-        reset_object.params["pose_range"] = {"x": [0.0, 0.0], "y": [0.0, 0.0], "yaw": [0.0, 0.0]}
-        applied = True
-
-    if not applied:
-        raise RuntimeError(
-            "--deterministic_reset requires reset_object_relative_to_hand or reset_object on the env config."
-        )
-    print("[INFO]: Deterministic reset enabled: zero joint offset and fixed object reset pose.", flush=True)
-
-
 def _make_env_cfg():
-    env_cfg = parse_env_cfg(
+    return parse_env_cfg(
         args_cli.task,
         device=args_cli.device,
         num_envs=args_cli.num_envs,
-        use_fabric=not args_cli.disable_fabric,
+        use_fabric=True,
     )
-    if args_cli.deterministic_reset:
-        _apply_deterministic_reset(env_cfg)
-    return env_cfg
 
 
 def _as_list(tensor: torch.Tensor) -> list[float]:
     return [round(float(value), 5) for value in tensor.detach().cpu().tolist()]
 
 
+_BASE_BODY: tuple[int, str] | None = None
+
+
+def _hand_base_body(env) -> tuple[int, str]:
+    """Resolve (and cache) the single robot body named 'base'."""
+    global _BASE_BODY
+    if _BASE_BODY is None:
+        robot = env.scene["robot"]
+        body_ids, body_names = robot.find_bodies("base")
+        if len(body_ids) != 1:
+            raise RuntimeError(f"Expected one robot body matching 'base', found {len(body_ids)}: {body_names}.")
+        _BASE_BODY = (body_ids[0], body_names[0])
+    return _BASE_BODY
+
+
 def _hand_base_pose_w(env) -> tuple[torch.Tensor, torch.Tensor, str]:
     robot = env.scene["robot"]
-    body_ids, body_names = robot.find_bodies("base")
-    if len(body_ids) != 1:
-        raise RuntimeError(f"Expected one robot body matching 'base', found {len(body_ids)}: {body_names}.")
-    body_idx = body_ids[0]
-    return robot.data.body_pos_w[:, body_idx], robot.data.body_quat_w[:, body_idx], body_names[0]
+    body_idx, body_name = _hand_base_body(env)
+    return robot.data.body_pos_w[:, body_idx], robot.data.body_quat_w[:, body_idx], body_name
 
 
-def _hand_base_pose_b(env) -> tuple[torch.Tensor, str]:
+def _hand_base_pose_b(env, hand_pos_w: torch.Tensor, hand_quat_w: torch.Tensor) -> torch.Tensor:
     robot = env.scene["robot"]
-    hand_pos_w, hand_quat_w, body_name = _hand_base_pose_w(env)
     pos_b, quat_b = subtract_frame_transforms(
         robot.data.root_pos_w,
         robot.data.root_quat_w,
         hand_pos_w,
         hand_quat_w,
     )
-    return torch.cat((pos_b, quat_b), dim=1), body_name
+    return torch.cat((pos_b, quat_b), dim=1)
 
 
-def _object_pose_in_hand_base_b(env) -> torch.Tensor:
+def _object_pose_in_hand_base_b(env, hand_pos_w: torch.Tensor, hand_quat_w: torch.Tensor) -> torch.Tensor:
     object_asset = env.scene["object"]
-    hand_pos_w, hand_quat_w, _ = _hand_base_pose_w(env)
     object_pos_b, object_quat_b = subtract_frame_transforms(
         hand_pos_w,
         hand_quat_w,
@@ -158,19 +122,12 @@ def _object_pose_in_hand_base_b(env) -> torch.Tensor:
     return torch.cat((object_pos_b, object_quat_b), dim=1)
 
 
-def _target_object_pose_in_desired_hand_base_b(env) -> torch.Tensor:
-    command = env.command_manager.get_command("object_pose")
-    return command[:, :7]
-
-
 def _low_level_obs(env) -> torch.Tensor:
     obs = env.observation_manager.compute_group("low_level")
     return obs.reshape(env.num_envs, -1)
 
 
-def _low_level_actions(env, policy, action_dim: int) -> torch.Tensor:
-    if policy is None:
-        return torch.zeros((env.num_envs, action_dim), device=env.device)
+def _low_level_actions(env, policy) -> torch.Tensor:
     return policy.act(_low_level_obs(env))
 
 
@@ -195,12 +152,12 @@ def _make_target_object_marker(env) -> VisualizationMarkers:
         target_object_cfg = sim_utils.UsdFileCfg(
             usd_path=object_spawn.usd_path,
             scale=object_spawn.scale,
-            visual_material=sim_utils.PreviewSurfaceCfg(diffuse_color=(0.1, 0.9, 0.2), opacity=0.55),
+            visual_material=sim_utils.PreviewSurfaceCfg(diffuse_color=(0.1, 0.9, 0.2), opacity=0.25),
         )
     else:
         target_object_cfg = sim_utils.CuboidCfg(
             size=(0.04, 0.04, 0.08),
-            visual_material=sim_utils.PreviewSurfaceCfg(diffuse_color=(0.1, 0.9, 0.2), opacity=0.55),
+            visual_material=sim_utils.PreviewSurfaceCfg(diffuse_color=(0.1, 0.9, 0.2), opacity=0.25),
         )
 
     marker = VisualizationMarkers(
@@ -317,14 +274,13 @@ def _correction_norms(env) -> tuple[float, float] | None:
 
 def _print_snapshot(env, step: int) -> None:
     command = env.command_manager.get_command("object_pose")
-    current_hand_base_b, body_name = _hand_base_pose_b(env)
-    current_object_in_hand_b = _object_pose_in_hand_base_b(env)
-    target_object_in_desired_hand_b = _target_object_pose_in_desired_hand_base_b(env)
+    hand_pos_w, hand_quat_w, body_name = _hand_base_pose_w(env)
+    current_hand_base_b = _hand_base_pose_b(env, hand_pos_w, hand_quat_w)
+    current_object_in_hand_b = _object_pose_in_hand_base_b(env, hand_pos_w, hand_quat_w)
     print(f"[STEP {step:04d}]: target object desired hand-local {_as_list(command[0, :7])}", flush=True)
     print(f"[STEP {step:04d}]: target hand base pose root {_as_list(command[0, 7:14])}", flush=True)
     print(f"[STEP {step:04d}]: current {body_name} pose b {_as_list(current_hand_base_b[0])}", flush=True)
     print(f"[STEP {step:04d}]: object pose in {body_name} b {_as_list(current_object_in_hand_b[0])}", flush=True)
-    print(f"[STEP {step:04d}]: low-level object goal local {_as_list(target_object_in_desired_hand_b[0])}", flush=True)
     goal_error = _object_goal_error(env)
     if goal_error is not None:
         print(
@@ -335,33 +291,6 @@ def _print_snapshot(env, step: int) -> None:
     if correction is not None:
         print(
             f"[STEP {step:04d}]: objgoal correction norm   pos={correction[0]:.5f} m  rot={correction[1]:.5f} rad",
-            flush=True,
-        )
-    _print_arm_impedance(env, step)
-
-
-def _print_arm_impedance(env, step: int) -> None:
-    """Log the OSC per-axis stiffness and the wrist wrench driving its softening."""
-    try:
-        arm_action = env.action_manager.get_term("arm_action")
-    except (KeyError, ValueError):
-        return
-    stiffness = getattr(arm_action, "stiffness", None)
-    if stiffness is None:
-        return
-    print(f"[STEP {step:04d}]: arm stiffness [kx,ky,kz,krx,kry,krz] {_as_list(stiffness[0])}", flush=True)
-    ext = getattr(arm_action, "external_wrench", None)
-    raw = getattr(arm_action, "raw_wrench", None)
-    if ext is not None:
-        ext_force, ext_torque = ext[0, :3], ext[0, 3:]
-        raw_force_norm = float(raw[0, :3].norm()) if raw is not None else float("nan")
-        raw_torque_norm = float(raw[0, 3:].norm()) if raw is not None else float("nan")
-        print(
-            f"[STEP {step:04d}]: ext force {_as_list(ext_force)} |F|={float(ext_force.norm()):.3f}N (raw|F|={raw_force_norm:.3f}N)",
-            flush=True,
-        )
-        print(
-            f"[STEP {step:04d}]: ext torque {_as_list(ext_torque)} |T|={float(ext_torque.norm()):.3f}Nm (raw|T|={raw_torque_norm:.3f}Nm)",
             flush=True,
         )
 
@@ -385,23 +314,21 @@ def main() -> None:
         _update_command_markers(env_unwrapped, target_object_marker, target_anchor_marker, target_base_marker)
 
         action_dim = int(env_unwrapped.action_manager.total_action_dim)
-        low_level_policy = None
-        if not args_cli.zero_hand_action:
-            actual_obs = int(_low_level_obs(env_unwrapped).shape[-1])
-            low_level_policy = load_low_level_rsl_rl_policy(
-                args_cli.low_level_checkpoint,
-                device=env_unwrapped.device,
-                expected_obs_dim=actual_obs,
-                expected_action_dim=action_dim,
-            )
-            expected_obs = int(low_level_policy.obs_dim)
-            if actual_obs != expected_obs:
-                raise RuntimeError(f"Expected low-level obs dim {expected_obs}, got {actual_obs}.")
-            print(
-                f"[INFO]: Loaded low-level RSL-RL actor from {args_cli.low_level_checkpoint} "
-                f"(obs_dim={expected_obs}, action_dim={low_level_policy.action_dim}).",
-                flush=True,
-            )
+        actual_obs = int(_low_level_obs(env_unwrapped).shape[-1])
+        low_level_policy = load_low_level_rsl_rl_policy(
+            args_cli.low_level_checkpoint,
+            device=env_unwrapped.device,
+            expected_obs_dim=actual_obs,
+            expected_action_dim=action_dim,
+        )
+        expected_obs = int(low_level_policy.obs_dim)
+        if actual_obs != expected_obs:
+            raise RuntimeError(f"Expected low-level obs dim {expected_obs}, got {actual_obs}.")
+        print(
+            f"[INFO]: Loaded low-level RSL-RL actor from {args_cli.low_level_checkpoint} "
+            f"(obs_dim={expected_obs}, action_dim={low_level_policy.action_dim}).",
+            flush=True,
+        )
 
         gate = None
         if args_cli.gate_low_level:
@@ -421,7 +348,7 @@ def main() -> None:
 
         for step in range(1, args_cli.steps + 1):
             with torch.inference_mode():
-                actions = _low_level_actions(env_unwrapped, low_level_policy, action_dim)
+                actions = _low_level_actions(env_unwrapped, low_level_policy)
                 if gate is not None:
                     actions = gate.apply(actions, env_unwrapped)
                 env.step(actions)
