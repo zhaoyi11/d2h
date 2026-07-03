@@ -7,166 +7,17 @@ from typing import TYPE_CHECKING
 
 import isaaclab.utils.math as math_utils
 from isaaclab.assets import Articulation, RigidObject
-from isaaclab.controllers.differential_ik import DifferentialIKController
-from isaaclab.controllers.differential_ik_cfg import DifferentialIKControllerCfg
 from isaaclab.managers import ActionTerm, ActionTermCfg, SceneEntityCfg
 from isaaclab.utils import configclass
 from isaaclab.utils.math import (
     combine_frame_transforms,
-    compute_pose_error,
-    matrix_from_quat,
     quat_apply,
-    quat_apply_inverse,
-    quat_inv,
     subtract_frame_transforms,
 )
 
 if TYPE_CHECKING:
     from isaaclab.envs import ManagerBasedRLEnv
     from isaaclab.sensors import ContactSensor
-
-
-class CommandHandBaseIKAction(ActionTerm):
-    """Automatic IK action that tracks the hand-base pose stored in a command."""
-
-    cfg: CommandHandBaseIKActionCfg
-    _asset: Articulation
-
-    def __init__(self, cfg: CommandHandBaseIKActionCfg, env: ManagerBasedRLEnv):
-        super().__init__(cfg, env)
-
-        self._joint_ids, self._joint_names = self._asset.find_joints(self.cfg.joint_names)
-        self._num_joints = len(self._joint_ids)
-        body_ids, body_names = self._asset.find_bodies(self.cfg.body_name)
-        if len(body_ids) != 1:
-            raise ValueError(
-                f"Expected one match for the body name: {self.cfg.body_name}. Found {len(body_ids)}: {body_names}."
-            )
-        self._body_idx = body_ids[0]
-        self._body_name = body_names[0]
-
-        if self._asset.is_fixed_base:
-            self._jacobi_body_idx = self._body_idx - 1
-            self._jacobi_joint_ids = self._joint_ids
-        else:
-            self._jacobi_body_idx = self._body_idx
-            self._jacobi_joint_ids = [i + 6 for i in self._joint_ids]
-        if self._num_joints == self._asset.num_joints:
-            self._joint_ids = slice(None)
-
-        self._ik_controller = DifferentialIKController(
-            cfg=self.cfg.controller, num_envs=self.num_envs, device=self.device
-        )
-        self._raw_actions = torch.zeros(self.num_envs, 0, device=self.device)
-        self._processed_actions = torch.zeros(self.num_envs, self._ik_controller.action_dim, device=self.device)
-        self._target_pose_b = torch.zeros(self.num_envs, 7, device=self.device)
-        self._target_pose_b[:, 3] = 1.0
-        self._step_limit = torch.tensor(self.cfg.scale, device=self.device).repeat(self.num_envs, 1)
-
-    @property
-    def action_dim(self) -> int:
-        return 0
-
-    @property
-    def raw_actions(self) -> torch.Tensor:
-        return self._raw_actions
-
-    @property
-    def processed_actions(self) -> torch.Tensor:
-        return self._processed_actions
-
-    @property
-    def target_pose_b(self) -> torch.Tensor:
-        return self._target_pose_b
-
-    @property
-    def jacobian_w(self) -> torch.Tensor:
-        return self._asset.root_physx_view.get_jacobians()[:, self._jacobi_body_idx, :, self._jacobi_joint_ids]
-
-    @property
-    def jacobian_b(self) -> torch.Tensor:
-        jacobian = self.jacobian_w
-        base_rot_matrix = matrix_from_quat(quat_inv(self._asset.data.root_quat_w))
-        jacobian[:, :3, :] = torch.bmm(base_rot_matrix, jacobian[:, :3, :])
-        jacobian[:, 3:, :] = torch.bmm(base_rot_matrix, jacobian[:, 3:, :])
-        return jacobian
-
-    def process_actions(self, actions: torch.Tensor):
-        if actions.shape[-1] != 0:
-            raise ValueError(f"Expected zero external arm action dims, got {actions.shape[-1]}.")
-
-        command = self._env.command_manager.get_command(self.cfg.command_name)
-        command_end = self.cfg.command_start + 7
-        if command.shape[-1] < command_end:
-            raise ValueError(
-                f"Command {self.cfg.command_name!r} must contain hand-base pose slice "
-                f"{self.cfg.command_start}:{command_end}, got shape {tuple(command.shape)}."
-            )
-        self._target_pose_b[:] = command[:, self.cfg.command_start : command_end]
-
-        ee_pos_curr, ee_quat_curr = self._compute_frame_pose()
-        pos_error, axis_angle_error = compute_pose_error(
-            ee_pos_curr,
-            ee_quat_curr,
-            self._target_pose_b[:, :3],
-            self._target_pose_b[:, 3:7],
-            rot_error_type="axis_angle",
-        )
-        relative_command = torch.cat((pos_error, axis_angle_error), dim=1)
-        self._processed_actions[:] = torch.clamp(relative_command, -self._step_limit, self._step_limit)
-        self._ik_controller.set_command(self._processed_actions, ee_pos_curr, ee_quat_curr)
-
-    def apply_actions(self):
-        ee_pos_curr, ee_quat_curr = self._compute_frame_pose()
-        joint_pos = self._asset.data.joint_pos[:, self._joint_ids]
-        if ee_quat_curr.norm() != 0:
-            jacobian = self.jacobian_b
-            joint_pos_des = self._ik_controller.compute(ee_pos_curr, ee_quat_curr, jacobian, joint_pos)
-        else:
-            joint_pos_des = joint_pos.clone()
-        self._asset.set_joint_position_target(joint_pos_des, self._joint_ids)
-
-    def reset(self, env_ids=None) -> None:
-        if env_ids is None:
-            env_ids = slice(None)
-        self._raw_actions[env_ids] = 0.0
-        self._processed_actions[env_ids] = 0.0
-        self._ik_controller.reset(env_ids=env_ids)
-
-    def _compute_frame_pose(self) -> tuple[torch.Tensor, torch.Tensor]:
-        ee_pos_w = self._asset.data.body_pos_w[:, self._body_idx]
-        ee_quat_w = self._asset.data.body_quat_w[:, self._body_idx]
-        return subtract_frame_transforms(
-            self._asset.data.root_pos_w,
-            self._asset.data.root_quat_w,
-            ee_pos_w,
-            ee_quat_w,
-        )
-
-
-@configclass
-class CommandHandBaseIKActionCfg(ActionTermCfg):
-    """Configuration for command-driven hand-base IK tracking."""
-
-    class_type: type[ActionTerm] = CommandHandBaseIKAction
-
-    joint_names: list[str] = MISSING
-    """List of joint names or regex expressions controlled by IK."""
-
-    body_name: str = MISSING
-    """Body name to track with IK."""
-
-    command_name: str = "object_pose"
-    """Command term containing the target hand-base pose."""
-
-    command_start: int = 7
-    """Start index of the target hand-base pose in the command tensor."""
-
-    scale: tuple[float, float, float, float, float, float] = (0.05, 0.05, 0.05, 0.25, 0.25, 0.25)
-    """Maximum relative IK command per environment step."""
-
-    controller: DifferentialIKControllerCfg = MISSING
-    """Differential IK controller configuration."""
 
 
 def reset_object_pose_relative_to_body(
@@ -415,7 +266,7 @@ class CommandHandBaseCuroboMpcAction(ActionTerm):
     """Command-driven arm controller that drives the hand ``base`` to the command anchor with
     cuRobo reactive MPC, avoiding obstacles (e.g. the table) with the full Franka+LEAP model.
 
-    Consumes zero external action dims (like :class:`CommandHandBaseIKAction`): the goal is the
+    Consumes zero external action dims: the goal is the
     hand-base anchor pose carried in the command (``command[:, command_start:command_start+7]``,
     in the robot root frame). Each control step it sets that pose as the MPC tool-pose goal,
     optimizes a short horizon (cuRobo 0.8 ``ModelPredictiveControl``), and applies the resulting
