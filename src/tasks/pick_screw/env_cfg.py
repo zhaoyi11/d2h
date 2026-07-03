@@ -858,16 +858,18 @@ class HrlCommandsCfg:
         receptive_pose=(0.55, 0.0, 0.271, 1.0, 0.0, 0.0, 0.0),
         # Nudge the hand-base anchor so the object reaches its goal when the in-hand policy alone
         # cannot; bounded, memoryless, gated on a settled arm + stalled object (as in pick_insert).
-        enable_object_goal_correction=True,
-        corr_slew_pos=1.0,
-        corr_slew_rot=10.0,
-        corr_max_pos=0.05,
-        corr_max_rot=0.2,
-        corr_anchor_achieved_pos=0.01,
-        corr_anchor_achieved_rot=0.05,
-        corr_stall_window=5,
-        corr_stall_delta_pos=0.003,
-        corr_stall_delta_rot=0.01,
+        correction=insert_mdp.AnchorCorrectionCfg(
+            enable=True,
+            slew_pos=1.0,
+            slew_rot=10.0,
+            max_pos=0.05,
+            max_rot=0.2,
+            anchor_achieved_pos=0.01,
+            anchor_achieved_rot=0.05,
+            stall_window=5,
+            stall_delta_pos=0.003,
+            stall_delta_rot=0.01,
+        ),
     )
 
 

@@ -115,6 +115,46 @@ def _load_object_trajectory_module():
     return module
 
 
+def _load_anchor_correction_module():
+    """Load the anchor-correction PI(D) controller (sibling module) by file path.
+
+    Loaded lazily by path (mirroring :func:`_load_object_trajectory_module`) so unit tests can exec
+    ``commands.py`` in isolation without importing the whole ``src.tasks.common.mdps`` package.
+    """
+    module_name = "common_mdps_anchor_correction_for_command"
+    if module_name in sys.modules:
+        return sys.modules[module_name]
+
+    module_path = Path(__file__).resolve().parent / "anchor_correction.py"
+    spec = importlib.util.spec_from_file_location(module_name, module_path)
+    if spec is None or spec.loader is None:
+        raise ImportError(f"Could not load anchor correction helper from {module_path}.")
+    module = importlib.util.module_from_spec(spec)
+    sys.modules[module_name] = module
+    spec.loader.exec_module(module)
+    return module
+
+
+def _load_trajectory_stepper_module():
+    """Load the trajectory stage/step state machine (sibling module) by file path.
+
+    Loaded lazily by path (mirroring :func:`_load_object_trajectory_module`) so unit tests can exec
+    ``commands.py`` in isolation without importing the whole ``src.tasks.common.mdps`` package.
+    """
+    module_name = "common_mdps_trajectory_stepper_for_command"
+    if module_name in sys.modules:
+        return sys.modules[module_name]
+
+    module_path = Path(__file__).resolve().parent / "trajectory_stepper.py"
+    spec = importlib.util.spec_from_file_location(module_name, module_path)
+    if spec is None or spec.loader is None:
+        raise ImportError(f"Could not load trajectory stepper helper from {module_path}.")
+    module = importlib.util.module_from_spec(spec)
+    sys.modules[module_name] = module
+    spec.loader.exec_module(module)
+    return module
+
+
 def hand_base_pose_from_object_command_b(
     object_pose_b: torch.Tensor,
     hand_base_to_anchor_pose: torch.Tensor,
@@ -446,38 +486,28 @@ class PickInsertTrajectoryObjectAndHandBasePoseCommand(ObjectAndHandBasePoseComm
                 f"Found {len(body_ids)}: {body_names}."
             )
         self._hand_base_body_idx = body_ids[0]
-        self._trajectory_length = 1 + sum(self.cfg.trajectory_segment_steps)
-        stage_ids = [0]
-        for stage_idx, steps in enumerate(self.cfg.trajectory_segment_steps):
-            stage_ids.extend([stage_idx] * steps)
-        self._step_to_stage = torch.tensor(stage_ids, dtype=torch.long, device=self.device)
-
-        (
-            self._stage_object_position_tolerance,
-            self._stage_object_orientation_tolerance,
-        ) = _stage_obj_tor_tensors(
+        # Stage/step state machine (per-env waypoints, step index, per-stage advance tolerances)
+        # lives in a pure-torch sibling module; the command term orchestrates it.
+        stage_position_tolerance, stage_orientation_tolerance = _stage_obj_tor_tensors(
             self.cfg.stage_object_tolerances,
             len(self.cfg.trajectory_segment_steps),
             self.device,
         )
-        self._trajectory_step = torch.zeros(self.num_envs, dtype=torch.long, device=self.device)
-        self._object_pose_trajectory_b = torch.zeros(self.num_envs, self._trajectory_length, 7, device=self.device)
-        self._object_pose_trajectory_b[:, :, 3] = 1.0
+        self._stepper = _load_trajectory_stepper_module().PickInsertTrajectoryStepper(
+            self.num_envs,
+            self.device,
+            self.cfg.trajectory_segment_steps,
+            stage_position_tolerance,
+            stage_orientation_tolerance,
+        )
         self._trajectory_command_achieved = torch.zeros(self.num_envs, dtype=torch.bool, device=self.device)
-        # Adaptive anchor-frame correction (pos[3], axis-angle[3], root-aligned anchor frame).
-        # A bounded PI(D) controller on the measured object->goal error writes these:
-        #   _objanchor_integral   -- the integral accumulator (anti-windup clamped)
-        #   _objanchor_correction -- the slew-limited applied output (added to the nominal anchor)
-        #   _objanchor_prev_err / _objanchor_deriv -- for the optional derivative term
-        # All zero => sit at the nominal anchor (object goal + configured offset).
-        self._objanchor_integral = torch.zeros(self.num_envs, 6, device=self.device)
-        self._objanchor_correction = torch.zeros(self.num_envs, 6, device=self.device)
-        self._objanchor_prev_err = torch.zeros(self.num_envs, 6, device=self.device)
-        self._objanchor_deriv = torch.zeros(self.num_envs, 6, device=self.device)
-        # Stall detection: track object error history and stall counter for correction gating.
-        self._objanchor_err_history_pos = torch.zeros(self.num_envs, device=self.device)
-        self._objanchor_err_history_rot = torch.zeros(self.num_envs, device=self.device)
-        self._objanchor_stall_counter = torch.zeros(self.num_envs, dtype=torch.long, device=self.device)
+        # Adaptive anchor-frame correction: a bounded PI(D) controller (pure-torch sibling module)
+        # nudges the anchor pose so the measured object reaches its goal. All-zero output => sit at
+        # the nominal anchor (object goal + configured offset). Built after super().__init__ so the
+        # ``_anchor_correction`` override's getattr guard returns None during that first update.
+        self._corr = _load_anchor_correction_module().ObjectAnchorPIDController(
+            self.num_envs, self.device, self.cfg.correction
+        )
         self.metrics["hand_base_position_error"] = torch.zeros(self.num_envs, device=self.device)
         self.metrics["hand_base_orientation_error"] = torch.zeros(self.num_envs, device=self.device)
         self.metrics["trajectory_command_achieved"] = torch.zeros(self.num_envs, device=self.device)
@@ -507,11 +537,11 @@ class PickInsertTrajectoryObjectAndHandBasePoseCommand(ObjectAndHandBasePoseComm
         self.metrics["trajectory_command_achieved"] = self._trajectory_command_achieved.float()
 
     def _object_target_achieved(self) -> torch.Tensor:
-        stage = self._step_to_stage[self._trajectory_step]
-        achieved = self.metrics["position_error"] < self._stage_object_position_tolerance[stage]
-        if not self.cfg.position_only:
-            achieved &= self.metrics["orientation_error"] < self._stage_object_orientation_tolerance[stage]
-        return achieved
+        return self._stepper.object_target_achieved(
+            self.metrics["position_error"],
+            self.metrics["orientation_error"],
+            self.cfg.position_only,
+        )
 
     def _resample_command(self, env_ids: Sequence[int]):
         env_ids_tensor = self._env_ids_tensor(env_ids)
@@ -539,9 +569,8 @@ class PickInsertTrajectoryObjectAndHandBasePoseCommand(ObjectAndHandBasePoseComm
             )
             for env_idx in range(env_ids_tensor.numel())
         ]
-        self._object_pose_trajectory_b[env_ids_tensor] = torch.stack(trajectories, dim=0)
-        self._trajectory_step[env_ids_tensor] = 0
-        self.pose_command_b[env_ids_tensor] = self._object_pose_trajectory_b[env_ids_tensor, 0]
+        self._stepper.reset(env_ids_tensor, torch.stack(trajectories, dim=0))
+        self.pose_command_b[env_ids_tensor] = self._stepper.current_object_pose(env_ids_tensor)
         if self.cfg.enable_pregrasp_reach:
             # Reach phase: seed the step-0 hand-base with a grasp pose over the object (waypoint 0 is
             # the object's current pose) so the arm first descends to the object, instead of freezing
@@ -559,33 +588,21 @@ class PickInsertTrajectoryObjectAndHandBasePoseCommand(ObjectAndHandBasePoseComm
         else:
             hand_base_pos_b, hand_base_quat_b = self._current_hand_base_pose_b(env_ids_tensor)
             self.hand_base_pose_command_b[env_ids_tensor] = torch.cat((hand_base_pos_b, hand_base_quat_b), dim=1)
-        self._objanchor_integral[env_ids_tensor] = 0.0
-        self._objanchor_correction[env_ids_tensor] = 0.0
-        self._objanchor_prev_err[env_ids_tensor] = 0.0
-        self._objanchor_deriv[env_ids_tensor] = 0.0
-        self._objanchor_err_history_pos[env_ids_tensor] = 0.0
-        self._objanchor_err_history_rot[env_ids_tensor] = 0.0
-        self._objanchor_stall_counter[env_ids_tensor] = 0
+        self._corr.reset(env_ids_tensor)
         self._trajectory_command_achieved[env_ids_tensor] = False
 
     def _update_command(self):
         advance_env_ids = self._trajectory_command_achieved.nonzero().flatten()
         if advance_env_ids.numel() == 0:
-            active_env_ids = (self._trajectory_step > 0).nonzero().flatten()
+            active_env_ids = (self._stepper.step > 0).nonzero().flatten()
             if active_env_ids.numel() > 0:
                 self._apply_objanchor_correction(active_env_ids)
                 self._update_hand_base_pose_command(active_env_ids)
             return
-        self._trajectory_step[advance_env_ids] = torch.clamp(
-            self._trajectory_step[advance_env_ids] + 1,
-            max=self._trajectory_length - 1,
-        )
-        self.pose_command_b[advance_env_ids] = self._object_pose_trajectory_b[
-            advance_env_ids,
-            self._trajectory_step[advance_env_ids],
-        ]
-        self._objanchor_stall_counter[advance_env_ids] = 0
-        active_env_ids = (self._trajectory_step > 0).nonzero().flatten()
+        self._stepper.advance(advance_env_ids)
+        self.pose_command_b[advance_env_ids] = self._stepper.current_object_pose(advance_env_ids)
+        self._corr.clear_stall(advance_env_ids)
+        active_env_ids = (self._stepper.step > 0).nonzero().flatten()
         if active_env_ids.numel() > 0:
             self._apply_objanchor_correction(active_env_ids)
             self._update_hand_base_pose_command(active_env_ids)
@@ -593,46 +610,41 @@ class PickInsertTrajectoryObjectAndHandBasePoseCommand(ObjectAndHandBasePoseComm
     @property
     def objanchor_correction(self) -> torch.Tensor:
         """The applied anchor-frame correction (pos[3], axis-angle[3], root-aligned anchor frame)."""
-        return self._objanchor_correction
+        return self._corr.correction
 
     def _anchor_correction(self, env_ids: Sequence[int] | slice = slice(None)) -> torch.Tensor | None:
         """Bounded PI(D) correction applied to the nominal anchor pose in the anchor frame.
 
-        During ``super().__init__`` the correction buffer does not exist yet -- the ``getattr``
-        guard then returns ``None`` (no correction), so no special-casing of the first update is
-        needed.
+        During ``super().__init__`` the controller does not exist yet -- the ``getattr`` guard then
+        returns ``None`` (no correction), so no special-casing of the first update is needed.
         """
-        correction = getattr(self, "_objanchor_correction", None)
-        if correction is None:
+        controller = getattr(self, "_corr", None)
+        if controller is None:
             return None
-        return correction[env_ids]
+        return controller.correction[env_ids]
 
     def _apply_objanchor_correction(self, env_ids: torch.Tensor) -> None:
         """Nudge the anchor pose so the *measured* object reaches its goal pose.
 
-        The correction is gated by two conditions:
-        1. **Anchor achieved**: the hand-base (arm) has settled within tolerance of the commanded pose.
-        2. **Object stalled**: the object error has not improved by at least ``corr_stall_delta``
-           over the last ``corr_stall_window`` steps. When ``corr_stall_window=0``, this gate is disabled.
+        Computes the two frame-coupled inputs and delegates the stateful, gated PI(D) update to
+        :class:`ObjectAnchorPIDController`:
 
-        When both conditions hold, a bounded **PI(D) controller** runs on the measured object->goal
-        error, expressed in the root-aligned anchor frame (the frame the correction is applied in,
-        so a delta on the anchor maps 1:1 onto the resulting anchor/object motion). The proportional
-        term gives responsiveness, the integral removes steady-state error (the object actually reaches
-        the goal), an optional filtered derivative damps overshoot. A deadband makes the in-hand policy
-        own small errors (the arm only acts when the hand *can't*), an anti-windup + output clamp
-        bound the deviation to +-``corr_max_pos`` / ``corr_max_rot`` (the 5 cm / 10 deg budget),
-        and an output slew limit makes the correction change gradually.
+        1. **Anchor achieved** gate -- the hand-base (arm) has settled within tolerance of its
+           commanded pose (needs the robot pose, so it is computed here).
+        2. The **measured object->goal error** in the root-aligned anchor frame (the frame the
+           correction is applied in, so a delta on the anchor maps 1:1 onto the object motion --
+           the root-frame error is used directly).
 
-        The correction feeds :meth:`_anchor_correction` and thus the anchor / hand-base target
-        (``command[:, 7:14]`` the arm target and, via :meth:`_object_pose_command_hand_base_b`,
-        ``command[:, :7]`` the in-hand target), so arm and hand cooperate. Keep the gains/slew slow
-        relative to the hand's response.
+        The controller owns the object-stall gate and the bounded PI(D) math (deadband, anti-windup
+        integral, optional filtered derivative, output clamp, slew). Its output feeds
+        :meth:`_anchor_correction` and thus both the arm target (``command[:, 7:14]``) and, via
+        :meth:`_object_pose_command_hand_base_b`, the in-hand target (``command[:, :7]``), so arm
+        and hand cooperate.
         """
-        if not self.cfg.enable_object_goal_correction or env_ids.numel() == 0:
+        if not self.cfg.correction.enable or env_ids.numel() == 0:
             return
 
-        # --- Gate 1: anchor achieved (arm has settled at commanded hand-base pose) ---
+        # Gate 1: anchor achieved (arm has settled at the commanded hand-base pose).
         hand_base_pos_b, hand_base_quat_b = self._current_hand_base_pose_b(env_ids)
         pos_err, rot_err = compute_pose_error(
             self.hand_base_pose_command_b[env_ids, :3],
@@ -641,13 +653,12 @@ class PickInsertTrajectoryObjectAndHandBasePoseCommand(ObjectAndHandBasePoseComm
             hand_base_quat_b,
         )
         anchor_achieved = (
-            torch.norm(pos_err, dim=-1) < self.cfg.corr_anchor_achieved_pos
+            torch.norm(pos_err, dim=-1) < self.cfg.correction.anchor_achieved_pos
         ) & (
-            torch.norm(rot_err, dim=-1) < self.cfg.corr_anchor_achieved_rot
+            torch.norm(rot_err, dim=-1) < self.cfg.correction.anchor_achieved_rot
         )
 
-        # --- Gate 2: object stall detection ---
-        # Compute current object error magnitude for envs in env_ids.
+        # Measured object->goal error in the root-aligned anchor frame.
         object_pos_b, object_quat_b = subtract_frame_transforms(
             self.robot.data.root_pos_w[env_ids],
             self.robot.data.root_quat_w[env_ids],
@@ -661,92 +672,9 @@ class PickInsertTrajectoryObjectAndHandBasePoseCommand(ObjectAndHandBasePoseComm
             self.pose_command_b[env_ids, 3:7],
             rot_error_type="axis_angle",
         )
-        cur_err_pos = torch.norm(err_pos_b, dim=-1)
-        cur_err_rot = torch.norm(err_rot_b, dim=-1)
 
-        if self.cfg.corr_stall_window > 0:
-            # Stall counter: increment if error didn't improve, reset if it did.
-            improved = (
-                (self._objanchor_err_history_pos[env_ids] - cur_err_pos > self.cfg.corr_stall_delta_pos) |
-                (self._objanchor_err_history_rot[env_ids] - cur_err_rot > self.cfg.corr_stall_delta_rot)
-            )
-            self._objanchor_stall_counter[env_ids] = torch.where(
-                improved,
-                torch.zeros_like(self._objanchor_stall_counter[env_ids]),
-                self._objanchor_stall_counter[env_ids] + 1,
-            )
-            self._objanchor_err_history_pos[env_ids] = cur_err_pos
-            self._objanchor_err_history_rot[env_ids] = cur_err_rot
-            object_stalled = self._objanchor_stall_counter[env_ids] >= self.cfg.corr_stall_window
-        else:
-            object_stalled = torch.ones(env_ids.numel(), dtype=torch.bool, device=self.device)
-
-        # Only apply correction where both conditions hold.
-        gate_mask = anchor_achieved & object_stalled
-        active_mask_ids = env_ids[gate_mask]
-        if active_mask_ids.numel() == 0:
-            return
-        env_ids = active_mask_ids
-        # The correction is applied in the anchor frame, which is root-aligned (the anchor
-        # orientation lives in the robot root frame), so the root-frame error is used directly.
-        err_pos = err_pos_b
-        err_rot = err_rot_b
-
-        # Per-axis deadband: within tolerance the in-hand policy owns the error; the arm waits.
-        err_pos = torch.sign(err_pos) * torch.clamp(err_pos.abs() - self.cfg.corr_deadband_pos, min=0.0)
-        err_rot = torch.sign(err_rot) * torch.clamp(err_rot.abs() - self.cfg.corr_deadband_rot, min=0.0)
-        err = torch.cat((err_pos, err_rot), dim=-1)
-
-        # Integral term (anti-windup clamped) -- removes steady-state error.
-        integ = self._objanchor_integral[env_ids].clone()
-        integ[:, :3] = self._clamp_norm(integ[:, :3] + self.cfg.corr_ki_pos * err_pos, self.cfg.corr_max_pos)
-        integ[:, 3:] = self._clamp_norm(integ[:, 3:] + self.cfg.corr_ki_rot * err_rot, self.cfg.corr_max_rot)
-        self._objanchor_integral[env_ids] = integ
-
-        # Proportional + Integral term.
-        raw = torch.zeros_like(integ)
-        raw[:, :3] = self.cfg.corr_kp_pos * err_pos
-        raw[:, 3:] = self.cfg.corr_kp_rot * err_rot
-        raw[:, :3] = raw[:, :3] + integ[:, :3]
-        raw[:, 3:] = raw[:, 3:] + integ[:, 3:]
-
-        # Optional filtered-derivative term (off by default; pose-error derivatives are noisy).
-        if self.cfg.corr_kd_pos != 0.0 or self.cfg.corr_kd_rot != 0.0:
-            d_err = err - self._objanchor_prev_err[env_ids]
-            deriv = (1.0 - self.cfg.corr_d_lowpass) * self._objanchor_deriv[env_ids] + self.cfg.corr_d_lowpass * d_err
-            self._objanchor_deriv[env_ids] = deriv
-            raw[:, :3] = raw[:, :3] + self.cfg.corr_kd_pos * deriv[:, :3]
-            raw[:, 3:] = raw[:, 3:] + self.cfg.corr_kd_rot * deriv[:, 3:]
-        self._objanchor_prev_err[env_ids] = err
-
-        # Output clamp to the +-5 cm / +-10 deg budget.
-        raw[:, :3] = self._clamp_norm(raw[:, :3], self.cfg.corr_max_pos)
-        raw[:, 3:] = self._clamp_norm(raw[:, 3:], self.cfg.corr_max_rot)
-
-        # Slew-limit the applied correction toward the target so it changes gradually.
-        prev = self._objanchor_correction[env_ids]
-        corr = torch.cat(
-            (
-                self._slew_limit(prev[:, :3], raw[:, :3], self.cfg.corr_slew_pos),
-                self._slew_limit(prev[:, 3:], raw[:, 3:], self.cfg.corr_slew_rot),
-            ),
-            dim=-1,
-        )
-        self._objanchor_correction[env_ids] = corr
-
-    @staticmethod
-    def _clamp_norm(vec: torch.Tensor, max_norm: float) -> torch.Tensor:
-        norm = torch.norm(vec, dim=-1, keepdim=True)
-        scale = torch.clamp(max_norm / torch.clamp(norm, min=1e-8), max=1.0)
-        return vec * scale
-
-    @staticmethod
-    def _slew_limit(prev: torch.Tensor, target: torch.Tensor, max_step: float) -> torch.Tensor:
-        """Move ``prev`` toward ``target`` by at most ``max_step`` (per-vector norm) this step."""
-        delta = target - prev
-        norm = torch.norm(delta, dim=-1, keepdim=True)
-        scale = torch.clamp(max_step / torch.clamp(norm, min=1e-8), max=1.0)
-        return prev + delta * scale
+        # Object-stall gate + bounded PI(D) update (writes the correction for the gated subset).
+        self._corr.update(env_ids, err_pos_b, err_rot_b, anchor_achieved)
 
     def _env_ids_tensor(self, env_ids: Sequence[int]) -> torch.Tensor:
         if isinstance(env_ids, slice):
@@ -873,6 +801,78 @@ class ObjectAndHandBasePoseCommandCfg(ObjectUniformPoseCommandCfg):
 
 
 @configclass
+class AnchorCorrectionCfg:
+    """Bounded PI(D) object->goal correction (nudges the anchor so the object reaches its goal).
+
+    Consumed by :class:`ObjectAnchorPIDController`; ``enable`` / ``anchor_achieved_*`` are also read
+    by the command term (it owns the anchor-achieved gate). Gains/limits default to a starting point
+    -- see the TODO on tuning below.
+    """
+
+    enable: bool = False
+    """Whether to run the correction (PI(D) on the measured object->goal error). When False the
+    command exposes the bare nominal anchor offset."""
+
+    deadband_pos: float = 0.00
+    """Per-axis object position error (m) below which the controller idles -- the in-hand policy
+    owns sub-deadband error, so the arm only acts when the hand can't (residual tolerance)."""
+
+    deadband_rot: float = 0.0
+    """Per-axis object orientation error (rad) below which the controller idles (residual tol)."""
+
+    # TODO: !!!! Tune the PI(D) gains and correction limits. The current values are a starting point
+    # based on intuition and preliminary experiments; systematic tuning is needed for best results.
+    kp_pos: float = 0.1
+    """Proportional gain on the (deadbanded) position error -- responsiveness."""
+
+    kp_rot: float = 0.05
+    """Proportional gain on the rotation error (smaller so the hand does most reorientation)."""
+
+    ki_pos: float = 0.1
+    """Integral gain on the position error -- removes steady-state error (object reaches goal)."""
+
+    ki_rot: float = 0.05
+    """Integral gain on the rotation error (smaller -- rotation commits slowly/reluctantly)."""
+
+    kd_pos: float = 0.1
+    """Derivative gain on the position error (off by default; pose-error derivatives are noisy)."""
+
+    kd_rot: float = 0.05
+    """Derivative gain on the rotation error (off by default)."""
+
+    d_lowpass: float = 0.2
+    """EMA factor for the derivative term (smaller = more smoothing). Used only when Kd != 0."""
+
+    max_pos: float = 0.05
+    """Output + integral bound: max position deviation (m) of the offset from its initial value."""
+
+    max_rot: float = 0.1745
+    """Output + integral bound: max rotation deviation (rad, ~10 deg) of the offset from initial."""
+
+    slew_pos: float = 0.002
+    """Max change (m) of the applied position correction per step -- keeps adjustment gradual."""
+
+    slew_rot: float = 0.005
+    """Max change (rad) of the applied rotation correction per step -- keeps adjustment gradual."""
+
+    anchor_achieved_pos: float = 0.01
+    """Hand-base position tolerance (m) to consider the anchor achieved (arm settled)."""
+
+    anchor_achieved_rot: float = 0.05
+    """Hand-base orientation tolerance (rad) to consider the anchor achieved."""
+
+    stall_window: int = 30
+    """Number of steps over which the object error must not improve by stall_delta to be considered
+    stalled. Zero disables the stall gate (correction fires whenever the anchor is achieved)."""
+
+    stall_delta_pos: float = 0.003
+    """Object position improvement (m) below which the object is considered stalled."""
+
+    stall_delta_rot: float = 0.01
+    """Object orientation improvement (rad) below which the object is considered stalled."""
+
+
+@configclass
 class PickInsertTrajectoryObjectAndHandBasePoseCommandCfg(ObjectAndHandBasePoseCommandCfg):
     """Configuration for the pick-insert trajectory command."""
 
@@ -921,64 +921,6 @@ class PickInsertTrajectoryObjectAndHandBasePoseCommandCfg(ObjectAndHandBasePoseC
     first hovers above the object. Zero => go directly to the grasp pose."""
 
     # -- Adaptive object->anchor correction (bounded PI(D) so the object reaches its goal) --
-    enable_object_goal_correction: bool = False
-    """Whether to adapt the object->anchor offset (PI(D) on the measured object->goal error) so
-    the object reaches its goal. When False the command exposes the bare initial offset."""
-
-    corr_deadband_pos: float = 0.00
-    """Per-axis object position error (m) below which the controller idles -- the in-hand policy
-    owns sub-deadband error, so the arm only acts when the hand can't (residual tolerance)."""
-
-    corr_deadband_rot: float = 0.0
-    """Per-axis object orientation error (rad) below which the controller idles (residual tol)."""
-
-    '''TODO: !!!! Tune the PI(D) gains and correction limits. The current values are a starting point based on intuition and preliminary experiments, but systematic tuning is needed for best performance.'''
-    corr_kp_pos: float = 0.1
-    """Proportional gain on the (deadbanded) position error -- responsiveness."""
-
-    corr_kp_rot: float = 0.05
-    """Proportional gain on the rotation error (smaller so the hand does most reorientation)."""
-
-    corr_ki_pos: float = 0.1
-    """Integral gain on the position error -- removes steady-state error (object reaches goal)."""
-
-    corr_ki_rot: float = 0.05
-    """Integral gain on the rotation error (smaller -- rotation commits slowly/reluctantly)."""
-
-    corr_kd_pos: float = 0.1
-    """Derivative gain on the position error (off by default; pose-error derivatives are noisy)."""
-
-    corr_kd_rot: float = 0.05
-    """Derivative gain on the rotation error (off by default)."""
-
-    corr_d_lowpass: float = 0.2
-    """EMA factor for the derivative term (smaller = more smoothing). Used only when Kd != 0."""
-
-    corr_max_pos: float = 0.05
-    """Output + integral bound: max position deviation (m) of the offset from its initial value."""
-
-    corr_max_rot: float = 0.1745
-    """Output + integral bound: max rotation deviation (rad, ~10 deg) of the offset from initial."""
-
-    corr_slew_pos: float = 0.002
-    """Max change (m) of the applied position correction per step -- keeps adjustment gradual."""
-
-    corr_slew_rot: float = 0.005
-    """Max change (rad) of the applied rotation correction per step -- keeps adjustment gradual."""
-
-    corr_anchor_achieved_pos: float = 0.01
-    """Hand-base position tolerance (m) to consider the anchor achieved (arm settled)."""
-
-    corr_anchor_achieved_rot: float = 0.05
-    """Hand-base orientation tolerance (rad) to consider the anchor achieved."""
-
-    corr_stall_window: int = 30
-    """Number of steps over which the object error must not improve by corr_stall_delta to
-    be considered stalled. Zero disables the stall gate (correction fires whenever anchor
-    is achieved)."""
-
-    corr_stall_delta_pos: float = 0.003
-    """Object position improvement (m) below which the object is considered stalled."""
-
-    corr_stall_delta_rot: float = 0.01
-    """Object orientation improvement (rad) below which the object is considered stalled."""
+    correction: AnchorCorrectionCfg = AnchorCorrectionCfg()
+    """Bounded PI(D) correction on the measured object->goal error. Disabled by default
+    (``correction.enable = False``); see :class:`AnchorCorrectionCfg` for the gains/limits."""

@@ -46,7 +46,7 @@ class LowLevelGateCfg:
     contact_threshold: float = 1.0
     """Object contact force (N) threshold; matches the ``good_finger_contact`` reward."""
     anchor_achieved_pos: float = 0.01
-    """Hand-base position error (m) below which the anchor is considered reached (``corr_anchor_achieved_pos``)."""
+    """Hand-base position error (m) below which the anchor is considered reached (``correction.anchor_achieved_pos``)."""
     anchor_achieved_rot: Optional[float] = 0.05
     """Hand-base orientation error (rad) for anchor-reached; ``None`` => position only."""
 
