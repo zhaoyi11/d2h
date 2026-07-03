@@ -8,13 +8,13 @@ from tensordict import TensorDict
 
 from rsl_rl.env import VecEnv
 
-from .wrapper import HierarchicalChunkEnvWrapper
+from .wrapper import DirectLowLevelEnvWrapper
 
 
 class HrlRslRlVecEnvWrapper(VecEnv):
     """Minimal RSL-RL VecEnv wrapper that respects HRL action dimensions."""
 
-    def __init__(self, env: HierarchicalChunkEnvWrapper, clip_actions: float | None = None) -> None:
+    def __init__(self, env: DirectLowLevelEnvWrapper, clip_actions: float | None = None) -> None:
         self.env = env
         self.clip_actions = clip_actions
         self.num_envs = env.num_envs

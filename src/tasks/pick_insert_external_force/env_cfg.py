@@ -10,7 +10,6 @@ import isaaclab.sim as sim_utils
 import torch
 from isaaclab.assets import ArticulationCfg, AssetBaseCfg, RigidObjectCfg
 from isaaclab.controllers.differential_ik_cfg import DifferentialIKControllerCfg
-from isaaclab.controllers.operational_space_cfg import OperationalSpaceControllerCfg
 from isaaclab.envs import ManagerBasedRLEnvCfg, ViewerCfg
 from isaaclab.actuators.actuator_cfg import ImplicitActuatorCfg
 from isaaclab.managers import EventTermCfg as EventTerm
@@ -178,7 +177,7 @@ class CommandsCfg:
         enable_pregrasp_reach=True,
         # Actively nudge the hand-base anchor so the object reaches its goal pose when the
         # in-hand policy alone cannot; cost-regularized (rotation costs more than position),
-        # complementing the OSC variable-impedance arm.
+        # complementing the MPC-driven arm.
         enable_object_goal_correction=True,
         # Bounded but memoryless: clamped pure-P correction toward the CURRENT command anchor.
         corr_slew_pos=1.0,  # large -> slew never limits, correction is fresh each step

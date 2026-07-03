@@ -625,7 +625,7 @@ class PickInsertTrajectoryObjectAndHandBasePoseCommand(ObjectAndHandBasePoseComm
         and an output slew limit makes the correction change gradually.
 
         The correction feeds :meth:`_anchor_correction` and thus the anchor / hand-base target
-        (``command[:, 7:14]`` OSC equilibrium and, via :meth:`_object_pose_command_hand_base_b`,
+        (``command[:, 7:14]`` the arm target and, via :meth:`_object_pose_command_hand_base_b`,
         ``command[:, :7]`` the in-hand target), so arm and hand cooperate. Keep the gains/slew slow
         relative to the hand's response.
         """

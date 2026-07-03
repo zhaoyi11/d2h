@@ -11,8 +11,6 @@ import torch
 from torch import nn
 from torch import Tensor
 
-from src.policy.vae import ConditionalTrajectoryVAE, MODEL_TYPE, VAEConfig
-
 DEFAULT_LOW_LEVEL_RSL_RL_CHECKPOINT = Path("/home/yizhao/yi/D2H/logs/rsl_rl/anyreorient/model_14999.pt")
 
 
@@ -28,40 +26,6 @@ def _is_torchscript_archive(path: Path) -> bool:
         return False
     with zipfile.ZipFile(path) as archive:
         return any("/code/__torch__/" in name or name.endswith("/code/__torch__.py") for name in archive.namelist())
-
-
-@dataclass
-class LowLevelVAEPolicy:
-    """Inference wrapper around a frozen conditional trajectory VAE."""
-
-    model: ConditionalTrajectoryVAE
-    config: VAEConfig
-
-    @property
-    def state_dim(self) -> int:
-        return int(self.config.state_dim)
-
-    @property
-    def action_dim(self) -> int:
-        return int(self.config.action_dim)
-
-    @property
-    def latent_dim(self) -> int:
-        return int(self.config.latent_dim)
-
-    @property
-    def chunk_length(self) -> int:
-        return int(self.config.future_length)
-
-    @torch.inference_mode()
-    def decode(self, context: Tensor, z: Tensor) -> Tensor:
-        """Decode a latent into a low-level hand-action chunk."""
-        if context.shape[-1] != self.config.context_dim:
-            raise ValueError(f"Expected VAE context dim {self.config.context_dim}, got {context.shape[-1]}.")
-        if z.shape[-1] != self.latent_dim:
-            raise ValueError(f"Expected latent dim {self.latent_dim}, got {z.shape[-1]}.")
-        condition = self.model.context_encoder(context)
-        return self.model.decode(condition, z)
 
 
 @dataclass
@@ -85,34 +49,6 @@ class LowLevelRslRlPolicy:
         if self.obs_mean is not None and self.obs_std is not None:
             obs = (obs - self.obs_mean) / (self.obs_std + self.normalization_eps)
         return self.model(obs)
-
-
-def load_low_level_vae(
-    checkpoint_path: str | Path,
-    device: torch.device | str,
-    expected_action_dim: int | None = None,
-) -> LowLevelVAEPolicy:
-    """Load a frozen VAE checkpoint for low-level hand-action decoding."""
-    path = Path(checkpoint_path).expanduser()
-    checkpoint = _torch_load_checkpoint(path, map_location=device)
-    model_type = checkpoint.get("model_type")
-    if model_type != MODEL_TYPE:
-        raise ValueError(f"Expected checkpoint model_type {MODEL_TYPE!r}, got {model_type!r}.")
-    if "config" not in checkpoint:
-        raise KeyError(f"Checkpoint is missing VAE config: {path}")
-    if "model_state_dict" not in checkpoint:
-        raise KeyError(f"Checkpoint is missing model_state_dict: {path}")
-
-    config = VAEConfig(**checkpoint["config"])
-    if expected_action_dim is not None and int(expected_action_dim) != int(config.action_dim):
-        raise ValueError(f"Expected low-level action dim {expected_action_dim}, checkpoint has {config.action_dim}.")
-
-    model = ConditionalTrajectoryVAE(config).to(device)
-    model.load_state_dict(checkpoint["model_state_dict"])
-    model.eval()
-    for param in model.parameters():
-        param.requires_grad_(False)
-    return LowLevelVAEPolicy(model=model, config=config)
 
 
 def _rsl_rl_actor_weight_items(state_dict: dict[str, Tensor]) -> list[tuple[int, Tensor]]:
