@@ -66,15 +66,6 @@ from src.policy.hl_policy import (  # noqa: E402
 )
 
 
-def _make_env_cfg():
-    return parse_env_cfg(
-        args_cli.task,
-        device=args_cli.device,
-        num_envs=args_cli.num_envs,
-        use_fabric=True,
-    )
-
-
 def _as_list(tensor: torch.Tensor) -> list[float]:
     return [round(float(value), 5) for value in tensor.detach().cpu().tolist()]
 
@@ -152,12 +143,12 @@ def _make_target_object_marker(env) -> VisualizationMarkers:
         target_object_cfg = sim_utils.UsdFileCfg(
             usd_path=object_spawn.usd_path,
             scale=object_spawn.scale,
-            visual_material=sim_utils.PreviewSurfaceCfg(diffuse_color=(0.1, 0.9, 0.2), opacity=0.25),
+            visual_material=sim_utils.PreviewSurfaceCfg(diffuse_color=(0.1, 0.9, 0.2), opacity=0.8),
         )
     else:
         target_object_cfg = sim_utils.CuboidCfg(
             size=(0.04, 0.04, 0.08),
-            visual_material=sim_utils.PreviewSurfaceCfg(diffuse_color=(0.1, 0.9, 0.2), opacity=0.25),
+            visual_material=sim_utils.PreviewSurfaceCfg(diffuse_color=(0.1, 0.9, 0.2), opacity=0.8),
         )
 
     marker = VisualizationMarkers(
@@ -298,7 +289,13 @@ def _print_snapshot(env, step: int) -> None:
 def main() -> None:
     env = None
     try:
-        env_cfg = _make_env_cfg()
+        env_cfg = parse_env_cfg(
+            args_cli.task,
+            device=args_cli.device,
+            num_envs=args_cli.num_envs,
+            use_fabric=True,
+        )
+
         env = gym.make(args_cli.task, cfg=env_cfg)
         env_unwrapped = env.unwrapped
 
@@ -330,21 +327,16 @@ def main() -> None:
             flush=True,
         )
 
-        gate = None
-        if args_cli.gate_low_level:
-            gate = LowLevelHandGate(
-                LowLevelGateCfg(
-                    anchor_object_dist=args_cli.gate_dist,
-                    contact_threshold=args_cli.gate_contact_threshold,
-                    anchor_achieved_pos=args_cli.gate_anchor_pos,
-                    anchor_achieved_rot=(None if args_cli.gate_anchor_rot < 0 else args_cli.gate_anchor_rot),
-                )
+        # low-level gate: apply the hand policy only within --gate_dist of the object AND
+        # (good-grasp contact OR anchor reached); otherwise hold the hand open (stretch).
+        gate = LowLevelHandGate(
+            LowLevelGateCfg(
+                anchor_object_dist=args_cli.gate_dist,
+                contact_threshold=args_cli.gate_contact_threshold,
+                anchor_achieved_pos=args_cli.gate_anchor_pos,
+                anchor_achieved_rot=(None if args_cli.gate_anchor_rot < 0 else args_cli.gate_anchor_rot),
             )
-            print(
-                f"[INFO]: Low-level gate enabled (dist<{args_cli.gate_dist}m AND "
-                f"(good-grasp contact OR anchor reached); else stretch open).",
-                flush=True,
-            )
+        )
 
         for step in range(1, args_cli.steps + 1):
             with torch.inference_mode():

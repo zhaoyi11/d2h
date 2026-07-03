@@ -280,7 +280,8 @@ class ObservationsCfg:
                 "base_body_asset_cfg": SceneEntityCfg("robot", body_names="base"),
             },
         )
-        # -- object contact: raw 3D force in hand-base frame (object filter only)
+        # -- object contact: raw 3D force in hand-base frame (object filter only) 
+        # TODO: remove this in the latest policy
         fingertip_contact_force_b = ObsTerm(
             func=mdp.fingers_contact_force_body_b,
             params={
@@ -558,7 +559,7 @@ class EventCfg:
         func=mdp.randomize_physics_scene_gravity,
         mode="reset",
         params={
-            "gravity_distribution_params": ([0.0, 0.0, -1.81], [0.0, 0.0, -1.81]),
+            "gravity_distribution_params": ([0.0, 0.0, -1.81], [0.0, 0.0, -1.81]), # TODO: change to [0.0, 0.0, -9.81] for full gravity
             "operation": "abs",
         },
     )
