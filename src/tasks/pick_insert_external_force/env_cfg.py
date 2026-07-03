@@ -35,6 +35,7 @@ from src.tasks.pick_insert_external_force.mdps.contacts import (
     external_indices,
     object_indices,
 )
+
 from src.assets.franka_leap_hand.franka_leap import FRANKA_LEAP_HAND_CFG
 
 UWLAB_CLOUD_ASSETS_DIR = "https://huggingface.co/datasets/UW-Lab/uwlab-assets/resolve/main"
@@ -57,42 +58,17 @@ class SceneCfg(InteractiveSceneCfg):
                 solver_velocity_iteration_count=1,
                 disable_gravity=False,
                 kinematic_enabled=False,
-                max_depenetration_velocity=1.0,
-                # enable_ccd=True,
+                # Gently correct any residual overlap instead of flinging the ~0.02 kg peg out of the
+                # workspace (which reads as an env reset).
+                max_depenetration_velocity=0.1,
+            ),
+            collision_props=sim_utils.CollisionPropertiesCfg(
+                collision_enabled=True,
             ),
             mass_props=sim_utils.MassPropertiesCfg(mass=0.02),
         ),
-        init_state=RigidObjectCfg.InitialStateCfg(pos=(0.45, 0.2, 0.3), rot=(0.7071068, 0.0, 0.7071068, 0.0)),
+        init_state=RigidObjectCfg.InitialStateCfg(pos=(0.45, 0.2, 0.30), rot=(0.7071068, 0.0, 0.7071068, 0.0)),
     )
-
-    # # insertive_object: rounded capsule peg (long axis = local Z, matches insertion rewards)
-    # object: RigidObjectCfg = RigidObjectCfg(
-    #     prim_path="{ENV_REGEX_NS}/Object",
-    #     spawn=sim_utils.CapsuleCfg(
-    #         radius=0.025,  # ⌀ 3 cm
-    #         height=0.04,  # cylinder segment; total length = height + 2*radius ≈ 8 cm
-    #         axis="Z",
-    #         rigid_props=sim_utils.RigidBodyPropertiesCfg(
-    #             solver_position_iteration_count=16,
-    #             solver_velocity_iteration_count=1,
-    #             disable_gravity=False,
-    #             kinematic_enabled=False,
-    #             max_depenetration_velocity=1.0,
-    #             # enable_ccd=True,
-    #         ),
-    #         mass_props=sim_utils.MassPropertiesCfg(mass=0.02),
-    #         collision_props=sim_utils.CollisionPropertiesCfg(),
-    #         physics_material=sim_utils.RigidBodyMaterialCfg(
-    #             static_friction=1.0,
-    #             dynamic_friction=1.0,
-    #             restitution=0.0,
-    #         ),
-    #         visual_material=sim_utils.PreviewSurfaceCfg(
-    #             diffuse_color=(0.2, 0.4, 0.8), roughness=0.5
-    #         ),
-    #     ),
-    #     init_state=RigidObjectCfg.InitialStateCfg(pos=(0.45, 0.2, 0.3), rot=(0.7071068, 0.0, 0.7071068, 0.0)),
-    # )
 
     receptive_object: RigidObjectCfg = RigidObjectCfg(
         prim_path="{ENV_REGEX_NS}/ReceptiveObject",
@@ -105,9 +81,14 @@ class SceneCfg(InteractiveSceneCfg):
                 disable_gravity=False,
                 kinematic_enabled=True,
                 max_depenetration_velocity=1.0,
-                # enable_ccd=True,
             ),
-            mass_props=sim_utils.MassPropertiesCfg(mass=0.5),
+            # Speculative-contact margin on the hole surfaces (its convexHull collision is rewritten
+            # to SDF by the receptacle_collision_sdf prestartup event so the cavity is collidable).
+            collision_props=sim_utils.CollisionPropertiesCfg(
+                collision_enabled=True, 
+                contact_offset=0.01, rest_offset=0.0
+            ),
+            mass_props=sim_utils.MassPropertiesCfg(mass=0.05),
         ),
         init_state=RigidObjectCfg.InitialStateCfg(pos=(0.35, 0.0, 0.275), rot=(1.0, 0.0, 0.0, 0.0)),
     )
@@ -191,6 +172,10 @@ class CommandsCfg:
             yaw=(0.0, 0.0),
         ),
         success_vis_asset_name="table",
+        # Reach-to-grasp phase: the peg spawns on the table, so seed the initial hand-base command
+        # with a grasp pose over the peg (arm reaches down first) and hold there until the peg is
+        # actually grasped before advancing into the pick->insert trajectory.
+        enable_pregrasp_reach=True,
         # Actively nudge the hand-base anchor so the object reaches its goal pose when the
         # in-hand policy alone cannot; cost-regularized (rotation costs more than position),
         # complementing the OSC variable-impedance arm.
@@ -466,14 +451,6 @@ class ObservationsCfg:
 @configclass
 class EventCfg:
     """Configuration for randomization."""
-
-    # # -- pre-startup
-    # randomize_object_scale = EventTerm(
-    #     func=mdp.randomize_rigid_body_scale,
-    #     mode="prestartup",
-    #     params={"scale_range": (0.75, 1.5), "asset_cfg": SceneEntityCfg("object")},
-    # )
-     
     robot_physics_material = EventTerm(
         func=mdp.randomize_rigid_body_material,
         mode="startup",
@@ -539,7 +516,21 @@ class EventCfg:
         },
     )
 
-    reset_object: EventTerm | None = None
+    # Rest the peg on the table each reset (its init_state is an on-table lying pose). Small x/y
+    # jitter keeps it on the table; velocity zeroed so it settles gently under the reduced-gravity
+    # curriculum. This replaces the in-hand teleport (removed below) so there is no hand/object
+    # contact at t=0. Orientation is fixed (no yaw jitter): the reach-to-grasp command derives a
+    # grasp pose with a fixed anchor orientation, so the peg must spawn at a consistent orientation
+    # for the grasp to align (x/y variation is fine -- the reach reads the peg's live pose).
+    reset_object: EventTerm | None = EventTerm(
+        func=mdp.reset_root_state_uniform,
+        mode="reset",
+        params={
+            "pose_range": {"x": [-0.03, 0.03], "y": [-0.03, 0.03], "yaw": [0.0, 0.0]},
+            "velocity_range": {"x": [0.0, 0.0], "y": [0.0, 0.0], "z": [0.0, 0.0]},
+            "asset_cfg": SceneEntityCfg("object"),
+        },
+    )
 
     reset_root = EventTerm(
         func=mdp.reset_root_state_uniform,
@@ -559,18 +550,6 @@ class EventCfg:
     #         "velocity_range": [0.0, 0.0],
     #     },
     # )
-
-    reset_object_relative_to_hand = EventTerm(
-        func=mdp.reset_object_pose_relative_to_body,
-        mode="reset",
-        params={
-            "asset_cfg": SceneEntityCfg("object"),
-            "body_asset_cfg": SceneEntityCfg("robot", body_names="base"),
-            "local_pos": (0.12, 0.0, 0.08),
-            "random_orientation": True,
-        },
-    )
-
     # Note (Octi): This is a deliberate trick in Remake to accelerate learning.
     # By scheduling gravity as a curriculum — starting with no gravity (easy)
     # and gradually introducing full gravity (hard) — the agent learns more smoothly.
@@ -582,25 +561,6 @@ class EventCfg:
         params={
             "gravity_distribution_params": ([0.0, 0.0, -1.81], [0.0, 0.0, -1.81]),
             "operation": "abs",
-        },
-    )
-
-    # Fires every step per-env; must be declared after variable_gravity so the
-    # event manager applies it after gravity has been updated.
-    gravity_compensation_assist = EventTerm(
-        func=task_mdps.apply_gravity_compensation_assist,
-        mode="interval",
-        interval_range_s=(0.0, 0.0),
-        params={
-            "asset_cfg": SceneEntityCfg("object"),
-            "contact_threshold": 1.0,
-            "contact_sensor_names": [
-                "thumb_fingertip_object_s",
-                "fingertip_object_s",
-                "fingertip_2_object_s",
-                "fingertip_3_object_s",
-            ],
-            "decay_ratio": 0.9,
         },
     )
 
@@ -649,7 +609,7 @@ class HrlActionsCfg:
         # robot base sits at the world origin in this env). The receptacle is intentionally excluded
         # so the peg can still reach the bore.
         obstacle_cuboids={
-            "table": {"dims": [0.8, 1.5, 0.04], "pose": [0.55, 0.0, 0.235, 1, 0, 0, 0]},
+            # "table": {"dims": [0.8, 1.5, 0.04], "pose": [0.55, 0.0, 0.235, 1, 0, 0, 0]},
             "static_obstacle": {"dims": [0.05, 0.05, 0.25], "pose": [0.5, -0.25, 0.38, 1, 0, 0, 0]},
             #### DYNAMIC OBSTACLE ####
             # "dynamic_obstacle": {"dims": [0.06, 0.06, 0.06], "pose": [0.4, 0.05, 0.45, 1, 0, 0, 0]},
@@ -766,13 +726,13 @@ class TerminationsCfg:
 
     time_out = DoneTerm(func=mdp.time_out, time_out=True)
 
-    # object_out_of_bound = DoneTerm(
-    #     func=mdp.out_of_bound,
-    #     params={
-    #         "in_bound_range": {"x": (-0.5, 1.5), "y": (-2.0, 2.0), "z": (0.0, 2.0)},
-    #         "asset_cfg": SceneEntityCfg("object"),
-    #     },
-    # )
+    object_out_of_bound = DoneTerm(
+        func=mdp.out_of_bound,
+        params={
+            "in_bound_range": {"x": (-0.5, 1.5), "y": (-2.0, 2.0), "z": (0.0, 2.0)},
+            "asset_cfg": SceneEntityCfg("object"),
+        },
+    )
 
     # abnormal_robot = DoneTerm(func=mdp.abnormal_robot_state)
 

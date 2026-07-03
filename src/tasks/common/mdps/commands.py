@@ -495,7 +495,9 @@ class PickInsertTrajectoryObjectAndHandBasePoseCommand(ObjectAndHandBasePoseComm
         object_achieved = self._object_target_achieved()
         hand_base_achieved = self.metrics["hand_base_position_error"] < self.cfg.hand_base_position_tolerance
         hand_base_achieved &= self.metrics["hand_base_orientation_error"] < self.cfg.hand_base_orientation_tolerance
-        self._trajectory_command_achieved[:] = object_achieved & hand_base_achieved
+        achieved = object_achieved & hand_base_achieved
+        
+        self._trajectory_command_achieved[:] = achieved
         self.metrics["trajectory_command_achieved"] = self._trajectory_command_achieved.float()
 
     def _object_target_achieved(self) -> torch.Tensor:
@@ -534,8 +536,23 @@ class PickInsertTrajectoryObjectAndHandBasePoseCommand(ObjectAndHandBasePoseComm
         self._object_pose_trajectory_b[env_ids_tensor] = torch.stack(trajectories, dim=0)
         self._trajectory_step[env_ids_tensor] = 0
         self.pose_command_b[env_ids_tensor] = self._object_pose_trajectory_b[env_ids_tensor, 0]
-        hand_base_pos_b, hand_base_quat_b = self._current_hand_base_pose_b(env_ids_tensor)
-        self.hand_base_pose_command_b[env_ids_tensor] = torch.cat((hand_base_pos_b, hand_base_quat_b), dim=1)
+        if self.cfg.enable_pregrasp_reach:
+            # Reach phase: seed the step-0 hand-base with a grasp pose over the object (waypoint 0 is
+            # the object's current pose) so the arm first descends to the object, instead of freezing
+            # at the current hand pose. An optional standoff hovers above the object first.
+            reach_object_pose_b = self.pose_command_b[env_ids_tensor].clone()
+            reach_object_pose_b[:, 2] += self.cfg.pregrasp_approach_height
+            hand_base_pose, anchor_pose = hand_base_pose_from_object_command_b(
+                reach_object_pose_b,
+                self._hand_base_to_anchor_pose[env_ids_tensor],
+                self.cfg.object_to_anchor_pose,
+                None,
+            )
+            self.hand_base_pose_command_b[env_ids_tensor] = hand_base_pose
+            self.anchor_pose_command_b[env_ids_tensor] = anchor_pose
+        else:
+            hand_base_pos_b, hand_base_quat_b = self._current_hand_base_pose_b(env_ids_tensor)
+            self.hand_base_pose_command_b[env_ids_tensor] = torch.cat((hand_base_pos_b, hand_base_quat_b), dim=1)
         self._objanchor_integral[env_ids_tensor] = 0.0
         self._objanchor_correction[env_ids_tensor] = 0.0
         self._objanchor_prev_err[env_ids_tensor] = 0.0
@@ -884,6 +901,18 @@ class PickInsertTrajectoryObjectAndHandBasePoseCommandCfg(ObjectAndHandBasePoseC
 
     hand_base_orientation_tolerance: float = 0.2
     """Hand-base orientation tolerance in radians for advancing the command trajectory."""
+
+    # -- Initial reach-to-grasp phase (used when the object spawns on the table, not in-hand) --
+    enable_pregrasp_reach: bool = False
+    """When True, seed the initial (trajectory step 0) hand-base command with a grasp pose over the
+    object -- derived from the object's current pose via the object->anchor / hand-base->anchor
+    offsets -- instead of freezing at the current hand pose. This makes the arm first reach down to
+    the object before the pick->insert trajectory. When False the legacy behavior (hold the current
+    hand pose at step 0) is kept."""
+
+    pregrasp_approach_height: float = 0.0
+    """Optional standoff (m) added to the object z when deriving the step-0 reach goal, so the hand
+    first hovers above the object. Zero => go directly to the grasp pose."""
 
     # -- Adaptive object->anchor correction (bounded PI(D) so the object reaches its goal) --
     enable_object_goal_correction: bool = False

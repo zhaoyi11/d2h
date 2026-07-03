@@ -44,6 +44,16 @@ parser.add_argument(
     help="Use zero hand actions instead of the low-level actor.",
 )
 parser.add_argument(
+    "--gate_low_level",
+    action="store_true",
+    help="Gate the hand actions: apply them only within --gate_dist of the object AND "
+    "(good-grasp contact OR anchor reached); otherwise hold the hand open (stretch).",
+)
+parser.add_argument("--gate_dist", type=float, default=0.05, help="Max anchor<->object distance (m) to enable the hand policy.")
+parser.add_argument("--gate_contact_threshold", type=float, default=1.0, help="Object contact force (N) for the good-grasp gate.")
+parser.add_argument("--gate_anchor_pos", type=float, default=0.01, help="Hand-base position error (m) for anchor-reached.")
+parser.add_argument("--gate_anchor_rot", type=float, default=0.05, help="Hand-base orientation error (rad) for anchor-reached; negative => position only.")
+parser.add_argument(
     "--disable_fabric",
     action="store_true",
     default=False,
@@ -69,7 +79,11 @@ from isaaclab.utils.math import (  # noqa: E402
     compute_pose_error,
     subtract_frame_transforms,
 )
-from src.policy.hl_policy import load_low_level_rsl_rl_policy  # noqa: E402
+from src.policy.hl_policy import (  # noqa: E402
+    LowLevelGateCfg,
+    LowLevelHandGate,
+    load_low_level_rsl_rl_policy,
+)
 
 
 def _load_module(module_name: str, path: Path) -> ModuleType:
@@ -87,12 +101,26 @@ def _apply_deterministic_reset(env_cfg) -> None:
     if reset_joints is not None:
         reset_joints.params["position_range"] = [0.0, 0.0]
 
-    reset_object = getattr(env_cfg.events, "reset_object_relative_to_hand", None)
-    if reset_object is None:
-        raise RuntimeError("--deterministic_reset requires reset_object_relative_to_hand on the env config.")
-    reset_object.params["random_orientation"] = False
-    reset_object.params["local_rot"] = (1.0, 0.0, 0.0, 0.0)
-    print("[INFO]: Deterministic reset enabled: zero joint offset and identity object local rotation.", flush=True)
+    applied = False
+
+    # In-hand spawn variant: fix the object's local rotation to identity.
+    reset_in_hand = getattr(env_cfg.events, "reset_object_relative_to_hand", None)
+    if reset_in_hand is not None:
+        reset_in_hand.params["random_orientation"] = False
+        reset_in_hand.params["local_rot"] = (1.0, 0.0, 0.0, 0.0)
+        applied = True
+
+    # On-table spawn variant: zero the pose jitter so the peg lands at a fixed table pose.
+    reset_object = getattr(env_cfg.events, "reset_object", None)
+    if reset_object is not None:
+        reset_object.params["pose_range"] = {"x": [0.0, 0.0], "y": [0.0, 0.0], "yaw": [0.0, 0.0]}
+        applied = True
+
+    if not applied:
+        raise RuntimeError(
+            "--deterministic_reset requires reset_object_relative_to_hand or reset_object on the env config."
+        )
+    print("[INFO]: Deterministic reset enabled: zero joint offset and fixed object reset pose.", flush=True)
 
 
 def _make_env_cfg():
@@ -399,13 +427,36 @@ def main() -> None:
                 flush=True,
             )
 
+        gate = None
+        if args_cli.gate_low_level:
+            gate = LowLevelHandGate(
+                LowLevelGateCfg(
+                    anchor_object_dist=args_cli.gate_dist,
+                    contact_threshold=args_cli.gate_contact_threshold,
+                    anchor_achieved_pos=args_cli.gate_anchor_pos,
+                    anchor_achieved_rot=(None if args_cli.gate_anchor_rot < 0 else args_cli.gate_anchor_rot),
+                )
+            )
+            print(
+                f"[INFO]: Low-level gate enabled (dist<{args_cli.gate_dist}m AND "
+                f"(good-grasp contact OR anchor reached); else stretch open).",
+                flush=True,
+            )
+
         for step in range(1, args_cli.steps + 1):
             with torch.inference_mode():
                 actions = _low_level_actions(env_unwrapped, low_level_policy, action_dim)
+                if gate is not None:
+                    actions = gate.apply(actions, env_unwrapped)
                 env.step(actions)
             _update_command_markers(env_unwrapped, target_object_marker, target_anchor_marker, target_base_marker)
             if args_cli.print_every > 0 and (step == 1 or step % args_cli.print_every == 0 or step == args_cli.steps):
                 _print_snapshot(env_unwrapped, step)
+                if gate is not None and gate.last_mask is not None:
+                    print(
+                        f"[STEP {step:04d}]: low-level active frac = {float(gate.last_mask.float().mean()):.3f}",
+                        flush=True,
+                    )
 
         print("[INFO]: Smoke test completed.", flush=True)
     finally:
