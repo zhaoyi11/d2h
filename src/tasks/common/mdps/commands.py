@@ -94,15 +94,21 @@ def _stage_obj_tor_tensors(
     return stage_obj_tor_tensor[:, 0], stage_obj_tor_tensor[:, 1]
 
 
-def _load_pick_insert_object_trajectory_module():
-    module_name = "pick_insert_demo_object_trajectory_for_command"
+def _load_object_trajectory_module():
+    """Load the peg-insertion trajectory helper (sibling module) by file path.
+
+    Loaded lazily by path rather than imported at module top level so that unit
+    tests can exec ``commands.py`` in isolation without importing the whole
+    ``src.tasks.common.mdps`` package (and thus isaaclab).
+    """
+    module_name = "common_mdps_object_trajectory_for_command"
     if module_name in sys.modules:
         return sys.modules[module_name]
 
-    trajectory_path = Path(__file__).resolve().parents[2] / "pick_insert demo" / "object_trajectory.py"
+    trajectory_path = Path(__file__).resolve().parent / "object_trajectory.py"
     spec = importlib.util.spec_from_file_location(module_name, trajectory_path)
     if spec is None or spec.loader is None:
-        raise ImportError(f"Could not load pick-insert object trajectory helper from {trajectory_path}.")
+        raise ImportError(f"Could not load object trajectory helper from {trajectory_path}.")
     module = importlib.util.module_from_spec(spec)
     sys.modules[module_name] = module
     spec.loader.exec_module(module)
@@ -519,7 +525,7 @@ class PickInsertTrajectoryObjectAndHandBasePoseCommand(ObjectAndHandBasePoseComm
             self.object.data.root_quat_w[env_ids_tensor],
         )
         current_pose_b = torch.cat((current_pos_b, current_quat_b), dim=1)
-        trajectory_module = _load_pick_insert_object_trajectory_module()
+        trajectory_module = _load_object_trajectory_module()
         receptive_pose = torch.tensor(self.cfg.receptive_pose, dtype=current_pose_b.dtype, device=self.device)
 
         trajectories = [

@@ -15,7 +15,7 @@ from pathlib import Path
 from isaaclab.app import AppLauncher
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
-DEMO_TASK_DIR = REPO_ROOT / "src" / "tasks" / "pick_insert demo"
+PICK_INSERT_TASK_DIR = REPO_ROOT / "src" / "tasks" / "pick_insert"
 if str(REPO_ROOT) not in sys.path:
     sys.path.insert(0, str(REPO_ROOT))
 
@@ -50,7 +50,7 @@ def _load_module(module_name: str, path: Path) -> ModuleType:
 
 def _make_env_cfg():
     if args_cli.demo_cfg:
-        demo = _load_module("pick_insert_demo_env_cfg_probe", DEMO_TASK_DIR / "env_cfg.py")
+        demo = _load_module("pick_insert_env_cfg_probe", PICK_INSERT_TASK_DIR / "env_cfg.py")
         env_cfg = demo.DexsuiteFrankaLeapInsertHrlEnvCfg()
         env_cfg.sim.device = args_cli.device
         env_cfg.scene.num_envs = args_cli.num_envs

@@ -14,7 +14,8 @@ from isaaclab.app import AppLauncher
 
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
-DEMO_TASK_DIR = REPO_ROOT / "src" / "tasks" / "pick_insert demo"
+OBJECT_TRAJECTORY_PATH = REPO_ROOT / "src" / "tasks" / "common" / "mdps" / "object_trajectory.py"
+ENV_CFG_PATH = REPO_ROOT / "src" / "tasks" / "pick_insert" / "env_cfg.py"
 
 
 parser = argparse.ArgumentParser(description="Visualize the pick-insert object trajectory in IsaacSim.")
@@ -105,11 +106,11 @@ def _write_demo_frame(scene: InteractiveScene, object_pose_w: torch.Tensor) -> N
 def main() -> None:
     print("[INFO]: Loading pick-insert object trajectory helper.", flush=True)
     trajectory_module = _load_module(
-        "pick_insert_demo_object_trajectory",
-        DEMO_TASK_DIR / "object_trajectory.py",
+        "pick_insert_object_trajectory",
+        OBJECT_TRAJECTORY_PATH,
     )
-    print("[INFO]: Loading pick-insert demo scene config.", flush=True)
-    env_cfg_module = _load_module("pick_insert_demo_env_cfg", DEMO_TASK_DIR / "env_cfg.py")
+    print("[INFO]: Loading pick-insert scene config.", flush=True)
+    env_cfg_module = _load_module("pick_insert_env_cfg", ENV_CFG_PATH)
 
     print("[INFO]: Creating SimulationContext.", flush=True)
     sim_cfg = sim_utils.SimulationCfg(device=args_cli.device)

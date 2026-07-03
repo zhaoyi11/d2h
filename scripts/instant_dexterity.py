@@ -3,10 +3,8 @@
 from __future__ import annotations
 
 import argparse
-import importlib.util
 import sys
 from pathlib import Path
-from types import ModuleType
 
 # Import Warp BEFORE the Isaac app so the site-packages Warp (1.14, required by cuRobo 0.8) is
 # cached in sys.modules and Isaac's bundled omni.warp.core (1.8.2) does not shadow it.
@@ -16,17 +14,15 @@ from isaaclab.app import AppLauncher
 
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
-DEMO_TASK_DIR = REPO_ROOT / "src" / "tasks" / "pick_insert demo"
 if str(REPO_ROOT) not in sys.path:
     sys.path.insert(0, str(REPO_ROOT))
 
 
 parser = argparse.ArgumentParser(description="Instant dexterity from coarse demonstrations.")
-parser.add_argument("--task", type=str, default="Pick_Insert_HRL-v0", help="Registered Gym task to launch.")
+parser.add_argument("--task", type=str, default="Pick_Insert_External_Force-v0", help="Registered Gym task to launch.")
 parser.add_argument("--num_envs", type=int, default=1, help="Number of environments to run.")
 parser.add_argument("--steps", type=int, default=1200, help="Number of environment steps to simulate.")
 parser.add_argument("--print_every", type=int, default=30, help="Print pose diagnostics every N steps.")
-parser.add_argument("--demo_cfg", action="store_true", help="Use src/tasks/pick_insert demo/env_cfg.py.")
 parser.add_argument(
     "--deterministic_reset",
     action="store_true",
@@ -86,16 +82,6 @@ from src.policy.hl_policy import (  # noqa: E402
 )
 
 
-def _load_module(module_name: str, path: Path) -> ModuleType:
-    spec = importlib.util.spec_from_file_location(module_name, path)
-    if spec is None or spec.loader is None:
-        raise ImportError(f"Could not load module {module_name!r} from {path}.")
-    module = importlib.util.module_from_spec(spec)
-    sys.modules[module_name] = module
-    spec.loader.exec_module(module)
-    return module
-
-
 def _apply_deterministic_reset(env_cfg) -> None:
     reset_joints = getattr(env_cfg.events, "reset_robot_joints", None)
     if reset_joints is not None:
@@ -124,16 +110,6 @@ def _apply_deterministic_reset(env_cfg) -> None:
 
 
 def _make_env_cfg():
-    if args_cli.demo_cfg:
-        demo_env_cfg = _load_module("pick_insert_demo_env_cfg_smoke", DEMO_TASK_DIR / "env_cfg.py")
-        env_cfg = demo_env_cfg.DexsuiteFrankaLeapInsertHrlEnvCfg()
-        env_cfg.sim.device = args_cli.device
-        env_cfg.sim.use_fabric = not args_cli.disable_fabric
-        env_cfg.scene.num_envs = args_cli.num_envs
-        if args_cli.deterministic_reset:
-            _apply_deterministic_reset(env_cfg)
-        return env_cfg
-
     env_cfg = parse_env_cfg(
         args_cli.task,
         device=args_cli.device,
