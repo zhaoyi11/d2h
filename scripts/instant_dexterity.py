@@ -1,4 +1,4 @@
-"""Smoke-test command-driven hand-base IK for the pick-insert HRL env."""
+"""Instant dexterity from coarse demonstrations."""
 
 from __future__ import annotations
 
@@ -21,7 +21,7 @@ if str(REPO_ROOT) not in sys.path:
     sys.path.insert(0, str(REPO_ROOT))
 
 
-parser = argparse.ArgumentParser(description="Smoke-test pick-insert HRL hand-base IK tracking.")
+parser = argparse.ArgumentParser(description="Instant dexterity from coarse demonstrations.")
 parser.add_argument("--task", type=str, default="Pick_Insert_HRL-v0", help="Registered Gym task to launch.")
 parser.add_argument("--num_envs", type=int, default=1, help="Number of environments to run.")
 parser.add_argument("--steps", type=int, default=1200, help="Number of environment steps to simulate.")

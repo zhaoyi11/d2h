@@ -28,9 +28,9 @@ from isaaclab.utils.noise import AdditiveGaussianNoiseCfg as Gnoise
 from isaaclab.utils.noise import AdditiveUniformNoiseCfg as Unoise
 from isaaclab.sensors import ContactSensorCfg, FrameTransformerCfg, OffsetCfg
 
-import src.tasks.pick_insert.mdps as mdp
+import src.tasks.pick_insert_external_force.mdps as mdp
 import src.tasks.reorient.mdps as task_mdps
-from src.tasks.pick_insert_external_force.mdps.contacts import (
+from src.tasks.pick_insert_external_force.mdps.contact_filters import (
     contact_filter_prim_paths,
     external_indices,
     object_indices,
