@@ -3,12 +3,13 @@
 #
 # SPDX-License-Identifier: BSD-3-Clause
 
-"""Per-environment stage/step state machine for the pick-insert object-pose trajectory.
+"""Per-environment stage/step state machine for a scripted object-pose trajectory.
 
 Pure ``torch`` (no isaaclab), so it can be loaded by file path and unit-tested in isolation --
 mirroring ``object_trajectory.py`` / ``anchor_correction.py``. It owns the per-env waypoint buffer,
 the current step index, the step->stage map, and the per-stage advance tolerances; the command term
-orchestrates it (it still owns ``pose_command_b`` and the hand-base/correction targets).
+orchestrates it (it still owns ``pose_command_b`` and the hand-base/correction targets). It is
+task-agnostic: any trajectory expressed as ``1 + sum(segment_steps)`` waypoints can be stepped here.
 """
 
 from __future__ import annotations
@@ -18,13 +19,13 @@ from collections.abc import Sequence
 import torch
 
 
-class PickInsertTrajectoryStepper:
+class TrajectoryStepper:
     """Holds the per-env object-pose waypoint sequence and advances a step index through it.
 
     A trajectory has ``1 + sum(segment_steps)`` waypoints: the initial pose followed by the
-    interpolation samples of the move/align/approach/insert/hold segments. Each step maps to a
-    stage (via :attr:`step_to_stage`) whose position/orientation tolerance decides when the object
-    target counts as achieved and the step may advance.
+    interpolation samples of each segment (the number and meaning of segments is task-defined). Each
+    step maps to a stage (via :attr:`step_to_stage`) whose position/orientation tolerance decides when
+    the object target counts as achieved and the step may advance.
     """
 
     def __init__(
@@ -90,4 +91,4 @@ class PickInsertTrajectoryStepper:
         self._step[env_ids] = torch.clamp(self._step[env_ids] + 1, max=self._length - 1)
 
 
-__all__ = ["PickInsertTrajectoryStepper"]
+__all__ = ["TrajectoryStepper"]

@@ -1,3 +1,16 @@
+"""Task-agnostic building blocks for scripted object-pose (and LEAP-hand) trajectories.
+
+This module holds only the *generic* pieces shared by every task's trajectory builder:
+:func:`build_object_pose_sequence_from_keyframes` (interpolate a waypoint sequence through an ordered
+list of keyframes), the pose interpolation primitives (:func:`interpolate_pose_segment`,
+:func:`slerp`), the generic anchor-pose builder, and the LEAP open->grasp builder. Task-specific
+builders (e.g. the pick-insert move/align/approach/insert/hold sequence) live in that task's own
+``mdps`` package and compose these primitives.
+
+Pure ``torch`` apart from :func:`combine_frame_transforms` (used only by
+:func:`build_anchor_pose_sequence`), so it can be loaded by file path and unit-tested in isolation.
+"""
+
 from __future__ import annotations
 
 from collections.abc import Sequence
@@ -7,7 +20,6 @@ import torch
 from isaaclab.utils.math import combine_frame_transforms
 
 
-DEFAULT_RECEPTIVE_POSE = (0.35, 0.0, 0.285, 1.0, 0.0, 0.0, 0.0)
 DEFAULT_SEGMENT_STEPS = (20, 20, 10, 20, 5)
 DEFAULT_ANCHOR_POSE_B = (0.10623648, 0.01035594, 0.07579897, 1.0, 0.0, 0.0, 0.0)
 # Anchor pose relative to the object-goal frame as (x, y, z, qw, qx, qy, qz).
@@ -33,78 +45,33 @@ DEFAULT_LEAP_GRASP_JOINT_POS = {
 }
 
 
-def build_pick_insert_object_pose_sequence(
-    current_pose: torch.Tensor | Sequence[float],
-    receptive_pose: torch.Tensor | Sequence[float] = DEFAULT_RECEPTIVE_POSE,
-    segment_steps: Sequence[int] = DEFAULT_SEGMENT_STEPS,
-    above_offset: float = 0.15,
-    insertion_depth: float = 0.015,
-    approach_height: float = 0.08,
+def build_object_pose_sequence_from_keyframes(
+    keyframes: Sequence[torch.Tensor],
+    segment_steps: Sequence[int],
 ) -> torch.Tensor:
-    """Build an interpolated peg insertion object pose trajectory.
+    """Interpolate a waypoint sequence through an ordered list of keyframe poses.
 
-    Poses use ``(x, y, z, qw, qx, qy, qz)`` in the robot base frame. The returned
-    sequence starts at ``current_pose``, moves above the receptacle, aligns to the
-    receptacle orientation, descends to the inserted pose, and holds there.
+    Task-agnostic core shared by every task's object-pose trajectory builder. ``keyframes`` is an
+    ordered sequence of ``(7,)`` poses ``(x, y, z, qw, qx, qy, qz)`` (same dtype/device); each
+    consecutive pair is connected by ``segment_steps[i]`` interpolation samples (position lerp +
+    quaternion slerp), so ``len(segment_steps) == len(keyframes) - 1``. Returns a
+    ``(1 + sum(segment_steps), 7)`` tensor: the first keyframe followed by every segment's samples.
+    The number and meaning of the segments is decided entirely by the caller.
     """
-
-    if len(segment_steps) != 5:
-        raise ValueError("segment_steps must contain 5 values.")
+    keyframes = [_with_normalized_quat(pose) for pose in keyframes]
+    if len(keyframes) < 2:
+        raise ValueError("keyframes must contain at least two poses.")
+    if len(segment_steps) != len(keyframes) - 1:
+        raise ValueError(
+            "segment_steps must have one entry per consecutive keyframe pair "
+            f"({len(keyframes) - 1}); got {len(segment_steps)}."
+        )
     if any(steps < 0 for steps in segment_steps):
         raise ValueError("segment_steps values must be non-negative.")
 
-    current = _as_pose_tensor(current_pose)
-    receptive = _as_pose_tensor(
-        receptive_pose,
-        dtype=current.dtype,
-        device=current.device,
-    )
-
-    current = _with_normalized_quat(current)
-    receptive = _with_normalized_quat(receptive)
-
-    above_current = torch.cat(
-        (
-            torch.stack(
-                (
-                    receptive[0],
-                    receptive[1],
-                    receptive[2] + current.new_tensor(above_offset),
-                )
-            ),
-            current[3:7],
-        )
-    )
-    above_aligned = torch.cat((above_current[:3], receptive[3:7]))
-    approach = torch.cat(
-        (
-            torch.stack(
-                (
-                    receptive[0],
-                    receptive[1],
-                    receptive[2] + current.new_tensor(insertion_depth + approach_height),
-                )
-            ),
-            receptive[3:7],
-        )
-    )
-    inserted = torch.cat(
-        (
-            torch.stack(
-                (
-                    receptive[0],
-                    receptive[1],
-                    receptive[2] + current.new_tensor(insertion_depth),
-                )
-            ),
-            receptive[3:7],
-        )
-    )
-
-    key_poses = (current, above_current, above_aligned, approach, inserted, inserted)
-    samples = [current.unsqueeze(0)]
-    for start, end, steps in zip(key_poses[:-1], key_poses[1:], segment_steps):
-        segment = _interpolate_pose_segment(start, end, steps)
+    samples = [keyframes[0].unsqueeze(0)]
+    for start, end, steps in zip(keyframes[:-1], keyframes[1:], segment_steps):
+        segment = interpolate_pose_segment(start, end, steps)
         if segment.numel() > 0:
             samples.append(segment)
     return torch.cat(samples, dim=0)
@@ -118,7 +85,11 @@ def build_leap_hand_joint_pose_sequence(
     dtype: torch.dtype | None = None,
     device: torch.device | str | None = None,
 ) -> torch.Tensor:
-    """Build a deterministic LEAP hand open-to-grasp joint trajectory."""
+    """Build a deterministic LEAP hand open-to-grasp joint trajectory.
+
+    Closes during the first segment (``segment_steps[0]`` samples) and holds the grasp for the
+    remaining segments. Expects the demo's 5-segment convention.
+    """
 
     _validate_segment_steps(segment_steps)
     names = tuple(joint_names)
@@ -146,7 +117,7 @@ def build_anchor_pose_sequence(
     anchor_pose_b: torch.Tensor | Sequence[float] = DEFAULT_ANCHOR_POSE_B,
     object_to_anchor_pose: torch.Tensor | Sequence[float] = DEFAULT_OBJECT_TO_ANCHOR_POSE,
 ) -> torch.Tensor:
-    """Build anchor pose targets for the demo.
+    """Build anchor pose targets for a demo trajectory.
 
     ``anchor_pose_b`` is the fixed hand-base to anchor transform (kept for caller
     compatibility). The anchor is placed at ``object_pose ⊕ object_to_anchor_pose`` -- a
@@ -170,45 +141,6 @@ def build_anchor_pose_sequence(
         object_pose[:, :3], object_pose[:, 3:7], offset[:, :3], offset[:, 3:7]
     )
     return torch.cat((anchor_pos, anchor_quat), dim=1)
-
-
-def build_pick_insert_demo_motion(
-    current_pose: torch.Tensor | Sequence[float],
-    joint_names: Sequence[str],
-    receptive_pose: torch.Tensor | Sequence[float] = DEFAULT_RECEPTIVE_POSE,
-    segment_steps: Sequence[int] = DEFAULT_SEGMENT_STEPS,
-    above_offset: float = 0.15,
-    insertion_depth: float = 0.015,
-    approach_height: float = 0.08,
-    anchor_pose_b: torch.Tensor | Sequence[float] = DEFAULT_ANCHOR_POSE_B,
-    object_to_anchor_pose: torch.Tensor | Sequence[float] = DEFAULT_OBJECT_TO_ANCHOR_POSE,
-) -> dict[str, torch.Tensor]:
-    """Build object, LEAP hand, and anchor-frame motion for the pick-insert demo."""
-
-    object_pose_b = build_pick_insert_object_pose_sequence(
-        current_pose,
-        receptive_pose=receptive_pose,
-        segment_steps=segment_steps,
-        above_offset=above_offset,
-        insertion_depth=insertion_depth,
-        approach_height=approach_height,
-    )
-    leap_joint_pos = build_leap_hand_joint_pose_sequence(
-        joint_names,
-        segment_steps=segment_steps,
-        dtype=object_pose_b.dtype,
-        device=object_pose_b.device,
-    )
-    anchor_pose_sequence_b = build_anchor_pose_sequence(
-        object_pose_b,
-        anchor_pose_b=anchor_pose_b,
-        object_to_anchor_pose=object_to_anchor_pose,
-    )
-    return {
-        "object_pose_b": object_pose_b,
-        "leap_joint_pos": leap_joint_pos,
-        "anchor_pose_b": anchor_pose_sequence_b,
-    }
 
 
 def _as_pose_tensor(
@@ -236,22 +168,6 @@ def _as_pose_sequence_tensor(pose: torch.Tensor | Sequence[Sequence[float]]) -> 
         tensor = tensor.unsqueeze(0)
     if tensor.ndim != 2 or tensor.shape[1] != 7:
         raise ValueError(f"Expected pose sequence shape (N, 7), got {tuple(tensor.shape)}.")
-    return tensor
-
-
-def _as_quat_tensor(
-    quat: torch.Tensor | Sequence[float],
-    dtype: torch.dtype | None = None,
-    device: torch.device | str | None = None,
-) -> torch.Tensor:
-    if isinstance(quat, torch.Tensor):
-        tensor = quat.to(dtype=dtype, device=device) if dtype is not None or device is not None else quat
-        if not tensor.is_floating_point():
-            tensor = tensor.to(dtype=torch.float32)
-    else:
-        tensor = torch.tensor(quat, dtype=dtype or torch.float32, device=device)
-    if tensor.shape != (4,):
-        raise ValueError(f"Expected quaternion shape (4,), got {tuple(tensor.shape)}.")
     return tensor
 
 
@@ -283,7 +199,12 @@ def _normalize_quat(quat: torch.Tensor) -> torch.Tensor:
     return quat / norm
 
 
-def _interpolate_pose_segment(start: torch.Tensor, end: torch.Tensor, steps: int) -> torch.Tensor:
+def interpolate_pose_segment(start: torch.Tensor, end: torch.Tensor, steps: int) -> torch.Tensor:
+    """Interpolate ``steps`` poses from ``start`` (exclusive) to ``end`` (inclusive).
+
+    Positions are linearly interpolated and orientations are spherically interpolated (:func:`slerp`).
+    Returns an empty ``(0, 7)`` tensor when ``steps == 0``.
+    """
     if steps == 0:
         return start.new_empty((0, 7))
 
@@ -291,12 +212,13 @@ def _interpolate_pose_segment(start: torch.Tensor, end: torch.Tensor, steps: int
     for step in range(1, steps + 1):
         alpha = start.new_tensor(step / steps)
         pos = start[:3] + alpha * (end[:3] - start[:3])
-        quat = _slerp(start[3:7], end[3:7], alpha)
+        quat = slerp(start[3:7], end[3:7], alpha)
         segment.append(torch.cat((pos, quat)))
     return torch.stack(segment)
 
 
-def _slerp(start: torch.Tensor, end: torch.Tensor, alpha: torch.Tensor) -> torch.Tensor:
+def slerp(start: torch.Tensor, end: torch.Tensor, alpha: torch.Tensor) -> torch.Tensor:
+    """Spherical linear interpolation between two (w, x, y, z) quaternions."""
     start = _normalize_quat(start)
     end = _normalize_quat(end)
     dot = torch.sum(start * end)
@@ -320,10 +242,10 @@ __all__ = [
     "DEFAULT_OBJECT_TO_ANCHOR_POSE",
     "DEFAULT_LEAP_GRASP_JOINT_POS",
     "DEFAULT_LEAP_OPEN_JOINT_POS",
-    "DEFAULT_RECEPTIVE_POSE",
     "DEFAULT_SEGMENT_STEPS",
     "build_anchor_pose_sequence",
     "build_leap_hand_joint_pose_sequence",
-    "build_pick_insert_demo_motion",
-    "build_pick_insert_object_pose_sequence",
+    "build_object_pose_sequence_from_keyframes",
+    "interpolate_pose_segment",
+    "slerp",
 ]

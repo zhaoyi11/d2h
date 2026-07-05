@@ -43,25 +43,13 @@ DEFAULT_HAND_BASE_TO_ANCHOR_POSE = (0.10623648, 0.01035594, 0.07579897, 1.0, 0.0
 # Anchor pose offset in the robot root frame as (x, y, z, qw, qx, qy, qz).
 # Position (0, 0, -0.01) is a fixed -1 cm z-offset in root; orientation (√2/2, 0, √2/2, 0) is 90° rotation about root +Y axis.
 DEFAULT_OBJECT_TO_ANCHOR_POSE = (0.0, 0.0, -0.01, 0.70710678, 0.0, 0.70710678, 0.0)
-DEFAULT_PICK_INSERT_RECEPTIVE_POSE = (0.35, 0.0, 0.27, 1.0, 0.0, 0.0, 0.0)
-# DEFAULT_PICK_INSERT_SEGMENT_STEPS = (20, 20, 10, 50, 20)
-DEFAULT_PICK_INSERT_SEGMENT_STEPS = (2, 1, 1, 1, 1)
 
 
 class StageObjTol(NamedTuple):
-    """Per-stage object tolerances for advancing the pick-insert trajectory."""
+    """Per-stage object position/orientation tolerances for advancing a scripted trajectory."""
 
     object_position: float
     object_orientation: float
-
-
-DEFAULT_PICK_INSERT_STAGE_OBJECT_TOLERANCES = (
-    StageObjTol(0.02, 0.3),  # move
-    StageObjTol(0.02, 0.2),  # align
-    StageObjTol(0.01, 0.2),  # approach
-    StageObjTol(0.005, 0.1),  # insert
-    StageObjTol(0.005, 0.1),  # hold
-)
 
 
 def _stage_obj_tor_tensors(
@@ -94,31 +82,10 @@ def _stage_obj_tor_tensors(
     return stage_obj_tor_tensor[:, 0], stage_obj_tor_tensor[:, 1]
 
 
-def _load_object_trajectory_module():
-    """Load the peg-insertion trajectory helper (sibling module) by file path.
-
-    Loaded lazily by path rather than imported at module top level so that unit
-    tests can exec ``commands.py`` in isolation without importing the whole
-    ``src.tasks.common.mdps`` package (and thus isaaclab).
-    """
-    module_name = "common_mdps_object_trajectory_for_command"
-    if module_name in sys.modules:
-        return sys.modules[module_name]
-
-    trajectory_path = Path(__file__).resolve().parent / "object_trajectory.py"
-    spec = importlib.util.spec_from_file_location(module_name, trajectory_path)
-    if spec is None or spec.loader is None:
-        raise ImportError(f"Could not load object trajectory helper from {trajectory_path}.")
-    module = importlib.util.module_from_spec(spec)
-    sys.modules[module_name] = module
-    spec.loader.exec_module(module)
-    return module
-
-
 def _load_anchor_correction_module():
     """Load the anchor-correction PI(D) controller (sibling module) by file path.
 
-    Loaded lazily by path (mirroring :func:`_load_object_trajectory_module`) so unit tests can exec
+    Loaded lazily by path (mirroring :func:`_load_trajectory_stepper_module`) so unit tests can exec
     ``commands.py`` in isolation without importing the whole ``src.tasks.common.mdps`` package.
     """
     module_name = "common_mdps_anchor_correction_for_command"
@@ -138,7 +105,7 @@ def _load_anchor_correction_module():
 def _load_trajectory_stepper_module():
     """Load the trajectory stage/step state machine (sibling module) by file path.
 
-    Loaded lazily by path (mirroring :func:`_load_object_trajectory_module`) so unit tests can exec
+    Loaded lazily by path (mirroring :func:`_load_anchor_correction_module`) so unit tests can exec
     ``commands.py`` in isolation without importing the whole ``src.tasks.common.mdps`` package.
     """
     module_name = "common_mdps_trajectory_stepper_for_command"
@@ -472,12 +439,22 @@ class ObjectAndHandBasePoseCommand(ObjectUniformPoseCommand):
         self.hand_base_visualizer.visualize(hand_base_pos_w, hand_base_quat_w)
 
 
-class PickInsertTrajectoryObjectAndHandBasePoseCommand(ObjectAndHandBasePoseCommand):
-    """Object and hand-base command that follows the pick-insert demo trajectory."""
+class TrajectoryObjectAndHandBasePoseCommand(ObjectAndHandBasePoseCommand):
+    """Object and hand-base command that follows a scripted, task-defined object-pose trajectory.
 
-    cfg: PickInsertTrajectoryObjectAndHandBasePoseCommandCfg
+    This generic base owns all the task-agnostic machinery: the per-env stepper
+    (:class:`~src.tasks.common.mdps.trajectory_stepper.TrajectoryStepper`), the bounded PI(D) anchor
+    correction (:class:`~src.tasks.common.mdps.anchor_correction.ObjectAnchorPIDController`), the
+    hand-base targeting/metrics, the optional pregrasp reach, and the advance logic. The only
+    task-specific piece is the object-pose trajectory itself, produced by the overridable
+    :meth:`_build_object_trajectories` hook. Subclass it per task (see e.g.
+    ``src.tasks.pick_insert.mdps.commands.PickInsertTrajectoryObjectAndHandBasePoseCommand``) and
+    supply a matching ``trajectory_segment_steps`` / ``stage_object_tolerances`` on the config.
+    """
 
-    def __init__(self, cfg: PickInsertTrajectoryObjectAndHandBasePoseCommandCfg, env: ManagerBasedEnv):
+    cfg: TrajectoryObjectAndHandBasePoseCommandCfg
+
+    def __init__(self, cfg: TrajectoryObjectAndHandBasePoseCommandCfg, env: ManagerBasedEnv):
         super().__init__(cfg, env)
         body_ids, body_names = self.robot.find_bodies(self.cfg.hand_base_body_name)
         if len(body_ids) != 1:
@@ -493,7 +470,7 @@ class PickInsertTrajectoryObjectAndHandBasePoseCommand(ObjectAndHandBasePoseComm
             len(self.cfg.trajectory_segment_steps),
             self.device,
         )
-        self._stepper = _load_trajectory_stepper_module().PickInsertTrajectoryStepper(
+        self._stepper = _load_trajectory_stepper_module().TrajectoryStepper(
             self.num_envs,
             self.device,
             self.cfg.trajectory_segment_steps,
@@ -543,6 +520,25 @@ class PickInsertTrajectoryObjectAndHandBasePoseCommand(ObjectAndHandBasePoseComm
             self.cfg.position_only,
         )
 
+    def _build_object_trajectories(
+        self, env_ids: torch.Tensor, current_pose_b: torch.Tensor
+    ) -> torch.Tensor:
+        """Build the per-env object-pose waypoint sequences to follow (task-specific hook).
+
+        Override this in a task subclass to produce the scripted object trajectory for that task.
+        Given the current object poses in the robot root frame (``current_pose_b``, shape
+        ``(len(env_ids), 7)`` as ``(x, y, z, qw, qx, qy, qz)``, one row per env in ``env_ids``),
+        return a stacked tensor of shape ``(len(env_ids), 1 + sum(trajectory_segment_steps), 7)``.
+        The waypoint count must match the stepper built from ``cfg.trajectory_segment_steps``; the
+        number and meaning of the segments is entirely task-defined. Use
+        :func:`~src.tasks.common.mdps.object_trajectory.build_object_pose_sequence_from_keyframes` to
+        turn task keyframes into waypoints.
+        """
+        raise NotImplementedError(
+            f"{type(self).__name__} must implement _build_object_trajectories to supply its "
+            "task-specific object-pose trajectory."
+        )
+
     def _resample_command(self, env_ids: Sequence[int]):
         env_ids_tensor = self._env_ids_tensor(env_ids)
         if env_ids_tensor.numel() == 0:
@@ -555,21 +551,9 @@ class PickInsertTrajectoryObjectAndHandBasePoseCommand(ObjectAndHandBasePoseComm
             self.object.data.root_quat_w[env_ids_tensor],
         )
         current_pose_b = torch.cat((current_pos_b, current_quat_b), dim=1)
-        trajectory_module = _load_object_trajectory_module()
-        receptive_pose = torch.tensor(self.cfg.receptive_pose, dtype=current_pose_b.dtype, device=self.device)
 
-        trajectories = [
-            trajectory_module.build_pick_insert_object_pose_sequence(
-                current_pose_b[env_idx],
-                receptive_pose=receptive_pose,
-                segment_steps=self.cfg.trajectory_segment_steps,
-                above_offset=self.cfg.above_offset,
-                insertion_depth=self.cfg.insertion_depth,
-                approach_height=self.cfg.approach_height,
-            )
-            for env_idx in range(env_ids_tensor.numel())
-        ]
-        self._stepper.reset(env_ids_tensor, torch.stack(trajectories, dim=0))
+        trajectories = self._build_object_trajectories(env_ids_tensor, current_pose_b)
+        self._stepper.reset(env_ids_tensor, trajectories)
         self.pose_command_b[env_ids_tensor] = self._stepper.current_object_pose(env_ids_tensor)
         if self.cfg.enable_pregrasp_reach:
             # Reach phase: seed the step-0 hand-base with a grasp pose over the object (waypoint 0 is
@@ -873,34 +857,27 @@ class AnchorCorrectionCfg:
 
 
 @configclass
-class PickInsertTrajectoryObjectAndHandBasePoseCommandCfg(ObjectAndHandBasePoseCommandCfg):
-    """Configuration for the pick-insert trajectory command."""
+class TrajectoryObjectAndHandBasePoseCommandCfg(ObjectAndHandBasePoseCommandCfg):
+    """Configuration for the generic scripted-trajectory object/hand-base command.
 
-    class_type: type = PickInsertTrajectoryObjectAndHandBasePoseCommand
+    Task-agnostic: it carries only the fields the shared machinery needs. A task subclass sets
+    ``class_type`` to its command, fills ``trajectory_segment_steps`` / ``stage_object_tolerances``
+    (one entry per segment, task-defined), and adds any task-specific trajectory parameters."""
 
-    receptive_pose: tuple[float, float, float, float, float, float, float] = DEFAULT_PICK_INSERT_RECEPTIVE_POSE
-    """Target receptacle pose used by the pick-insert object trajectory."""
+    class_type: type = TrajectoryObjectAndHandBasePoseCommand
 
     hand_base_body_name: str = "base"
     """Robot body whose pose must reach the target hand-base command before advancing."""
 
-    trajectory_segment_steps: tuple[int, int, int, int, int] = DEFAULT_PICK_INSERT_SEGMENT_STEPS
-    """Interpolation samples for move, align, approach, insert, and hold segments."""
+    trajectory_segment_steps: tuple[int, ...] = MISSING
+    """Interpolation samples per trajectory segment. Length and meaning are task-defined; the task's
+    command builds ``1 + sum(trajectory_segment_steps)`` waypoints to match the stepper."""
 
-    above_offset: float = 0.10
-    """Height above the receptacle for the initial move and orientation alignment."""
-
-    insertion_depth: float = 0.06
-    """Inserted object height offset above the receptacle pose."""
-
-    approach_height: float = 0.01
-    """Height above the insertion pose used before final descent."""
-
-    stage_object_tolerances: tuple[StageObjTol, ...] = DEFAULT_PICK_INSERT_STAGE_OBJECT_TOLERANCES
+    stage_object_tolerances: tuple[StageObjTol, ...] = MISSING
     """Per-stage object position and orientation tolerances for advancing the command trajectory.
 
-    One entry is required for each trajectory segment: move, align, approach, insert, and hold.
-    """
+    One :class:`StageObjTol` entry is required for each trajectory segment (matching
+    ``trajectory_segment_steps``)."""
 
     hand_base_position_tolerance: float = 0.02
     """Hand-base position tolerance in meters for advancing the command trajectory."""

@@ -14,7 +14,10 @@ from isaaclab.app import AppLauncher
 
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
-OBJECT_TRAJECTORY_PATH = REPO_ROOT / "src" / "tasks" / "common" / "mdps" / "object_trajectory.py"
+# The pick-insert builder now lives with the task; it re-exports the shared anchor builder /
+# DEFAULT_ANCHOR_POSE_B / DEFAULT_SEGMENT_STEPS from src.tasks.common.mdps.object_trajectory, so a
+# single module load still exposes everything this script needs.
+PICK_INSERT_TRAJECTORY_PATH = REPO_ROOT / "src" / "tasks" / "pick_insert" / "mdps" / "trajectory.py"
 ENV_CFG_PATH = REPO_ROOT / "src" / "tasks" / "pick_insert" / "env_cfg.py"
 
 
@@ -106,8 +109,8 @@ def _write_demo_frame(scene: InteractiveScene, object_pose_w: torch.Tensor) -> N
 def main() -> None:
     print("[INFO]: Loading pick-insert object trajectory helper.", flush=True)
     trajectory_module = _load_module(
-        "pick_insert_object_trajectory",
-        OBJECT_TRAJECTORY_PATH,
+        "pick_insert_trajectory",
+        PICK_INSERT_TRAJECTORY_PATH,
     )
     print("[INFO]: Loading pick-insert scene config.", flush=True)
     env_cfg_module = _load_module("pick_insert_env_cfg", ENV_CFG_PATH)
