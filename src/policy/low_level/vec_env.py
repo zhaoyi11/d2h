@@ -11,7 +11,7 @@ from torch import Tensor
 
 from rsl_rl.env import VecEnv
 
-from .low_level import LowLevelRslRlPolicy
+from .policy import LowLevelRslRlPolicy
 
 
 class FrozenHandVecEnv(VecEnv):

@@ -9,10 +9,7 @@
 from __future__ import annotations
 
 from dataclasses import MISSING
-import importlib.util
 import math
-from pathlib import Path
-import sys
 import torch
 from collections.abc import Sequence
 from typing import TYPE_CHECKING, NamedTuple
@@ -33,6 +30,9 @@ from isaaclab.managers import CommandTermCfg
 from isaaclab.markers import VisualizationMarkersCfg
 from isaaclab.utils import configclass
 from isaaclab.utils.assets import ISAAC_NUCLEUS_DIR
+
+from src.policy.high_level.anchor_correction import ObjectAnchorPIDController
+from src.policy.high_level.trajectory_stepper import TrajectoryStepper
 
 
 if TYPE_CHECKING:
@@ -80,46 +80,6 @@ def _stage_obj_tor_tensors(
 
     stage_obj_tor_tensor = torch.tensor(values, device=device)
     return stage_obj_tor_tensor[:, 0], stage_obj_tor_tensor[:, 1]
-
-
-def _load_anchor_correction_module():
-    """Load the anchor-correction PI(D) controller (sibling module) by file path.
-
-    Loaded lazily by path (mirroring :func:`_load_trajectory_stepper_module`) so unit tests can exec
-    ``commands.py`` in isolation without importing the whole ``src.tasks.common.mdps`` package.
-    """
-    module_name = "common_mdps_anchor_correction_for_command"
-    if module_name in sys.modules:
-        return sys.modules[module_name]
-
-    module_path = Path(__file__).resolve().parent / "anchor_correction.py"
-    spec = importlib.util.spec_from_file_location(module_name, module_path)
-    if spec is None or spec.loader is None:
-        raise ImportError(f"Could not load anchor correction helper from {module_path}.")
-    module = importlib.util.module_from_spec(spec)
-    sys.modules[module_name] = module
-    spec.loader.exec_module(module)
-    return module
-
-
-def _load_trajectory_stepper_module():
-    """Load the trajectory stage/step state machine (sibling module) by file path.
-
-    Loaded lazily by path (mirroring :func:`_load_anchor_correction_module`) so unit tests can exec
-    ``commands.py`` in isolation without importing the whole ``src.tasks.common.mdps`` package.
-    """
-    module_name = "common_mdps_trajectory_stepper_for_command"
-    if module_name in sys.modules:
-        return sys.modules[module_name]
-
-    module_path = Path(__file__).resolve().parent / "trajectory_stepper.py"
-    spec = importlib.util.spec_from_file_location(module_name, module_path)
-    if spec is None or spec.loader is None:
-        raise ImportError(f"Could not load trajectory stepper helper from {module_path}.")
-    module = importlib.util.module_from_spec(spec)
-    sys.modules[module_name] = module
-    spec.loader.exec_module(module)
-    return module
 
 
 def hand_base_pose_from_object_command_b(
@@ -443,8 +403,8 @@ class TrajectoryObjectAndHandBasePoseCommand(ObjectAndHandBasePoseCommand):
     """Object and hand-base command that follows a scripted, task-defined object-pose trajectory.
 
     This generic base owns all the task-agnostic machinery: the per-env stepper
-    (:class:`~src.tasks.common.mdps.trajectory_stepper.TrajectoryStepper`), the bounded PI(D) anchor
-    correction (:class:`~src.tasks.common.mdps.anchor_correction.ObjectAnchorPIDController`), the
+    (:class:`~src.policy.high_level.trajectory_stepper.TrajectoryStepper`), the bounded PI(D) anchor
+    correction (:class:`~src.policy.high_level.anchor_correction.ObjectAnchorPIDController`), the
     hand-base targeting/metrics, the optional pregrasp reach, and the advance logic. The only
     task-specific piece is the object-pose trajectory itself, produced by the overridable
     :meth:`_build_object_trajectories` hook. Subclass it per task (see e.g.
@@ -464,13 +424,13 @@ class TrajectoryObjectAndHandBasePoseCommand(ObjectAndHandBasePoseCommand):
             )
         self._hand_base_body_idx = body_ids[0]
         # Stage/step state machine (per-env waypoints, step index, per-stage advance tolerances)
-        # lives in a pure-torch sibling module; the command term orchestrates it.
+        # lives in the pure-torch high-level package; the command term orchestrates it.
         stage_position_tolerance, stage_orientation_tolerance = _stage_obj_tor_tensors(
             self.cfg.stage_object_tolerances,
             len(self.cfg.trajectory_segment_steps),
             self.device,
         )
-        self._stepper = _load_trajectory_stepper_module().TrajectoryStepper(
+        self._stepper = TrajectoryStepper(
             self.num_envs,
             self.device,
             self.cfg.trajectory_segment_steps,
@@ -478,11 +438,11 @@ class TrajectoryObjectAndHandBasePoseCommand(ObjectAndHandBasePoseCommand):
             stage_orientation_tolerance,
         )
         self._trajectory_command_achieved = torch.zeros(self.num_envs, dtype=torch.bool, device=self.device)
-        # Adaptive anchor-frame correction: a bounded PI(D) controller (pure-torch sibling module)
+        # Adaptive anchor-frame correction: a bounded PI(D) controller (pure-torch high-level module)
         # nudges the anchor pose so the measured object reaches its goal. All-zero output => sit at
         # the nominal anchor (object goal + configured offset). Built after super().__init__ so the
         # ``_anchor_correction`` override's getattr guard returns None during that first update.
-        self._corr = _load_anchor_correction_module().ObjectAnchorPIDController(
+        self._corr = ObjectAnchorPIDController(
             self.num_envs, self.device, self.cfg.correction
         )
         self.metrics["hand_base_position_error"] = torch.zeros(self.num_envs, device=self.device)
@@ -531,7 +491,7 @@ class TrajectoryObjectAndHandBasePoseCommand(ObjectAndHandBasePoseCommand):
         return a stacked tensor of shape ``(len(env_ids), 1 + sum(trajectory_segment_steps), 7)``.
         The waypoint count must match the stepper built from ``cfg.trajectory_segment_steps``; the
         number and meaning of the segments is entirely task-defined. Use
-        :func:`~src.tasks.common.mdps.object_trajectory.build_object_pose_sequence_from_keyframes` to
+        :func:`~src.policy.high_level.object_trajectory.build_object_pose_sequence_from_keyframes` to
         turn task keyframes into waypoints.
         """
         raise NotImplementedError(

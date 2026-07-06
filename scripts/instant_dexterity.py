@@ -59,11 +59,8 @@ from isaaclab.utils.math import (  # noqa: E402
     compute_pose_error,
     subtract_frame_transforms,
 )
-from src.policy.hl_policy import (  # noqa: E402
-    LowLevelGateCfg,
-    LowLevelHandGate,
-    load_low_level_rsl_rl_policy,
-)
+from src.policy.high_level.gate import LowLevelGateCfg, LowLevelHandGate  # noqa: E402
+from src.policy.low_level import load_low_level_rsl_rl_policy  # noqa: E402
 
 
 def _as_list(tensor: torch.Tensor) -> list[float]:

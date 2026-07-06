@@ -67,7 +67,7 @@ from isaaclab_tasks.utils.hydra import hydra_task_config  # noqa: E402
 
 import isaaclab_tasks  # noqa: F401, E402
 import src.tasks  # noqa: F401, E402
-from src.policy.hl_policy import FrozenHandVecEnv, load_low_level_rsl_rl_policy  # noqa: E402
+from src.policy.low_level import FrozenHandVecEnv, load_low_level_rsl_rl_policy  # noqa: E402
 
 
 def _resolve_checkpoint(agent_cfg: RslRlBaseRunnerCfg) -> str:
