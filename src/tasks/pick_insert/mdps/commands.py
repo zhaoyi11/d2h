@@ -6,7 +6,7 @@
 """Pick-insert scripted-trajectory command term.
 
 Thin task layer over the generic
-:class:`~src.tasks.common.mdps.commands.TrajectoryObjectAndHandBasePoseCommand`: it overrides
+:class:`~src.policy.high_level.trajectory_command.TrajectoryObjectAndHandBasePoseCommand`: it overrides
 :meth:`_build_object_trajectories` with the pick-insert move->align->approach->insert->hold peg
 trajectory (built by :func:`build_pick_insert_object_pose_sequence`). All the shared machinery
 (stepper, PI(D) anchor correction, hand-base targeting, pregrasp reach, advance logic) is inherited.
@@ -19,22 +19,14 @@ import torch
 from isaaclab.utils import configclass
 
 from src.policy.high_level.trajectory_stepper import StageObjTol
-from src.tasks.common.mdps.commands import (
+from src.policy.high_level.trajectory_command import (
     TrajectoryObjectAndHandBasePoseCommand,
     TrajectoryObjectAndHandBasePoseCommandCfg,
 )
-from src.tasks.pick_insert.mdps.trajectory import build_pick_insert_object_pose_sequence
-
-
-DEFAULT_PICK_INSERT_RECEPTIVE_POSE = (0.35, 0.0, 0.27, 1.0, 0.0, 0.0, 0.0)
-DEFAULT_PICK_INSERT_SEGMENT_STEPS = (2, 1, 1, 1, 1)
-DEFAULT_PICK_INSERT_STAGE_OBJECT_TOLERANCES = (
-    StageObjTol(0.02, 0.3),  # move
-    StageObjTol(0.02, 0.2),  # align
-    StageObjTol(0.01, 0.2),  # approach
-    StageObjTol(0.005, 0.1),  # insert
-    StageObjTol(0.005, 0.1),  # hold
-)
+from src.tasks.pick_insert.mdps.trajectory import (build_pick_insert_object_pose_sequence,
+                                                   DEFAULT_PICK_INSERT_RECEPTIVE_POSE,
+                                                   DEFAULT_PICK_INSERT_SEGMENT_STEPS,
+                                                   DEFAULT_PICK_INSERT_STAGE_OBJECT_TOLERANCES)
 
 
 class PickInsertTrajectoryObjectAndHandBasePoseCommand(TrajectoryObjectAndHandBasePoseCommand):

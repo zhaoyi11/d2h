@@ -162,14 +162,6 @@ class CommandsCfg:
         object_name="object",
         resampling_time_range=(10.0, 10.0),
         debug_vis=False,
-        ranges=mdp.PickInsertTrajectoryObjectAndHandBasePoseCommandCfg.Ranges(
-            pos_x=(0.35, 0.35),
-            pos_y=(0.0, 0.0),
-            pos_z=(0.30, 0.30),
-            roll=(0.0, 0.0),
-            pitch=(0.0, 0.0),
-            yaw=(0.0, 0.0),
-        ),
         success_vis_asset_name="table",
         # Reach-to-grasp phase: the peg spawns on the table, so seed the initial hand-base command
         # with a grasp pose over the peg (arm reaches down first) and hold there until the peg is

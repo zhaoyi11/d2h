@@ -14,6 +14,7 @@ error tensors; the controller owns the stateful PI(D) buffers and the stall gate
 from __future__ import annotations
 
 from collections.abc import Sequence
+from dataclasses import dataclass
 
 import torch
 
@@ -178,4 +179,78 @@ class ObjectAnchorPIDController:
         self._correction[active_ids] = corr
 
 
-__all__ = ["ObjectAnchorPIDController", "clamp_norm", "slew_limit"]
+@dataclass
+class AnchorCorrectionCfg:
+    """Bounded PI(D) object->goal correction (nudges the anchor so the object reaches its goal).
+
+    Consumed by :class:`ObjectAnchorPIDController`; ``enable`` / ``anchor_achieved_*`` are also read
+    by the command term (it owns the anchor-achieved gate). A plain ``@dataclass`` (not isaaclab's
+    ``@configclass``) so this module stays pure-``torch`` and loadable in isolation -- it is nested
+    into the ``@configclass`` command cfg, which handles the mutable-default wrapping of the
+    ``correction`` field. Gains/limits default to a starting point -- see the TODO on tuning below.
+    """
+
+    enable: bool = False
+    """Whether to run the correction (PI(D) on the measured object->goal error). When False the
+    command exposes the bare nominal anchor offset."""
+
+    deadband_pos: float = 0.00
+    """Per-axis object position error (m) below which the controller idles -- the in-hand policy
+    owns sub-deadband error, so the arm only acts when the hand can't (residual tolerance)."""
+
+    deadband_rot: float = 0.0
+    """Per-axis object orientation error (rad) below which the controller idles (residual tol)."""
+
+    # TODO: !!!! Tune the PI(D) gains and correction limits. The current values are a starting point
+    # based on intuition and preliminary experiments; systematic tuning is needed for best results.
+    kp_pos: float = 0.1
+    """Proportional gain on the (deadbanded) position error -- responsiveness."""
+
+    kp_rot: float = 0.05
+    """Proportional gain on the rotation error (smaller so the hand does most reorientation)."""
+
+    ki_pos: float = 0.1
+    """Integral gain on the position error -- removes steady-state error (object reaches goal)."""
+
+    ki_rot: float = 0.05
+    """Integral gain on the rotation error (smaller -- rotation commits slowly/reluctantly)."""
+
+    kd_pos: float = 0.1
+    """Derivative gain on the position error (off by default; pose-error derivatives are noisy)."""
+
+    kd_rot: float = 0.05
+    """Derivative gain on the rotation error (off by default)."""
+
+    d_lowpass: float = 0.2
+    """EMA factor for the derivative term (smaller = more smoothing). Used only when Kd != 0."""
+
+    max_pos: float = 0.05
+    """Output + integral bound: max position deviation (m) of the offset from its initial value."""
+
+    max_rot: float = 0.1745
+    """Output + integral bound: max rotation deviation (rad, ~10 deg) of the offset from initial."""
+
+    slew_pos: float = 0.002
+    """Max change (m) of the applied position correction per step -- keeps adjustment gradual."""
+
+    slew_rot: float = 0.005
+    """Max change (rad) of the applied rotation correction per step -- keeps adjustment gradual."""
+
+    anchor_achieved_pos: float = 0.01
+    """Hand-base position tolerance (m) to consider the anchor achieved (arm settled)."""
+
+    anchor_achieved_rot: float = 0.05
+    """Hand-base orientation tolerance (rad) to consider the anchor achieved."""
+
+    stall_window: int = 30
+    """Number of steps over which the object error must not improve by stall_delta to be considered
+    stalled. Zero disables the stall gate (correction fires whenever the anchor is achieved)."""
+
+    stall_delta_pos: float = 0.003
+    """Object position improvement (m) below which the object is considered stalled."""
+
+    stall_delta_rot: float = 0.01
+    """Object orientation improvement (rad) below which the object is considered stalled."""
+
+
+__all__ = ["AnchorCorrectionCfg", "ObjectAnchorPIDController", "clamp_norm", "slew_limit"]

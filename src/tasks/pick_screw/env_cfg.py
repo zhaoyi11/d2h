@@ -72,7 +72,7 @@ class SceneCfg(InteractiveSceneCfg):
                 disable_gravity=False,
                 kinematic_enabled=True,
             ),
-            mass_props=sim_utils.MassPropertiesCfg(mass=0.5),
+            mass_props=sim_utils.MassPropertiesCfg(mass=0.05),
         ),
         init_state=RigidObjectCfg.InitialStateCfg(pos=(0.55, 0.0, 0.271), rot=(1.0, 0.0, 0.0, 0.0)),
     )
@@ -845,14 +845,6 @@ class HrlCommandsCfg:
         object_name="object",
         resampling_time_range=(10.0, 10.0),
         debug_vis=False,
-        ranges=insert_mdp.PickInsertTrajectoryObjectAndHandBasePoseCommandCfg.Ranges(
-            pos_x=(0.35, 0.35),
-            pos_y=(0.0, 0.0),
-            pos_z=(0.30, 0.30),
-            roll=(0.0, 0.0),
-            pitch=(0.0, 0.0),
-            yaw=(0.0, 0.0),
-        ),
         success_vis_asset_name="table",
         # receptacle (table top) the screw trajectory targets — matches the scene's ReceptiveObject.
         receptive_pose=(0.55, 0.0, 0.271, 1.0, 0.0, 0.0, 0.0),

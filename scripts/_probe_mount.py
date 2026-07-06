@@ -1,7 +1,21 @@
-"""Probe the constant transform from the Franka flange to the LEAP hand `base` body.
+"""Probe the constant Franka-flange -> LEAP-hand `base` mount transform (calibration utility).
 
-Run headless to read the rigidly-linked panda flange and hand-base body poses from the live
-articulation and print the flange->base offset, to bake into the combined cuRobo URDF.
+One-off developer tool, not part of any train/eval pipeline. In sim the arm+hand mount is fused
+into the USD asset (FRANKA_LEAP_HAND_CFG), but the cuRobo MPC arm controller needs its own
+kinematics URDF whose `panda_link7 -> base` fixed joint must match that mount exactly. This script
+boots the HRL env, reads the live world poses of the rigidly-linked panda flange (panda_link7) and
+the LEAP `base` body from the articulation, and prints their constant relative offset (xyz +
+quat_wxyz) so it can be baked into the combined cuRobo URDF.
+
+Where the printed offset goes:
+    probe (this script)
+      -> hand-typed into src/assets/franka_leap_hand/curobo/build_franka_leap_urdf.py --xyz --quat
+      -> baked into the `panda_link7 -> base` fixed joint of franka_leap.urdf
+      -> referenced by franka_leap.yml
+      -> loaded by CommandHandBaseCuroboMpcAction (src/tasks/common/mdps/action_manager/curobo_mpc.py)
+
+Re-run only when the physical mount changes (new hand offset or regenerated USD), then re-bake the
+URDF so the cuRobo planner and the sim stay consistent.
 
     python scripts/_probe_mount.py --demo_cfg --headless --num_envs 1
 """
@@ -82,7 +96,8 @@ def main() -> None:
     q = [round(float(v), 6) for v in rel_quat[0].tolist()]  # (w, x, y, z)
     print(f"[PROBE] flange link = {flange_name}", flush=True)
     print(f"[PROBE] base relative to {flange_name}:  xyz = {p}   quat_wxyz = {q}", flush=True)
-    # URDF rpy (fixed joint uses roll-pitch-yaw); print both quat and a note
+    # Feed these to build_franka_leap_urdf.py --xyz / --quat; it converts the quat to the URDF
+    # fixed-joint rpy (roll-pitch-yaw) internally.
     print(f"[PROBE] URDF fixed-joint origin: xyz='{p[0]} {p[1]} {p[2]}'  quat_wxyz={q}", flush=True)
     env.close()
 
