@@ -7,7 +7,7 @@
 Pick-insert object-pose trajectory builder.
 
 The scripted move->align->approach->insert->hold peg trajectory that is specific to the pick-insert
-task, composed from the task-agnostic primitives in :mod:`src.policy.high_level.object_trajectory`.
+task, composed from the task-agnostic primitives in :mod:`src.policy.high_level.utils`.
 Pure ``torch`` so it can be unit-tested in isolation; the command term that consumes it lives in
 :mod:`src.tasks.pick_insert.mdps.commands`.
 """
@@ -19,7 +19,7 @@ from collections.abc import Sequence
 import torch
 
 from src.policy.high_level.trajectory_stepper import StageObjTol
-from src.policy.high_level.object_trajectory import (
+from src.policy.high_level.utils import (
     DEFAULT_SEGMENT_STEPS,
     _as_pose_tensor,
     _with_normalized_quat,
@@ -58,7 +58,7 @@ def build_pick_insert_object_pose_sequence(
     ``current_pose``, moves above the receptacle, aligns to the receptacle orientation, descends to
     the inserted pose, and holds there -- 5 segments: move / align / approach / insert / hold. The
     keyframes are interpolated by the shared
-    :func:`~src.policy.high_level.object_trajectory.build_object_pose_sequence_from_keyframes` core.
+    :func:`~src.policy.high_level.utils.build_object_pose_sequence_from_keyframes` core.
     """
     if len(segment_steps) != 5:
         raise ValueError("segment_steps must contain 5 values.")

@@ -6,7 +6,7 @@
 """Per-environment stage/step state machine for a scripted object-pose trajectory.
 
 Pure ``torch`` (no isaaclab), so it can be loaded by file path and unit-tested in isolation --
-mirroring ``object_trajectory.py`` / ``anchor_correction.py``. It owns the per-env waypoint buffer,
+mirroring ``anchor_correction.py``. It owns the per-env waypoint buffer,
 the current step index, the step->stage map, and the per-stage advance tolerances; the command term
 orchestrates it (it still owns ``pose_command_b`` and the hand-base/correction targets). It is
 task-agnostic: any trajectory expressed as ``1 + sum(segment_steps)`` waypoints can be stepped here.

@@ -6,7 +6,7 @@
 """Bounded PI(D) controller that nudges the anchor pose so the object reaches its goal.
 
 Pure ``torch`` (no isaaclab), so it can be loaded by file path and unit-tested in isolation --
-mirroring ``object_trajectory.py``. The command term owns everything frame-coupled (robot/object
+mirroring ``trajectory_stepper.py``. The command term owns everything frame-coupled (robot/object
 poses, ``compute_pose_error``, the anchor-achieved gate) and feeds this controller plain per-env
 error tensors; the controller owns the stateful PI(D) buffers and the stall gate.
 """

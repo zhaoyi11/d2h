@@ -5,39 +5,30 @@
 
 """High-level (reference / subgoal generation) building blocks for the HRL stack.
 
-Groups the pure-``torch`` "brains" that decide *what to do* -- the scripted object-pose trajectory
-primitives, the per-env trajectory stepper, and the bounded PI(D) anchor correction. The isaaclab
-``CommandTerm`` in ``src.tasks.common.mdps.commands`` is a thin adapter that imports and drives
-these; execution (cuRobo MPC arm + frozen low-level hand policy) lives in ``src.policy.low_level``.
+Groups the pure-``torch`` "brains" that decide *what to do* -- the per-env trajectory stepper and
+the bounded PI(D) anchor correction. The isaaclab ``CommandTerm`` in
+``src.tasks.common.mdps.commands`` is a thin adapter that imports and drives these; execution
+(cuRobo MPC arm + frozen low-level hand policy) lives in ``src.policy.low_level``.
 
-The isaaclab-dependent modules (:mod:`.gate`, :mod:`.anchor_kinematics` and :mod:`.trajectory_command`)
-are intentionally *not* re-exported here: importing them eagerly would pull isaaclab into this
-package. Import them directly (e.g. ``from src.policy.high_level.gate import LowLevelHandGate``,
-``from src.policy.high_level.anchor_kinematics import hand_base_pose_from_object_command_b`` or
+The isaaclab-dependent modules (:mod:`.gate`, :mod:`.utils` and :mod:`.trajectory_command`) are
+intentionally *not* re-exported here: importing them eagerly would pull isaaclab into this package.
+Import them directly (e.g. ``from src.policy.high_level.gate import LowLevelHandGate``,
+``from src.policy.high_level.utils import hand_base_pose_from_object_command_b`` -- which also holds
+the scripted object-pose trajectory primitives -- or
 ``from src.policy.high_level.trajectory_command import TrajectoryObjectAndHandBasePoseCommand``) when
 needed, keeping the pure-torch modules above loadable in isolation. ``AnchorCorrectionCfg`` is a
 plain ``@dataclass`` (no isaaclab), so it *is* re-exported alongside its controller.
 """
 
 from .anchor_correction import AnchorCorrectionCfg, ObjectAnchorPIDController, clamp_norm, slew_limit
-from .object_trajectory import (
-    DEFAULT_SEGMENT_STEPS,
-    build_object_pose_sequence_from_keyframes,
-    interpolate_pose_segment,
-    slerp,
-)
 from .trajectory_stepper import StageObjTol, TrajectoryStepper, stage_tolerance_tensors
 
 __all__ = [
     "AnchorCorrectionCfg",
-    "DEFAULT_SEGMENT_STEPS",
     "ObjectAnchorPIDController",
     "StageObjTol",
     "TrajectoryStepper",
-    "build_object_pose_sequence_from_keyframes",
     "clamp_norm",
-    "interpolate_pose_segment",
-    "slerp",
     "slew_limit",
     "stage_tolerance_tensors",
 ]

@@ -8,9 +8,9 @@
 
 This is the isaaclab ``CommandTerm`` that drives the pure-``torch`` high-level "brains" in this
 package -- the per-env trajectory stepper (:mod:`.trajectory_stepper`), the bounded PI(D) anchor
-correction (:mod:`.anchor_correction`) and the grasp-anchor kinematics (:mod:`.anchor_kinematics`).
+correction (:mod:`.anchor_correction`) and the grasp-anchor kinematics (:mod:`.utils`).
 It lives in :mod:`src.policy.high_level` so the whole HRL reference-generation stack sits together,
-but it depends on isaaclab, so -- like :mod:`.gate` and :mod:`.anchor_kinematics` -- it is *not*
+but it depends on isaaclab, so -- like :mod:`.gate` and :mod:`.utils` -- it is *not*
 re-exported from the package ``__init__`` (importing it eagerly would pull isaaclab into the
 otherwise pure-torch package). It is re-exported through ``src.tasks.common.mdps.commands`` so the
 ``mdp.*`` namespace keeps exposing it to tasks and scripts.
@@ -38,7 +38,7 @@ from isaaclab.utils import configclass
 from isaaclab.utils.assets import ISAAC_NUCLEUS_DIR
 
 from src.policy.high_level.anchor_correction import AnchorCorrectionCfg, ObjectAnchorPIDController
-from src.policy.high_level.anchor_kinematics import (
+from src.policy.high_level.utils import (
     DEFAULT_HAND_BASE_TO_ANCHOR_POSE,
     DEFAULT_OBJECT_TO_ANCHOR_POSE,
     hand_base_pose_from_object_command_b,
@@ -300,7 +300,7 @@ class TrajectoryObjectAndHandBasePoseCommand(CommandTerm):
         return a stacked tensor of shape ``(len(env_ids), 1 + sum(trajectory_segment_steps), 7)``.
         The waypoint count must match the stepper built from ``cfg.trajectory_segment_steps``; the
         number and meaning of the segments is entirely task-defined. Use
-        :func:`~src.policy.high_level.object_trajectory.build_object_pose_sequence_from_keyframes` to
+        :func:`~src.policy.high_level.utils.build_object_pose_sequence_from_keyframes` to
         turn task keyframes into waypoints.
         """
         raise NotImplementedError(
