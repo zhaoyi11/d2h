@@ -18,8 +18,8 @@ import torch
 
 from isaaclab.utils import configclass
 
+from src.policy.high_level.trajectory_stepper import StageObjTol
 from src.tasks.common.mdps.commands import (
-    StageObjTol,
     TrajectoryObjectAndHandBasePoseCommand,
     TrajectoryObjectAndHandBasePoseCommandCfg,
 )

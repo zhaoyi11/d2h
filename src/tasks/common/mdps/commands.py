@@ -9,16 +9,14 @@
 from __future__ import annotations
 
 from dataclasses import MISSING
-import math
 import torch
 from collections.abc import Sequence
-from typing import TYPE_CHECKING, NamedTuple
+from typing import TYPE_CHECKING
 
 from isaaclab.assets import Articulation, RigidObject
 from isaaclab.managers import CommandTerm
 from isaaclab.markers import VisualizationMarkers
 from isaaclab.utils.math import (
-    apply_delta_pose,
     combine_frame_transforms,
     compute_pose_error,
     quat_from_euler_xyz,
@@ -31,111 +29,25 @@ from isaaclab.markers import VisualizationMarkersCfg
 from isaaclab.utils import configclass
 from isaaclab.utils.assets import ISAAC_NUCLEUS_DIR
 
+# Reference-generation "brains" live in the pure high-level package; this module is a thin adapter
+# that imports and drives them (StageObjTol / stage_tolerance_tensors are pure-torch; the anchor
+# kinematics depend on isaaclab.utils.math). Re-imported here so the ``mdp.*`` re-export namespace
+# keeps exposing them for tasks and scripts.
 from src.policy.high_level.anchor_correction import ObjectAnchorPIDController
-from src.policy.high_level.trajectory_stepper import TrajectoryStepper
+from src.policy.high_level.anchor_kinematics import (
+    DEFAULT_HAND_BASE_TO_ANCHOR_POSE,
+    DEFAULT_OBJECT_TO_ANCHOR_POSE,
+    hand_base_pose_from_object_command_b,
+)
+from src.policy.high_level.trajectory_stepper import (
+    StageObjTol,
+    TrajectoryStepper,
+    stage_tolerance_tensors,
+)
 
 
 if TYPE_CHECKING:
     from isaaclab.envs import ManagerBasedEnv
-
-
-DEFAULT_HAND_BASE_TO_ANCHOR_POSE = (0.10623648, 0.01035594, 0.07579897, 1.0, 0.0, 0.0, 0.0)
-# Anchor pose offset in the robot root frame as (x, y, z, qw, qx, qy, qz).
-# Position (0, 0, -0.01) is a fixed -1 cm z-offset in root; orientation (√2/2, 0, √2/2, 0) is 90° rotation about root +Y axis.
-DEFAULT_OBJECT_TO_ANCHOR_POSE = (0.0, 0.0, -0.01, 0.70710678, 0.0, 0.70710678, 0.0)
-
-
-class StageObjTol(NamedTuple):
-    """Per-stage object position/orientation tolerances for advancing a scripted trajectory."""
-
-    object_position: float
-    object_orientation: float
-
-
-def _stage_obj_tor_tensors(
-    stage_obj_tors: Sequence[StageObjTol],
-    expected_count: int,
-    device: str,
-) -> tuple[torch.Tensor, torch.Tensor]:
-    if len(stage_obj_tors) != expected_count:
-        raise ValueError(
-            "stage_object_tolerances must have one entry per trajectory segment "
-            f"({expected_count}); got {len(stage_obj_tors)}."
-        )
-
-    values = []
-    for stage_idx, stage_obj_tor in enumerate(stage_obj_tors):
-        if not isinstance(stage_obj_tor, StageObjTol):
-            raise TypeError(
-                f"stage_object_tolerances[{stage_idx}] must be a StageObjTol; "
-                f"got {type(stage_obj_tor).__name__}."
-            )
-        position = float(stage_obj_tor.object_position)
-        orientation = float(stage_obj_tor.object_orientation)
-        if not math.isfinite(position) or not math.isfinite(orientation):
-            raise ValueError(f"stage_object_tolerances[{stage_idx}] values must be finite.")
-        if position < 0.0 or orientation < 0.0:
-            raise ValueError(f"stage_object_tolerances[{stage_idx}] values must be non-negative.")
-        values.append((position, orientation))
-
-    stage_obj_tor_tensor = torch.tensor(values, device=device)
-    return stage_obj_tor_tensor[:, 0], stage_obj_tor_tensor[:, 1]
-
-
-def hand_base_pose_from_object_command_b(
-    object_pose_b: torch.Tensor,
-    hand_base_to_anchor_pose: torch.Tensor,
-    object_to_anchor_pose: torch.Tensor | Sequence[float] = DEFAULT_OBJECT_TO_ANCHOR_POSE,
-    anchor_correction: torch.Tensor | None = None,
-) -> tuple[torch.Tensor, torch.Tensor]:
-    """Compute target hand-base pose from target object pose and the object->anchor offset.
-
-    The anchor pose is computed in the *robot root frame*: position = ``object_goal_pos +
-    offset_pos`` (offset_pos is a fixed root-frame offset), and orientation = ``offset_quat``
-    (fixed root-aligned grasp orientation, decoupled from the object goal). The anchor orientation
-    is thus constant along the trajectory while the object goal reorients. The hand base is then
-    recovered by composing the inverse of the fixed hand-base->anchor transform. ``object_to_anchor_pose``
-    may be a single ``(7,)`` offset (broadcast to all envs) or a per-env ``(N, 7)`` offset.
-    ``anchor_correction`` is an optional per-env ``(N, 6)`` bounded delta (pos[3], axis-angle[3])
-    applied to the nominal anchor pose *in the anchor frame*.
-
-    Returns:
-        Tuple of (hand_base_pose, anchor_pose), each shape (N, 7) in robot root frame.
-    """
-    if hand_base_to_anchor_pose.ndim == 1:
-        hand_base_to_anchor_pose = hand_base_to_anchor_pose.unsqueeze(0).repeat(object_pose_b.shape[0], 1)
-    hand_base_to_anchor_pose = hand_base_to_anchor_pose.to(dtype=object_pose_b.dtype, device=object_pose_b.device)
-    offset = torch.as_tensor(object_to_anchor_pose, dtype=object_pose_b.dtype, device=object_pose_b.device)
-    if offset.ndim == 1:
-        offset = offset.unsqueeze(0).repeat(object_pose_b.shape[0], 1)
-
-    # Nominal anchor: both position and orientation are expressed in the robot root frame.
-    # Position = object_goal_pos + offset_pos (offset_pos is a fixed root-frame z-offset).
-    # Orientation = offset_quat (root-aligned, fixed grasp orientation).
-    target_anchor_pos_b = object_pose_b[:, :3] + offset[:, :3]
-    target_anchor_quat = offset[:, 3:7]
-
-    # Bounded correction applied *in the anchor frame*. The anchor orientation is root-aligned, so
-    # apply_delta_pose (position added directly, orientation left-multiplied) realises an
-    # anchor-frame == root-frame delta on the anchor pose.
-    if anchor_correction is not None:
-        target_anchor_pos_b, target_anchor_quat = apply_delta_pose(
-            target_anchor_pos_b, target_anchor_quat, anchor_correction
-        )
-
-    anchor_to_hand_base_pos, anchor_to_hand_base_quat = subtract_frame_transforms(
-        hand_base_to_anchor_pose[:, :3],
-        hand_base_to_anchor_pose[:, 3:7],
-    )
-    hand_base_pos_b, hand_base_quat_b = combine_frame_transforms(
-        target_anchor_pos_b,
-        target_anchor_quat,
-        anchor_to_hand_base_pos,
-        anchor_to_hand_base_quat,
-    )
-    hand_base_pose = torch.cat((hand_base_pos_b, hand_base_quat_b), dim=1)
-    anchor_pose = torch.cat((target_anchor_pos_b, target_anchor_quat), dim=1)
-    return hand_base_pose, anchor_pose
 
 
 class ObjectUniformPoseCommand(CommandTerm):
@@ -425,7 +337,7 @@ class TrajectoryObjectAndHandBasePoseCommand(ObjectAndHandBasePoseCommand):
         self._hand_base_body_idx = body_ids[0]
         # Stage/step state machine (per-env waypoints, step index, per-stage advance tolerances)
         # lives in the pure-torch high-level package; the command term orchestrates it.
-        stage_position_tolerance, stage_orientation_tolerance = _stage_obj_tor_tensors(
+        stage_position_tolerance, stage_orientation_tolerance = stage_tolerance_tensors(
             self.cfg.stage_object_tolerances,
             len(self.cfg.trajectory_segment_steps),
             self.device,

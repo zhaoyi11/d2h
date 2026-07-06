@@ -45,7 +45,7 @@ from isaaclab.markers import VisualizationMarkers, VisualizationMarkersCfg  # no
 from isaaclab.scene import InteractiveScene  # noqa: E402
 from isaaclab.sim import SimulationContext  # noqa: E402
 from isaaclab.utils.assets import ISAAC_NUCLEUS_DIR  # noqa: E402
-from src.tasks.common.mdps.commands import (  # noqa: E402
+from src.policy.high_level.anchor_kinematics import (  # noqa: E402
     DEFAULT_HAND_BASE_TO_ANCHOR_POSE,
     DEFAULT_OBJECT_TO_ANCHOR_POSE,
     hand_base_pose_from_object_command_b,

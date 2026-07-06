@@ -10,10 +10,11 @@ primitives, the per-env trajectory stepper, and the bounded PI(D) anchor correct
 ``CommandTerm`` in ``src.tasks.common.mdps.commands`` is a thin adapter that imports and drives
 these; execution (cuRobo MPC arm + frozen low-level hand policy) lives in ``src.policy.low_level``.
 
-The engagement gate (:mod:`.gate`) is intentionally *not* re-exported here: it depends on isaaclab,
-so importing it eagerly would pull isaaclab into this package. Import it as
-``from src.policy.high_level.gate import LowLevelHandGate`` when needed, keeping the pure-torch
-modules above loadable in isolation.
+The isaaclab-dependent modules (:mod:`.gate` and :mod:`.anchor_kinematics`) are intentionally *not*
+re-exported here: importing them eagerly would pull isaaclab into this package. Import them directly
+(e.g. ``from src.policy.high_level.gate import LowLevelHandGate`` or
+``from src.policy.high_level.anchor_kinematics import hand_base_pose_from_object_command_b``) when
+needed, keeping the pure-torch modules above loadable in isolation.
 """
 
 from .anchor_correction import ObjectAnchorPIDController, clamp_norm, slew_limit
@@ -23,15 +24,17 @@ from .object_trajectory import (
     interpolate_pose_segment,
     slerp,
 )
-from .trajectory_stepper import TrajectoryStepper
+from .trajectory_stepper import StageObjTol, TrajectoryStepper, stage_tolerance_tensors
 
 __all__ = [
     "DEFAULT_SEGMENT_STEPS",
     "ObjectAnchorPIDController",
+    "StageObjTol",
     "TrajectoryStepper",
     "build_object_pose_sequence_from_keyframes",
     "clamp_norm",
     "interpolate_pose_segment",
     "slerp",
     "slew_limit",
+    "stage_tolerance_tensors",
 ]

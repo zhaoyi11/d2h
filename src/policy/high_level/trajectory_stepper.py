@@ -14,9 +14,54 @@ task-agnostic: any trajectory expressed as ``1 + sum(segment_steps)`` waypoints 
 
 from __future__ import annotations
 
+import math
 from collections.abc import Sequence
+from typing import NamedTuple
 
 import torch
+
+
+class StageObjTol(NamedTuple):
+    """Per-stage object position/orientation tolerances for advancing a scripted trajectory."""
+
+    object_position: float
+    object_orientation: float
+
+
+def stage_tolerance_tensors(
+    stage_obj_tols: Sequence[StageObjTol],
+    expected_count: int,
+    device: str,
+) -> tuple[torch.Tensor, torch.Tensor]:
+    """Validate per-stage tolerances and split them into position/orientation tensors.
+
+    Returns two ``(expected_count,)`` tensors (position tolerances, orientation tolerances) ready to
+    hand to :class:`TrajectoryStepper`. Raises if the count mismatches or any value is non-finite or
+    negative.
+    """
+    if len(stage_obj_tols) != expected_count:
+        raise ValueError(
+            "stage_object_tolerances must have one entry per trajectory segment "
+            f"({expected_count}); got {len(stage_obj_tols)}."
+        )
+
+    values = []
+    for stage_idx, stage_obj_tol in enumerate(stage_obj_tols):
+        if not isinstance(stage_obj_tol, StageObjTol):
+            raise TypeError(
+                f"stage_object_tolerances[{stage_idx}] must be a StageObjTol; "
+                f"got {type(stage_obj_tol).__name__}."
+            )
+        position = float(stage_obj_tol.object_position)
+        orientation = float(stage_obj_tol.object_orientation)
+        if not math.isfinite(position) or not math.isfinite(orientation):
+            raise ValueError(f"stage_object_tolerances[{stage_idx}] values must be finite.")
+        if position < 0.0 or orientation < 0.0:
+            raise ValueError(f"stage_object_tolerances[{stage_idx}] values must be non-negative.")
+        values.append((position, orientation))
+
+    stage_obj_tol_tensor = torch.tensor(values, device=device)
+    return stage_obj_tol_tensor[:, 0], stage_obj_tol_tensor[:, 1]
 
 
 class TrajectoryStepper:
@@ -91,4 +136,4 @@ class TrajectoryStepper:
         self._step[env_ids] = torch.clamp(self._step[env_ids] + 1, max=self._length - 1)
 
 
-__all__ = ["TrajectoryStepper"]
+__all__ = ["StageObjTol", "TrajectoryStepper", "stage_tolerance_tensors"]
