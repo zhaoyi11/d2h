@@ -880,7 +880,7 @@ class HrlActionsCfg:
     # cuRobo reactive MPC drives the hand `base` to the command anchor while the full Franka+LEAP
     # collision model avoids the table. Consumes ZERO external action dims (goal comes from the
     # command), so the env action is the 16-DOF hand action only.
-    arm_action = insert_mdp.CommandHandBaseCuroboMpcActionCfg(
+    arm_action = mdp.CommandHandBaseCuroboMpcActionCfg(
         asset_name="robot",
         joint_names=["panda_joint.*"],
         body_name="base",

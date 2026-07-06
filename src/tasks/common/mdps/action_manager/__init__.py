@@ -7,6 +7,10 @@ from .actions import (
     EMACumulativeRelativeJointPositionActionEval,
     EMARelativeJointPositionToLimitsAction,
 )
+from .curobo_mpc import (
+    CommandHandBaseCuroboMpcAction,
+    CommandHandBaseCuroboMpcActionCfg,
+)
 
 __all__ = [
     "EMACumulativeRelativeJointPositionActionCfg",
@@ -14,4 +18,6 @@ __all__ = [
     "EMACumulativeRelativeJointPositionAction",
     "EMARelativeJointPositionToLimitsAction",
     "EMACumulativeRelativeJointPositionActionEval",
+    "CommandHandBaseCuroboMpcAction",
+    "CommandHandBaseCuroboMpcActionCfg",
 ]
