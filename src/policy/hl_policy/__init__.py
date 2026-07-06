@@ -4,11 +4,11 @@ from .low_level import (
     LowLevelRslRlPolicy,
     load_low_level_rsl_rl_policy,
 )
-from .wrapper import DirectLowLevelEnvWrapper
+from .wrapper import FrozenHandVecEnv
 
 __all__ = [
     "DEFAULT_LOW_LEVEL_RSL_RL_CHECKPOINT",
-    "DirectLowLevelEnvWrapper",
+    "FrozenHandVecEnv",
     "LowLevelGateCfg",
     "LowLevelHandGate",
     "LowLevelRslRlPolicy",

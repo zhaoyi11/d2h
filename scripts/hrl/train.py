@@ -60,8 +60,7 @@ from isaaclab_tasks.utils.hydra import hydra_task_config  # noqa: E402
 
 import isaaclab_tasks  # noqa: F401, E402
 import src.tasks  # noqa: F401, E402
-from src.policy.hl_policy import DirectLowLevelEnvWrapper, load_low_level_rsl_rl_policy  # noqa: E402
-from src.policy.hl_policy.rsl_rl_wrapper import HrlRslRlVecEnvWrapper  # noqa: E402
+from src.policy.hl_policy import FrozenHandVecEnv, load_low_level_rsl_rl_policy  # noqa: E402
 from src.utils import _patch_rsl_wandb_writer  # noqa: E402
 
 
@@ -139,19 +138,16 @@ def main(env_cfg: ManagerBasedRLEnvCfg, agent_cfg: RslRlBaseRunnerCfg):
         env = multi_agent_to_single_agent(env)
 
     hand_action_dim = int(env.unwrapped.action_manager.get_term("hand_action").action_dim)
-    wrist_action_dim = int(env.unwrapped.action_manager.total_action_dim) - hand_action_dim
     low_level_policy = load_low_level_rsl_rl_policy(
         args_cli.low_level_checkpoint,
         device=env.unwrapped.device,
         expected_action_dim=hand_action_dim,
     )
-    env = DirectLowLevelEnvWrapper(
+    env = FrozenHandVecEnv(
         env,
         low_level_policy=low_level_policy,
         low_level_obs_group=args_cli.low_level_obs_group,
-        wrist_action_dim=wrist_action_dim,
     )
-    env = HrlRslRlVecEnvWrapper(env, clip_actions=agent_cfg.clip_actions)
 
     if agent_cfg.resume:
         resume_path = get_checkpoint_path(log_root_path, agent_cfg.load_run, agent_cfg.load_checkpoint)

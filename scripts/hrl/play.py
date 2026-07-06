@@ -67,8 +67,7 @@ from isaaclab_tasks.utils.hydra import hydra_task_config  # noqa: E402
 
 import isaaclab_tasks  # noqa: F401, E402
 import src.tasks  # noqa: F401, E402
-from src.policy.hl_policy import DirectLowLevelEnvWrapper, load_low_level_rsl_rl_policy  # noqa: E402
-from src.policy.hl_policy.rsl_rl_wrapper import HrlRslRlVecEnvWrapper  # noqa: E402
+from src.policy.hl_policy import FrozenHandVecEnv, load_low_level_rsl_rl_policy  # noqa: E402
 
 
 def _resolve_checkpoint(agent_cfg: RslRlBaseRunnerCfg) -> str:
@@ -131,19 +130,16 @@ def main(env_cfg: ManagerBasedRLEnvCfg, agent_cfg: RslRlBaseRunnerCfg):
         env = gym.wrappers.RecordVideo(env, **video_kwargs)
 
     hand_action_dim = int(env.unwrapped.action_manager.get_term("hand_action").action_dim)
-    wrist_action_dim = int(env.unwrapped.action_manager.total_action_dim) - hand_action_dim
     low_level_policy = load_low_level_rsl_rl_policy(
         args_cli.low_level_checkpoint,
         device=env.unwrapped.device,
         expected_action_dim=hand_action_dim,
     )
-    env = DirectLowLevelEnvWrapper(
+    env = FrozenHandVecEnv(
         env,
         low_level_policy=low_level_policy,
         low_level_obs_group=args_cli.low_level_obs_group,
-        wrist_action_dim=wrist_action_dim,
     )
-    env = HrlRslRlVecEnvWrapper(env, clip_actions=agent_cfg.clip_actions)
 
     runner = OnPolicyRunner(env, agent_cfg.to_dict(), log_dir=None, device=agent_cfg.device)
     runner.load(resume_path)
