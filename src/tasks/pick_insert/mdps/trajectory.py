@@ -3,12 +3,12 @@
 #
 # SPDX-License-Identifier: BSD-3-Clause
 
-"""Pick-insert object-pose (and demo) trajectory builders.
+"""Pick-insert object-pose trajectory builder.
 
 The scripted move->align->approach->insert->hold peg trajectory that is specific to the pick-insert
 task, composed from the task-agnostic primitives in :mod:`src.tasks.common.mdps.object_trajectory`.
-Kept free of isaaclab (apart from what the common core transitively imports) so it can be unit-tested
-in isolation; the command term that consumes it lives in :mod:`src.tasks.pick_insert.mdps.commands`.
+Pure ``torch`` so it can be unit-tested in isolation; the command term that consumes it lives in
+:mod:`src.tasks.pick_insert.mdps.commands`.
 """
 
 from __future__ import annotations
@@ -18,13 +18,9 @@ from collections.abc import Sequence
 import torch
 
 from src.tasks.common.mdps.object_trajectory import (
-    DEFAULT_ANCHOR_POSE_B,
-    DEFAULT_OBJECT_TO_ANCHOR_POSE,
     DEFAULT_SEGMENT_STEPS,
     _as_pose_tensor,
     _with_normalized_quat,
-    build_anchor_pose_sequence,
-    build_leap_hand_joint_pose_sequence,
     build_object_pose_sequence_from_keyframes,
 )
 
@@ -100,47 +96,7 @@ def build_pick_insert_object_pose_sequence(
     return build_object_pose_sequence_from_keyframes(key_poses, segment_steps)
 
 
-def build_pick_insert_demo_motion(
-    current_pose: torch.Tensor | Sequence[float],
-    joint_names: Sequence[str],
-    receptive_pose: torch.Tensor | Sequence[float] = DEFAULT_RECEPTIVE_POSE,
-    segment_steps: Sequence[int] = DEFAULT_SEGMENT_STEPS,
-    above_offset: float = 0.15,
-    insertion_depth: float = 0.015,
-    approach_height: float = 0.08,
-    anchor_pose_b: torch.Tensor | Sequence[float] = DEFAULT_ANCHOR_POSE_B,
-    object_to_anchor_pose: torch.Tensor | Sequence[float] = DEFAULT_OBJECT_TO_ANCHOR_POSE,
-) -> dict[str, torch.Tensor]:
-    """Build object, LEAP hand, and anchor-frame motion for the pick-insert demo."""
-
-    object_pose_b = build_pick_insert_object_pose_sequence(
-        current_pose,
-        receptive_pose=receptive_pose,
-        segment_steps=segment_steps,
-        above_offset=above_offset,
-        insertion_depth=insertion_depth,
-        approach_height=approach_height,
-    )
-    leap_joint_pos = build_leap_hand_joint_pose_sequence(
-        joint_names,
-        segment_steps=segment_steps,
-        dtype=object_pose_b.dtype,
-        device=object_pose_b.device,
-    )
-    anchor_pose_sequence_b = build_anchor_pose_sequence(
-        object_pose_b,
-        anchor_pose_b=anchor_pose_b,
-        object_to_anchor_pose=object_to_anchor_pose,
-    )
-    return {
-        "object_pose_b": object_pose_b,
-        "leap_joint_pos": leap_joint_pos,
-        "anchor_pose_b": anchor_pose_sequence_b,
-    }
-
-
 __all__ = [
     "DEFAULT_RECEPTIVE_POSE",
-    "build_pick_insert_demo_motion",
     "build_pick_insert_object_pose_sequence",
 ]

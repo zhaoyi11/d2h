@@ -14,9 +14,9 @@ from isaaclab.app import AppLauncher
 
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
-# The pick-insert builder now lives with the task; it re-exports the shared anchor builder /
-# DEFAULT_ANCHOR_POSE_B / DEFAULT_SEGMENT_STEPS from src.tasks.common.mdps.object_trajectory, so a
-# single module load still exposes everything this script needs.
+# The object-pose builder lives with the task; the anchor + hand-base are computed by the same runtime
+# function the command term uses (``hand_base_pose_from_object_command_b``), so the visualization shows
+# exactly the root-aligned anchor the cuRobo-MPC arm tracks (open-loop -- no PI(D) correction here).
 PICK_INSERT_TRAJECTORY_PATH = REPO_ROOT / "src" / "tasks" / "pick_insert" / "mdps" / "trajectory.py"
 ENV_CFG_PATH = REPO_ROOT / "src" / "tasks" / "pick_insert" / "env_cfg.py"
 
@@ -45,7 +45,11 @@ from isaaclab.markers import VisualizationMarkers, VisualizationMarkersCfg  # no
 from isaaclab.scene import InteractiveScene  # noqa: E402
 from isaaclab.sim import SimulationContext  # noqa: E402
 from isaaclab.utils.assets import ISAAC_NUCLEUS_DIR  # noqa: E402
-from isaaclab.utils.math import combine_frame_transforms, subtract_frame_transforms  # noqa: E402
+from src.tasks.common.mdps.commands import (  # noqa: E402
+    DEFAULT_HAND_BASE_TO_ANCHOR_POSE,
+    DEFAULT_OBJECT_TO_ANCHOR_POSE,
+    hand_base_pose_from_object_command_b,
+)
 
 
 def _load_module(module_name: str, path: Path) -> ModuleType:
@@ -84,21 +88,6 @@ def _make_frame_marker(prim_path: str) -> VisualizationMarkers:
     return markers
 
 
-def _base_trajectory_from_anchor(anchor_trajectory_w: torch.Tensor, anchor_pose_b: torch.Tensor) -> torch.Tensor:
-    base_to_anchor = anchor_pose_b.to(dtype=anchor_trajectory_w.dtype, device=anchor_trajectory_w.device).unsqueeze(0)
-    anchor_to_base_pos, anchor_to_base_quat = subtract_frame_transforms(
-        base_to_anchor[:, :3],
-        base_to_anchor[:, 3:7],
-    )
-    base_pos_w, base_quat_w = combine_frame_transforms(
-        anchor_trajectory_w[:, :3],
-        anchor_trajectory_w[:, 3:7],
-        anchor_to_base_pos.repeat(anchor_trajectory_w.shape[0], 1),
-        anchor_to_base_quat.repeat(anchor_trajectory_w.shape[0], 1),
-    )
-    return torch.cat((base_pos_w, base_quat_w), dim=1)
-
-
 def _write_demo_frame(scene: InteractiveScene, object_pose_w: torch.Tensor) -> None:
     obj = scene["object"]
     obj.write_root_pose_to_sim(object_pose_w.unsqueeze(0))
@@ -134,9 +123,12 @@ def main() -> None:
         current_pose_w,
         segment_steps=segment_steps,
     )
-    anchor_trajectory_w = trajectory_module.build_anchor_pose_sequence(trajectory_w)
-    anchor_pose_b = torch.tensor(trajectory_module.DEFAULT_ANCHOR_POSE_B)
-    base_trajectory_w = _base_trajectory_from_anchor(anchor_trajectory_w, anchor_pose_b)
+    # Anchor + hand-base from the SAME runtime function the command term uses: anchor is root-aligned
+    # (object goal + offset), hand-base = anchor composed with the inverse hand-base->anchor transform.
+    hand_base_to_anchor = torch.tensor(DEFAULT_HAND_BASE_TO_ANCHOR_POSE)
+    base_trajectory_w, anchor_trajectory_w = hand_base_pose_from_object_command_b(
+        trajectory_w, hand_base_to_anchor, DEFAULT_OBJECT_TO_ANCHOR_POSE, None
+    )
 
     anchor_marker = _make_frame_marker("/Visuals/PickInsertObjectTrajectory/AnchorFrame")
     base_marker = _make_frame_marker("/Visuals/PickInsertObjectTrajectory/BaseFrame")
