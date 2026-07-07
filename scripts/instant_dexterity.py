@@ -32,13 +32,15 @@ parser.add_argument(
 parser.add_argument(
     "--gate_low_level",
     action="store_true",
-    help="Gate the hand actions: apply them only within --gate_dist of the object AND "
-    "(good-grasp contact OR anchor reached); otherwise hold the hand open (stretch).",
+    help="Gate the hand actions: apply them only when the hand-base is within --gate_dist of the "
+    "live object's grasp anchor; otherwise hold the hand open (stretch).",
 )
-parser.add_argument("--gate_dist", type=float, default=0.05, help="Max anchor<->object distance (m) to enable the hand policy.")
-parser.add_argument("--gate_contact_threshold", type=float, default=1.0, help="Object contact force (N) for the good-grasp gate.")
-parser.add_argument("--gate_anchor_pos", type=float, default=0.01, help="Hand-base position error (m) for anchor-reached.")
-parser.add_argument("--gate_anchor_rot", type=float, default=0.05, help="Hand-base orientation error (rad) for anchor-reached; negative => position only.")
+parser.add_argument(
+    "--gate_dist",
+    type=float,
+    default=0.08,
+    help="Max hand-base<->live-object distance (m) to enable the hand policy; above it => stretch.",
+)
 AppLauncher.add_app_launcher_args(parser)
 args_cli = parser.parse_args()
 
@@ -324,16 +326,9 @@ def main() -> None:
             flush=True,
         )
 
-        # low-level gate: apply the hand policy only within --gate_dist of the object AND
-        # (good-grasp contact OR anchor reached); otherwise hold the hand open (stretch).
-        gate = LowLevelHandGate(
-            LowLevelGateCfg(
-                anchor_object_dist=args_cli.gate_dist,
-                contact_threshold=args_cli.gate_contact_threshold,
-                anchor_achieved_pos=args_cli.gate_anchor_pos,
-                anchor_achieved_rot=(None if args_cli.gate_anchor_rot < 0 else args_cli.gate_anchor_rot),
-            )
-        )
+        # low-level gate: apply the hand policy only when the hand-base is within --gate_dist of the
+        # live object's grasp anchor; otherwise hold the hand open (stretch).
+        gate = LowLevelHandGate(LowLevelGateCfg(hand_at_object_dist=args_cli.gate_dist))
 
         for step in range(1, args_cli.steps + 1):
             with torch.inference_mode():

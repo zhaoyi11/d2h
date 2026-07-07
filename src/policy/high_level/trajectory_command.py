@@ -181,6 +181,9 @@ class TrajectoryObjectAndHandBasePoseCommand(CommandTerm):
         self._corr = ObjectAnchorPIDController(self.num_envs, self.device, self.cfg.correction)
         self.metrics["hand_base_position_error"] = torch.zeros(self.num_envs, device=self.device)
         self.metrics["hand_base_orientation_error"] = torch.zeros(self.num_envs, device=self.device)
+        # Current hand-base distance to the grasp anchor of the *live* object (not the commanded goal).
+        # Large during the pre-grasp reach, small at/through the grasp; the hand-stretch gate thresholds it.
+        self.metrics["hand_base_object_error"] = torch.zeros(self.num_envs, device=self.device)
         self.metrics["trajectory_command_achieved"] = torch.zeros(self.num_envs, device=self.device)
 
     def __str__(self) -> str:
@@ -275,6 +278,19 @@ class TrajectoryObjectAndHandBasePoseCommand(CommandTerm):
         )
         self.metrics["hand_base_position_error"] = torch.norm(hand_base_pos_error, dim=-1)
         self.metrics["hand_base_orientation_error"] = torch.norm(hand_base_rot_error, dim=-1)
+
+        # Same distance as above but against the *live* object (nominal grasp anchor from the object's
+        # current pose, not the commanded goal). Stays small through transport because the grasped
+        # object moves with the hand -- which is why the stretch gate needs no latch. Position only.
+        object_pos_b, object_quat_b = self._current_object_pose_b()
+        live_hand_base_target, _ = hand_base_pose_from_object_command_b(
+            torch.cat((object_pos_b, object_quat_b), dim=-1),
+            self._hand_base_to_anchor_pose,
+            self.cfg.object_to_anchor_pose,
+        )
+        self.metrics["hand_base_object_error"] = torch.norm(
+            hand_base_pos_b - live_hand_base_target[:, :3], dim=-1
+        )
 
         object_achieved = self._object_target_achieved()
         hand_base_achieved = self.metrics["hand_base_position_error"] < self.cfg.hand_base_position_tolerance
@@ -432,6 +448,17 @@ class TrajectoryObjectAndHandBasePoseCommand(CommandTerm):
             self.robot.data.root_quat_w[env_ids],
             self.robot.data.body_pos_w[env_ids, self._hand_base_body_idx],
             self.robot.data.body_quat_w[env_ids, self._hand_base_body_idx],
+        )
+
+    def _current_object_pose_b(
+        self,
+        env_ids: Sequence[int] | slice = slice(None),
+    ) -> tuple[torch.Tensor, torch.Tensor]:
+        return subtract_frame_transforms(
+            self.robot.data.root_pos_w[env_ids],
+            self.robot.data.root_quat_w[env_ids],
+            self.object.data.root_pos_w[env_ids],
+            self.object.data.root_quat_w[env_ids],
         )
 
 
