@@ -7,9 +7,9 @@
 
 Thin task layer over the generic
 :class:`~src.policy.high_level.trajectory_command.TrajectoryObjectAndHandBasePoseCommand`: it overrides
-:meth:`_build_object_trajectories` with the pick-insert move->align->approach->insert->hold peg
-trajectory (built by :func:`build_pick_insert_object_pose_sequence`). All the shared machinery
-(stepper, PI(D) anchor correction, hand-base targeting, pregrasp reach, advance logic) is inherited.
+:meth:`_build_object_trajectories` with the pick-insert pregrasp->move->align->approach->insert->hold
+peg trajectory (built by :func:`build_pick_insert_object_pose_sequence`). All the shared machinery
+(stepper, PI(D) anchor correction, hand-base targeting, advance logic) is inherited.
 """
 
 from __future__ import annotations
@@ -59,8 +59,8 @@ class PickInsertTrajectoryObjectAndHandBasePoseCommandCfg(TrajectoryObjectAndHan
     receptive_pose: tuple[float, float, float, float, float, float, float] = DEFAULT_PICK_INSERT_RECEPTIVE_POSE
     """Target receptacle pose used by the pick-insert object trajectory."""
 
-    trajectory_segment_steps: tuple[int, int, int, int, int] = DEFAULT_PICK_INSERT_SEGMENT_STEPS
-    """Interpolation samples for the move, align, approach, insert, and hold segments."""
+    trajectory_segment_steps: tuple[int, ...] = DEFAULT_PICK_INSERT_SEGMENT_STEPS
+    """Interpolation samples for the pregrasp, move, align, approach, insert, and hold segments."""
 
     above_offset: float = 0.10
     """Height above the receptacle for the initial move and orientation alignment."""
@@ -74,7 +74,8 @@ class PickInsertTrajectoryObjectAndHandBasePoseCommandCfg(TrajectoryObjectAndHan
     stage_object_tolerances: tuple[StageObjTol, ...] = DEFAULT_PICK_INSERT_STAGE_OBJECT_TOLERANCES
     """Per-stage object position and orientation tolerances for advancing the command trajectory.
 
-    One entry is required for each trajectory segment: move, align, approach, insert, and hold.
+    One entry is required for each trajectory segment: pregrasp, move, align, approach, insert, and
+    hold.
     """
 
 

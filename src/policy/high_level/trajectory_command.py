@@ -114,8 +114,10 @@ class TrajectoryObjectAndHandBasePoseCommand(CommandTerm):
     the 14-D public command, plus all the task-agnostic machinery: the per-env stepper
     (:class:`~src.policy.high_level.trajectory_stepper.TrajectoryStepper`), the bounded PI(D) anchor
     correction (:class:`~src.policy.high_level.anchor_correction.ObjectAnchorPIDController`), the
-    hand-base targeting/metrics, the optional pregrasp reach, and the advance logic. The only
-    task-specific piece is the object-pose trajectory itself, produced by the overridable
+    hand-base targeting/metrics, and the advance logic. The pre-grasp reach is not special-cased
+    here -- it is simply the trajectory's first stage (the object goal held at its spawn pose while
+    the arm reaches to grasp). The only task-specific piece is the object-pose trajectory itself,
+    produced by the overridable
     :meth:`_build_object_trajectories` hook. Subclass it per task (see e.g.
     ``src.tasks.pick_insert.mdps.commands.PickInsertTrajectoryObjectAndHandBasePoseCommand``) and
     supply a matching ``trajectory_segment_steps`` / ``stage_object_tolerances`` on the config.
@@ -324,24 +326,11 @@ class TrajectoryObjectAndHandBasePoseCommand(CommandTerm):
         trajectories = self._build_object_trajectories(env_ids_tensor, current_pose_b)
         self._stepper.reset(env_ids_tensor, trajectories)
         self.pose_command_b[env_ids_tensor] = self._stepper.current_object_pose(env_ids_tensor)
-        if self.cfg.enable_pregrasp_reach:
-            # Reach phase: seed the step-0 hand-base with a grasp pose over the object (waypoint 0 is
-            # the object's current pose) so the arm first descends to the object, instead of freezing
-            # at the current hand pose. An optional standoff hovers above the object first.
-            reach_object_pose_b = self.pose_command_b[env_ids_tensor].clone()
-            reach_object_pose_b[:, 2] += self.cfg.pregrasp_approach_height
-            hand_base_pose, anchor_pose = hand_base_pose_from_object_command_b(
-                reach_object_pose_b,
-                self._hand_base_to_anchor_pose[env_ids_tensor],
-                self.cfg.object_to_anchor_pose,
-                None,
-            )
-            self.hand_base_pose_command_b[env_ids_tensor] = hand_base_pose
-            self.anchor_pose_command_b[env_ids_tensor] = anchor_pose
-        else:
-            hand_base_pos_b, hand_base_quat_b = self._current_hand_base_pose_b(env_ids_tensor)
-            self.hand_base_pose_command_b[env_ids_tensor] = torch.cat((hand_base_pos_b, hand_base_quat_b), dim=1)
         self._corr.reset(env_ids_tensor)
+        # Pre-grasp (trajectory step 0): the object goal is held at its spawn pose, so deriving the
+        # hand-base from it produces a grasp pose over the object -- the arm reaches down to grasp.
+        # Reset the corrector first so this uses zero correction (the nominal grasp anchor).
+        self._update_hand_base_pose_command(env_ids_tensor)
         self._trajectory_command_achieved[env_ids_tensor] = False
 
     def _update_command(self):
@@ -522,18 +511,6 @@ class TrajectoryObjectAndHandBasePoseCommandCfg(CommandTermCfg):
 
     hand_base_orientation_tolerance: float = 0.2
     """Hand-base orientation tolerance in radians for advancing the command trajectory."""
-
-    # -- Initial reach-to-grasp phase (used when the object spawns on the table, not in-hand) --
-    enable_pregrasp_reach: bool = False
-    """When True, seed the initial (trajectory step 0) hand-base command with a grasp pose over the
-    object -- derived from the object's current pose via the object->anchor / hand-base->anchor
-    offsets -- instead of freezing at the current hand pose. This makes the arm first reach down to
-    the object before the pick->insert trajectory. When False the legacy behavior (hold the current
-    hand pose at step 0) is kept."""
-
-    pregrasp_approach_height: float = 0.0
-    """Optional standoff (m) added to the object z when deriving the step-0 reach goal, so the hand
-    first hovers above the object. Zero => go directly to the grasp pose."""
 
     # -- Adaptive object->anchor correction (bounded PI(D) so the object reaches its goal) --
     correction: AnchorCorrectionCfg = AnchorCorrectionCfg()

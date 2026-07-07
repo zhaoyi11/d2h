@@ -163,10 +163,9 @@ class CommandsCfg:
         resampling_time_range=(10.0, 10.0),
         debug_vis=False,
         success_vis_asset_name="table",
-        # Reach-to-grasp phase: the peg spawns on the table, so seed the initial hand-base command
-        # with a grasp pose over the peg (arm reaches down first) and hold there until the peg is
-        # actually grasped before advancing into the pick->insert trajectory.
-        enable_pregrasp_reach=True,
+        # Reach-to-grasp is the trajectory's first stage (pregrasp): the object goal is held at the
+        # peg's spawn pose so the arm reaches down to grasp before advancing into the
+        # pick->insert trajectory (see build_pick_insert_object_pose_sequence).
         # Actively nudge the hand-base anchor so the object reaches its goal pose when the
         # in-hand policy alone cannot; cost-regularized (rotation costs more than position),
         # complementing the MPC-driven arm.

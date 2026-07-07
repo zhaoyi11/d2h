@@ -20,7 +20,6 @@ import torch
 
 from src.policy.high_level.trajectory_stepper import StageObjTol
 from src.policy.high_level.utils import (
-    DEFAULT_SEGMENT_STEPS,
     _as_pose_tensor,
     _with_normalized_quat,
     build_object_pose_sequence_from_keyframes,
@@ -31,11 +30,14 @@ DEFAULT_RECEPTIVE_POSE = (0.35, 0.0, 0.285, 1.0, 0.0, 0.0, 0.0)
 
 DEFAULT_PICK_INSERT_RECEPTIVE_POSE = (0.35, 0.0, 0.27, 1.0, 0.0, 0.0, 0.0)
 
-# Number of interpolation steps for each of the 5 segments: move / align / approach / insert / hold
-DEFAULT_PICK_INSERT_SEGMENT_STEPS = (2, 1, 1, 1, 1)
+# Number of interpolation steps for each of the 6 segments: pregrasp / move / align / approach /
+# insert / hold. The pre-grasp segment is 0-step: it adds no waypoints, so it just relabels the
+# initial waypoint (object held at its spawn pose) as its own stage while the arm reaches to grasp.
+DEFAULT_PICK_INSERT_SEGMENT_STEPS = (0, 2, 1, 1, 1, 1)
 
-# tolorances for each of the 5 segments: move / align / approach / insert / hold
+# tolerances for each of the 6 segments: pregrasp / move / align / approach / insert / hold
 DEFAULT_PICK_INSERT_STAGE_OBJECT_TOLERANCES = (
+    StageObjTol(0.02, 0.3),  # pregrasp (object held at spawn; advance is arm-gated)
     StageObjTol(0.02, 0.3),  # move
     StageObjTol(0.02, 0.2),  # align
     StageObjTol(0.01, 0.2),  # approach
@@ -47,21 +49,23 @@ DEFAULT_PICK_INSERT_STAGE_OBJECT_TOLERANCES = (
 def build_pick_insert_object_pose_sequence(
     current_pose: torch.Tensor | Sequence[float],
     receptive_pose: torch.Tensor | Sequence[float] = DEFAULT_PICK_INSERT_RECEPTIVE_POSE,
-    segment_steps: Sequence[int] = DEFAULT_SEGMENT_STEPS,
+    segment_steps: Sequence[int] = DEFAULT_PICK_INSERT_SEGMENT_STEPS,
     above_offset: float = 0.15,
     insertion_depth: float = 0.015,
     approach_height: float = 0.08,
 ) -> torch.Tensor:
     """Build an interpolated peg-insertion object-pose trajectory.
 
-    Poses use ``(x, y, z, qw, qx, qy, qz)`` in the robot base frame. The returned sequence starts at
-    ``current_pose``, moves above the receptacle, aligns to the receptacle orientation, descends to
-    the inserted pose, and holds there -- 5 segments: move / align / approach / insert / hold. The
-    keyframes are interpolated by the shared
+    Poses use ``(x, y, z, qw, qx, qy, qz)`` in the robot base frame. The returned sequence holds the
+    object at ``current_pose`` (pre-grasp, while the arm reaches to grasp), then moves above the
+    receptacle, aligns to the receptacle orientation, descends to the inserted pose, and holds there
+    -- 6 segments: pregrasp / move / align / approach / insert / hold. The pre-grasp segment is
+    typically 0-step (see :data:`DEFAULT_PICK_INSERT_SEGMENT_STEPS`), so it adds no waypoints and the
+    object never moves during it. The keyframes are interpolated by the shared
     :func:`~src.policy.high_level.utils.build_object_pose_sequence_from_keyframes` core.
     """
-    if len(segment_steps) != 5:
-        raise ValueError("segment_steps must contain 5 values.")
+    if len(segment_steps) != 6:
+        raise ValueError("segment_steps must contain 6 values.")
     if any(steps < 0 for steps in segment_steps):
         raise ValueError("segment_steps values must be non-negative.")
 
@@ -108,7 +112,9 @@ def build_pick_insert_object_pose_sequence(
         )
     )
 
-    key_poses = (current, above_current, above_aligned, approach, inserted, inserted)
+    # Leading ``current`` is the pre-grasp keyframe: the object goal is held at its spawn pose while
+    # the arm reaches down to grasp it (the object does not move during pre-grasp).
+    key_poses = (current, current, above_current, above_aligned, approach, inserted, inserted)
     return build_object_pose_sequence_from_keyframes(key_poses, segment_steps)
 
 
