@@ -38,6 +38,7 @@ from isaaclab.utils import configclass
 from isaaclab.utils.assets import ISAAC_NUCLEUS_DIR
 
 from src.policy.high_level.anchor_correction import AnchorCorrectionCfg, ObjectAnchorPIDController
+from src.policy.high_level.drop_recovery import DropRecoveryTracker
 from src.policy.high_level.utils import (
     DEFAULT_HAND_BASE_TO_ANCHOR_POSE,
     DEFAULT_OBJECT_TO_ANCHOR_POSE,
@@ -179,12 +180,33 @@ class TrajectoryObjectAndHandBasePoseCommand(CommandTerm):
         # the nominal anchor (object goal + configured offset). Built after the buffer setup so the
         # ``_anchor_correction`` override's getattr guard returns None during that first update.
         self._corr = ObjectAnchorPIDController(self.num_envs, self.device, self.cfg.correction)
+        # Drop-recovery state machine (pure-torch high-level module): arms once the object is secured
+        # (hand at the object) and, if it later leaves the hand and comes to rest, emits the env so
+        # compute() can regenerate its trajectory from the new object pose. Disabled unless the cfg
+        # opts in (see _update_drop_recovery); the tracker itself is cheap so it is always built.
+        self._recovery = DropRecoveryTracker(self.num_envs, self.device, self.cfg.recovery_settle_steps)
+        # Initial settle-capture bookkeeping: after a reset the object is still falling, so the
+        # reset-time trajectory build captures the spawn pose. These buffers let compute() rebuild the
+        # reach goal once the object has come to rest (see _update_settle_capture / reset).
+        self._steps_since_reset = torch.zeros(self.num_envs, dtype=torch.long, device=self.device)
+        self._grasp_goal_captured = torch.ones(self.num_envs, dtype=torch.bool, device=self.device)
+        # Consecutive grasp-establishment steps the object has sat off its goal while at rest: a stuck
+        # lift (grip never took / slipped and fell back). Reaching grasp_stall_steps replans the
+        # trajectory from the object's settled pose (see _update_grasp_stall). Reset on every resample.
+        self._grasp_stall_counter = torch.zeros(self.num_envs, dtype=torch.long, device=self.device)
+        # Grasp reference (reach) pose captured at each (re)sample: the object's settled pose. While
+        # the current stage is within cfg.hand_base_hold_until_stage the hand-base is held here (so the
+        # arm stays at the grasp pose and the correction lifts the object). See _hand_base_reference_pose.
+        self._grasp_ref_pose_b = torch.zeros(self.num_envs, 7, device=self.device)
+        self._grasp_ref_pose_b[:, 3] = 1.0
         self.metrics["hand_base_position_error"] = torch.zeros(self.num_envs, device=self.device)
         self.metrics["hand_base_orientation_error"] = torch.zeros(self.num_envs, device=self.device)
         # Current hand-base distance to the grasp anchor of the *live* object (not the commanded goal).
         # Large during the pre-grasp reach, small at/through the grasp; the hand-stretch gate thresholds it.
         self.metrics["hand_base_object_error"] = torch.zeros(self.num_envs, device=self.device)
         self.metrics["trajectory_command_achieved"] = torch.zeros(self.num_envs, device=self.device)
+        # Per-env signal to the low-level hand gate: hold the hand open (stretch) on the approach stages.
+        self.metrics["keep_hand_open"] = torch.zeros(self.num_envs, device=self.device)
 
     def __str__(self) -> str:
         msg = "TrajectoryObjectAndHandBasePoseCommand:\n"
@@ -200,13 +222,31 @@ class TrajectoryObjectAndHandBasePoseCommand(CommandTerm):
 
     def _update_hand_base_pose_command(self, env_ids: Sequence[int] | slice = slice(None)) -> None:
         hand_base_pose, anchor_pose = hand_base_pose_from_object_command_b(
-            self.pose_command_b[env_ids],
+            self._hand_base_reference_pose(env_ids),
             self._hand_base_to_anchor_pose[env_ids],
             self.pose_command_b.new_tensor(self.cfg.object_to_anchor_pose),
             self._anchor_correction(env_ids),
         )
         self.hand_base_pose_command_b[env_ids] = hand_base_pose
         self.anchor_pose_command_b[env_ids] = anchor_pose
+
+    def _hand_base_reference_pose(self, env_ids: Sequence[int] | slice = slice(None)) -> torch.Tensor:
+        """Object pose the hand-base target is derived from.
+
+        Normally the commanded object goal (``pose_command_b``). While the current stage is within
+        ``cfg.hand_base_hold_until_stage`` the hand-base is instead held at the grasp reference (reach)
+        pose captured at resample, so the arm stays at the grasp pose and the bounded anchor correction
+        -- not a hand-base jump ahead of the grip -- lifts the object to the raised goal. Guarded for
+        the ``__init__``-ordering call before the stepper / reference buffer exist.
+        """
+        goal = self.pose_command_b[env_ids]
+        stepper = getattr(self, "_stepper", None)
+        grasp_ref = getattr(self, "_grasp_ref_pose_b", None)
+        if self.cfg.hand_base_hold_until_stage < 0 or stepper is None or grasp_ref is None:
+            return goal
+        stage = stepper.step_to_stage[stepper.step[env_ids]]
+        hold = (stage <= self.cfg.hand_base_hold_until_stage).unsqueeze(-1)
+        return torch.where(hold, grasp_ref[env_ids], goal)
 
     def _object_pose_command_hand_base_b(self) -> torch.Tensor:
         object_pos_h, object_quat_h = subtract_frame_transforms(
@@ -266,6 +306,9 @@ class TrajectoryObjectAndHandBasePoseCommand(CommandTerm):
     def compute(self, dt: float):
         self._update_metrics()
         self._update_command()
+        self._update_settle_capture()
+        self._update_drop_recovery()
+        self._update_grasp_stall()
 
     def _update_metrics(self):
         _update_object_pose_metrics(self)
@@ -299,6 +342,11 @@ class TrajectoryObjectAndHandBasePoseCommand(CommandTerm):
 
         self._trajectory_command_achieved[:] = achieved
         self.metrics["trajectory_command_achieved"] = self._trajectory_command_achieved.float()
+
+        # Signal the low-level hand gate to hold the hand open on the approach stages (before the grip
+        # should close). Absent/all-zero => the gate stays purely distance-based.
+        stage = self._stepper.step_to_stage[self._stepper.step]
+        self.metrics["keep_hand_open"] = (stage <= self.cfg.hand_open_until_stage).float()
 
     def _object_target_achieved(self) -> torch.Tensor:
         return self._stepper.object_target_achieved(
@@ -342,12 +390,27 @@ class TrajectoryObjectAndHandBasePoseCommand(CommandTerm):
         trajectories = self._build_object_trajectories(env_ids_tensor, current_pose_b)
         self._stepper.reset(env_ids_tensor, trajectories)
         self.pose_command_b[env_ids_tensor] = self._stepper.current_object_pose(env_ids_tensor)
+        # Capture the reach (grasp reference) pose = the step-0 object goal, so the hand-base can be
+        # held here through the grasp-establishment stages while the correction lifts the object.
+        self._grasp_ref_pose_b[env_ids_tensor] = self.pose_command_b[env_ids_tensor].clone()
         self._corr.reset(env_ids_tensor)
-        # Pre-grasp (trajectory step 0): the object goal is held at its spawn pose, so deriving the
-        # hand-base from it produces a grasp pose over the object -- the arm reaches down to grasp.
+        # Reach (trajectory step 0): the object goal is held at its settled pose, so deriving the
+        # hand-base from it produces a grasp pose over the object -- the (open) hand reaches to grasp.
         # Reset the corrector first so this uses zero correction (the nominal grasp anchor).
         self._update_hand_base_pose_command(env_ids_tensor)
         self._trajectory_command_achieved[env_ids_tensor] = False
+        # Disarm the drop-recovery detector for the (re)sampled envs so the fresh pre-grasp reach is a
+        # non-event until the object is secured again. Covers env-reset / timer resamples and the
+        # on-demand recovery resample alike. Guarded for init ordering (the tracker is built late in
+        # __init__, though _resample_command is not called during construction).
+        recovery = getattr(self, "_recovery", None)
+        if recovery is not None:
+            recovery.reset(env_ids_tensor)
+        # Clear the lift-stall counter too, so a replan from either detector starts the fresh reach with
+        # a clean grasp-establishment timeout. Guarded for the same __init__-ordering reason.
+        grasp_stall_counter = getattr(self, "_grasp_stall_counter", None)
+        if grasp_stall_counter is not None:
+            grasp_stall_counter[env_ids_tensor] = 0
 
     def _update_command(self):
         advance_env_ids = self._trajectory_command_achieved.nonzero().flatten()
@@ -364,6 +427,117 @@ class TrajectoryObjectAndHandBasePoseCommand(CommandTerm):
         if active_env_ids.numel() > 0:
             self._apply_objanchor_correction(active_env_ids)
             self._update_hand_base_pose_command(active_env_ids)
+
+    def reset(self, env_ids: Sequence[int] | None = None) -> dict[str, float]:
+        """Reset the command and arm the initial settle-capture for the reset envs.
+
+        ``super().reset`` resamples the command -- the provisional build from the object's spawn pose,
+        which is still falling. Arming the settle-capture makes :meth:`_update_settle_capture` rebuild
+        the reach goal from the object's resting pose once it comes to rest.
+        """
+        extras = super().reset(env_ids)
+        if self.cfg.capture_goal_after_settle:
+            ids = (
+                torch.arange(self.num_envs, device=self.device)
+                if env_ids is None
+                else self._env_ids_tensor(env_ids)
+            )
+            self._steps_since_reset[ids] = 0
+            self._grasp_goal_captured[ids] = False
+        return extras
+
+    def _update_settle_capture(self) -> None:
+        """Rebuild the reach goal from the object's settled pose once, shortly after a reset.
+
+        The reset-time build captures the object at its spawn pose while it is still falling. Waiting
+        for it to come to rest -- past a short ``settle_min_steps`` guard that skips the zero-velocity
+        reset instant -- and rebuilding via :meth:`_resample_command` makes the reach goal sit on the
+        object's true resting pose. Fires at most once per episode (the per-env ``_grasp_goal_captured``
+        latch is cleared only in :meth:`reset`).
+        """
+        if not self.cfg.capture_goal_after_settle:
+            return
+        self._steps_since_reset += 1
+        pending = ~self._grasp_goal_captured
+        if not bool(pending.any()):
+            return
+        speed = torch.norm(self.object.data.root_lin_vel_w, dim=-1)
+        ready = pending & (self._steps_since_reset >= self.cfg.settle_min_steps) & (
+            speed < self.cfg.recovery_settle_speed
+        )
+        ids = ready.nonzero().flatten()
+        if ids.numel() > 0:
+            self._resample_command(ids)
+            self._grasp_goal_captured[ids] = True
+
+    def _update_drop_recovery(self) -> None:
+        """Detect a dropped object and regenerate its trajectory from the new resting pose.
+
+        Runs after :meth:`_update_metrics` / :meth:`_update_command` each step. Feeds the per-env
+        drop-recovery state machine three masks and resamples the envs it emits:
+
+        * ``secured`` -- past the grasp-establishment stages (current stage index above
+          ``recovery_arm_after_stage``) *and* the hand is at the live object's grasp anchor
+          (``hand_base_object_error`` below ``drop_object_hand_distance``). Gating on the stage keeps
+          the reach/lift phase -- where the hand rises to the lifted goal while the grasp is still
+          forming -- from ever arming the detector and collapsing the goal.
+        * ``dropped`` -- past those stages and the object has left the hand (distance *above* the
+          threshold). Only meaningful for an already-armed env.
+        * ``at_rest`` -- the object's speed is below ``recovery_settle_speed``; the machine waits for
+          ``recovery_settle_steps`` consecutive at-rest steps before firing so it replans from the
+          settled pose, not mid-bounce.
+
+        :meth:`_resample_command` rebuilds the trajectory from the (new) live object pose and disarms
+        the env via :meth:`DropRecoveryTracker.reset`.
+        """
+        if not self.cfg.enable_drop_recovery:
+            return
+        stage = self._stepper.step_to_stage[self._stepper.step]
+        in_transport = stage > self.cfg.recovery_arm_after_stage
+        near = self.metrics["hand_base_object_error"] < self.cfg.drop_object_hand_distance
+        speed = torch.norm(self.object.data.root_lin_vel_w, dim=-1)
+        at_rest = speed < self.cfg.recovery_settle_speed
+        settled = self._recovery.update(
+            secured=in_transport & near, dropped=in_transport & ~near, at_rest=at_rest
+        )
+        if settled.numel() > 0:
+            self._resample_command(settled)
+
+    def _update_grasp_stall(self) -> None:
+        """Replan when the grasp fails to lift the object out of the establishment stages.
+
+        The hand<->object-distance drop detector (:meth:`_update_drop_recovery`) is structurally blind to
+        a lift-stage failure: with the arm held over the peg only the bounded correction raises it, so a
+        failed lift never grows ``hand_base_object_error`` past ``drop_object_hand_distance`` and the
+        stepper stays stuck at ``settled + lift_height``. This detector instead keys off the object not
+        reaching its goal, covering the grasp-establishment stages (``stage <= recovery_arm_after_stage``,
+        the complement of the drop detector's transport range).
+
+        Per env it counts consecutive steps where an establishment-stage object sits **off its goal**
+        (the stepper can't advance) **and at rest** (``recovery_settle_speed``). A peg being lifted
+        successfully is moving, so it doesn't accumulate and reaches its goal (advancing, which clears
+        the count) well before the threshold; only a peg that stopped short of its lift goal -- grip
+        never took, or slipped and fell back -- accumulates. At ``grasp_stall_steps`` the grasp is deemed
+        failed and :meth:`_resample_command` rebuilds the trajectory from the (settled) object pose,
+        restarting the reach so the hand re-opens and re-grasps. Reach never accumulates (its goal is the
+        object's own settled pose, so the object is already at goal). Disabled unless the cfg opts in.
+        """
+        if not self.cfg.enable_drop_recovery or self.cfg.grasp_stall_steps <= 0:
+            return
+        stage = self._stepper.step_to_stage[self._stepper.step]
+        in_establishment = stage <= self.cfg.recovery_arm_after_stage
+        off_goal = ~self._object_target_achieved()
+        speed = torch.norm(self.object.data.root_lin_vel_w, dim=-1)
+        at_rest = speed < self.cfg.recovery_settle_speed
+        stalling = in_establishment & off_goal & at_rest
+        self._grasp_stall_counter = torch.where(
+            stalling,
+            self._grasp_stall_counter + 1,
+            torch.zeros_like(self._grasp_stall_counter),
+        )
+        failed = (self._grasp_stall_counter >= self.cfg.grasp_stall_steps).nonzero().flatten()
+        if failed.numel() > 0:
+            self._resample_command(failed)
 
     @property
     def objanchor_correction(self) -> torch.Tensor:
@@ -538,6 +712,58 @@ class TrajectoryObjectAndHandBasePoseCommandCfg(CommandTermCfg):
 
     hand_base_orientation_tolerance: float = 0.2
     """Hand-base orientation tolerance in radians for advancing the command trajectory."""
+
+    # -- Drop recovery: regenerate the trajectory from the object's new pose if it leaves the hand --
+    enable_drop_recovery: bool = False
+    """Detect a dropped object and replan the trajectory from its new resting pose (see
+    :meth:`TrajectoryObjectAndHandBasePoseCommand._update_drop_recovery`). Disabled by default."""
+
+    recovery_settle_speed: float = 0.05
+    """Object speed (m/s) below which a dropped object counts as at-rest for recovery."""
+
+    recovery_settle_steps: int = 5
+    """Consecutive at-rest steps a dropped object must hold before the trajectory is regenerated."""
+
+    drop_object_hand_distance: float = 0.20
+    """Hand-base-to-live-object grasp-anchor distance (m) above which the object counts as dropped
+    (and, below which, as secured to arm the detector)."""
+
+    recovery_arm_after_stage: int = 0
+    """Drop recovery arms only once the trajectory's current stage index exceeds this. Grasp-
+    establishment stages (e.g. reach/lift) should be excluded so the hand rising to the lifted goal
+    while the grasp is still forming is not mistaken for a drop (which would collapse the goal)."""
+
+    capture_goal_after_settle: bool = False
+    """After a reset, rebuild the reach goal from the object's settled resting pose (once it comes to
+    rest) instead of the spawn pose captured while it is still falling. See ``_update_settle_capture``."""
+
+    settle_min_steps: int = 5
+    """Minimum steps after a reset before the settle-capture rebuild may fire, skipping the
+    zero-velocity reset instant so a still-to-fall object is not treated as already settled."""
+
+    grasp_stall_steps: int = -1
+    """Lift-stall recovery: consecutive grasp-establishment-stage steps the object may sit off its goal
+    (and at rest) before the grasp is deemed failed and the trajectory replanned from its settled pose.
+
+    Complements the hand<->object-distance drop detector, which is blind to a lift-stage failure: while
+    the arm is held over the peg (``hand_base_hold_until_stage``) only the bounded correction raises it,
+    so a failed lift never grows ``hand_base_object_error`` past ``drop_object_hand_distance`` and the
+    stepper stays stuck at ``settled + lift_height``. This detector instead keys off the object not
+    reaching its lift goal. The two partition the stages at ``recovery_arm_after_stage``: distance drop
+    for transport (stage above), lift-stall for establishment (stage at or below). ``-1``/``0`` disables
+    it (default); requires ``enable_drop_recovery``. See ``_update_grasp_stall``."""
+
+    # -- Grasp sequencing: keep the hand open on approach, hold the arm at the grasp pose on lift --
+    hand_open_until_stage: int = -1
+    """Publish ``metrics["keep_hand_open"]`` while the current stage index is <= this, so the
+    low-level hand gate holds the hand open (stretch) through those (approach) stages instead of
+    closing on distance. Default -1 disables it (gate stays distance-only)."""
+
+    hand_base_hold_until_stage: int = -1
+    """Hold the hand-base target at the captured grasp reference (reach) pose while the current stage
+    index is <= this, instead of deriving it from the (lifted) object goal. The bounded anchor
+    correction then lifts the object without the arm jumping up ahead of the grip. Default -1 disables
+    it (hand-base always follows the object goal). Requires ``correction.enable`` to actually lift."""
 
     # -- Adaptive object->anchor correction (bounded PI(D) so the object reaches its goal) --
     correction: AnchorCorrectionCfg = AnchorCorrectionCfg()

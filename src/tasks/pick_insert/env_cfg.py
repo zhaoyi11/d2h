@@ -163,6 +163,36 @@ class CommandsCfg:
         resampling_time_range=(10.0, 10.0),
         debug_vis=False,
         success_vis_asset_name="table",
+        # Fail recovery: if the peg leaves the hand mid-episode, wait for it to come to rest and
+        # regenerate the whole reach->insert trajectory from its new pose so the arm re-grasps it.
+        enable_drop_recovery=True,
+        recovery_settle_speed=0.05,
+        recovery_settle_steps=5,
+        # Hand<->object gap that counts as a drop. Grasped transport keeps this ~0.01-0.02 m; after a
+        # drop the stalled arm stays fairly near the fallen peg (~0.14 m observed), so 0.20 was too
+        # high to trigger. 0.10 sits well clear of normal transport and catches the drop.
+        drop_object_hand_distance=0.10,
+        # Arm recovery only after reach(0)+lift(1); a hand<->object gap while the grip is still forming
+        # is not a drop. Capture the reach goal from the peg's settled pose.
+        recovery_arm_after_stage=1,
+        capture_goal_after_settle=True,
+        # Lift-stall recovery (complements the distance drop detector, which can't see a lift failure:
+        # the arm is held over the peg so the hand<->object gap never reaches drop_object_hand_distance).
+        # If the peg sits off its goal and at rest through reach+lift (stage <= recovery_arm_after_stage)
+        # for this many steps, the grasp failed -> replan from the peg's settled pose (re-open, re-grasp).
+        # A normal lift dwells ~25 at-rest steps while the bounded correction ramps up before it raises
+        # the peg, so this must sit well above that (sim: a successful lift peaks ~26); 60 (~2.3x) keeps
+        # a working grasp from being aborted while still catching a genuinely stuck lift in ~1 s.
+        grasp_stall_steps=60,
+        # Grasp sequencing: keep the hand open through the reach stage (0), then close at lift.
+        hand_open_until_stage=0,
+        # Hand-base hold DISABLED (-1): the hand-base must stay derived from the object goal, because the
+        # frozen low-level policy chases command[:,:7] (the in-hand object target) via goal_pos_diff. If
+        # the hand-base is held while the object goal lifts +lift_height, command[:,:7] drifts +lift_height
+        # from the actual grip, so the policy shoves the peg up through the fingers and drops it (lift
+        # success regression). With -1 the hand-base follows the object goal -> command[:,:7] is a constant
+        # grasp offset (goal_pos_diff ~= 0, stable grip) and the arm (MPC) lifts the peg directly.
+        hand_base_hold_until_stage=-1,
         # Reach-to-grasp is the trajectory's first stage (pregrasp): the object goal is held at the
         # peg's spawn pose so the arm reaches down to grasp before advancing into the
         # pick->insert trajectory (see build_pick_insert_object_pose_sequence).

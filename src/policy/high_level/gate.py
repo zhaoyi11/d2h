@@ -93,7 +93,13 @@ class LowLevelHandGate:
         if err is None:
             # Non-trajectory command (e.g. a fixed-step demo): nothing to gate on, run the policy.
             return torch.ones(unwrapped.num_envs, dtype=torch.bool, device=unwrapped.device)
-        return err < self.cfg.hand_at_object_dist
+        use_low_level = err < self.cfg.hand_at_object_dist
+        # The command term can force the hand open on the approach stages (before the grip should
+        # close), independent of distance, via metrics["keep_hand_open"]. Absent => distance-only.
+        keep_open = metrics.get("keep_hand_open")
+        if keep_open is not None:
+            use_low_level = use_low_level & (keep_open <= 0.5)
+        return use_low_level
 
     def apply(self, hand_action: Tensor, unwrapped) -> Tensor:
         """Return ``hand_action`` where the gate is open and the stretch pose elsewhere."""
