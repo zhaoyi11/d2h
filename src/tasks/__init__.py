@@ -141,6 +141,16 @@ gym.register(
     },
 )
 
+gym.register(
+    id="Cupcake_on_Plate_HRL-v0",
+    entry_point="isaaclab.envs:ManagerBasedRLEnv",
+    disable_env_checker=True,
+    kwargs={
+        "env_cfg_entry_point": f"{__name__}.cupcake_on_plate.env_cfg:DexsuiteFrankaLeapCupcakeOnPlateHrlEnvCfg",
+        "rsl_rl_cfg_entry_point": "src.tasks.cupcake_on_plate.rsl_rl_ppo_cfg:CupcakeOnPlateRslRlPpoCfg",
+    },
+)
+
 # Threading Environment
 gym.register(
     id="Threading-v0",
