@@ -7,7 +7,7 @@
 
 Thin task layer over the generic
 :class:`~src.policy.high_level.trajectory_command.TrajectoryObjectAndHandBasePoseCommand`: it overrides
-:meth:`_build_object_trajectories` with the cupcake reach->lift->reorient->move->place->hold trajectory
+:meth:`_build_object_trajectories` with the cupcake reach->lift->move->reorient->place->hold trajectory
 (built by :func:`build_cupcake_on_plate_object_pose_sequence`). All the shared machinery (stepper,
 PI(D) anchor correction, hand-base targeting, advance logic) is inherited.
 """
@@ -68,16 +68,17 @@ class CupcakeOnPlateTrajectoryObjectAndHandBasePoseCommandCfg(TrajectoryObjectAn
     """Canonical upright orientation the reorient segment flips the cupcake goal to."""
 
     trajectory_segment_steps: tuple[int, ...] = DEFAULT_CUPCAKE_ON_PLATE_SEGMENT_STEPS
-    """Interpolation samples for the reach, lift, reorient, move, place, and hold segments."""
+    """Interpolation samples for the reach, lift, move, reorient, place, and hold segments."""
 
-    lift_height: float = 0.12
+    lift_height: float = 0.02
     """Height (m) the lift-stage goal sits above the cupcake's settled (reach) pose, so the grip must
-    lift the cupcake this far to advance out of the lift stage (an implicit grip-secured check). Also
-    the height at which the in-hand flip happens, so it must clear the table for the cupcake to
-    rotate without colliding."""
+    lift the cupcake this far to advance out of the lift stage (an implicit grip-secured check). Kept
+    small -- just enough to break the cupcake free of the table before it is carried across to the
+    plate; the in-hand flip happens later, above the plate (see ``above_offset``)."""
 
-    above_offset: float = 0.12
-    """Height above the plate for the move (carry) waypoint, holding the upright orientation."""
+    above_offset: float = 0.10
+    """Height above the plate at which the cupcake is carried (move, still upside-down) and then
+    flipped upright (reorient). Must clear the plate so the 180 deg in-hand flip does not collide."""
 
     place_height: float = 0.03
     """Height above the plate pose at which the cupcake is placed. Plate pose z is the plate bottom
@@ -87,7 +88,7 @@ class CupcakeOnPlateTrajectoryObjectAndHandBasePoseCommandCfg(TrajectoryObjectAn
     stage_object_tolerances: tuple[StageObjTol, ...] = DEFAULT_CUPCAKE_ON_PLATE_STAGE_OBJECT_TOLERANCES
     """Per-stage object position and orientation tolerances for advancing the command trajectory.
 
-    One entry is required for each trajectory segment: reach, lift, reorient, move, place, and hold.
+    One entry is required for each trajectory segment: reach, lift, move, reorient, place, and hold.
     """
 
 

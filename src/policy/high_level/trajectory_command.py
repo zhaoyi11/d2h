@@ -201,8 +201,9 @@ class TrajectoryObjectAndHandBasePoseCommand(CommandTerm):
         self._grasp_ref_pose_b[:, 3] = 1.0
         self.metrics["hand_base_position_error"] = torch.zeros(self.num_envs, device=self.device)
         self.metrics["hand_base_orientation_error"] = torch.zeros(self.num_envs, device=self.device)
-        # Current hand-base distance to the grasp anchor of the *live* object (not the commanded goal).
-        # Large during the pre-grasp reach, small at/through the grasp; the hand-stretch gate thresholds it.
+        # How far the *live* object sits (measured in the actual hand-base frame) from the commanded
+        # object-in-hand pose: large during the pre-grasp reach, small once grasped, and -- unlike an
+        # object-root distance -- invariant to in-hand reorientation. The hand-stretch gate thresholds it.
         self.metrics["hand_base_object_error"] = torch.zeros(self.num_envs, device=self.device)
         self.metrics["trajectory_command_achieved"] = torch.zeros(self.num_envs, device=self.device)
         # Per-env signal to the low-level hand gate: hold the hand open (stretch) on the approach stages.
@@ -309,6 +310,7 @@ class TrajectoryObjectAndHandBasePoseCommand(CommandTerm):
         self._update_settle_capture()
         self._update_drop_recovery()
         self._update_grasp_stall()
+        self._update_keep_hand_open_metric()
 
     def _update_metrics(self):
         _update_object_pose_metrics(self)
@@ -322,17 +324,20 @@ class TrajectoryObjectAndHandBasePoseCommand(CommandTerm):
         self.metrics["hand_base_position_error"] = torch.norm(hand_base_pos_error, dim=-1)
         self.metrics["hand_base_orientation_error"] = torch.norm(hand_base_rot_error, dim=-1)
 
-        # Same distance as above but against the *live* object (nominal grasp anchor from the object's
-        # current pose, not the commanded goal). Stays small through transport because the grasped
-        # object moves with the hand -- which is why the stretch gate needs no latch. Position only.
+        # Orientation-invariant "grasp held?" proxy: the *live* object's position in the *actual*
+        # hand-base frame vs. the commanded object-in-hand position (command[:, :7]). Under a rigid
+        # grasp both reorient together, so this stays small through an in-hand flip and only grows on a
+        # real slip/drop (or during the pre-grasp reach, when the arm is still far from the grasp) --
+        # exactly what the stretch gate and drop recovery must react to. Keying off the object *root*
+        # position + a fixed offset instead would swing with the object origin during a large
+        # reorientation (the origin sits off the grasp point) and spuriously trip the gate. Position only.
         object_pos_b, object_quat_b = self._current_object_pose_b()
-        live_hand_base_target, _ = hand_base_pose_from_object_command_b(
-            torch.cat((object_pos_b, object_quat_b), dim=-1),
-            self._hand_base_to_anchor_pose,
-            self.cfg.object_to_anchor_pose,
+        object_in_hand_pos, _ = subtract_frame_transforms(
+            hand_base_pos_b, hand_base_quat_b, object_pos_b, object_quat_b
         )
+        commanded_object_in_hand = self._object_pose_command_hand_base_b()
         self.metrics["hand_base_object_error"] = torch.norm(
-            hand_base_pos_b - live_hand_base_target[:, :3], dim=-1
+            object_in_hand_pos - commanded_object_in_hand[:, :3], dim=-1
         )
 
         object_achieved = self._object_target_achieved()
@@ -343,10 +348,10 @@ class TrajectoryObjectAndHandBasePoseCommand(CommandTerm):
         self._trajectory_command_achieved[:] = achieved
         self.metrics["trajectory_command_achieved"] = self._trajectory_command_achieved.float()
 
-        # Signal the low-level hand gate to hold the hand open on the approach stages (before the grip
-        # should close). Absent/all-zero => the gate stays purely distance-based.
-        stage = self._stepper.step_to_stage[self._stepper.step]
-        self.metrics["keep_hand_open"] = (stage <= self.cfg.hand_open_until_stage).float()
+    def _update_keep_hand_open_metric(self, env_ids: Sequence[int] | slice = slice(None)) -> None:
+        """Publish the hand-open signal from the final stage state for this control step."""
+        stage = self._stepper.step_to_stage[self._stepper.step[env_ids]]
+        self.metrics["keep_hand_open"][env_ids] = (stage <= self.cfg.hand_open_until_stage).float()
 
     def _object_target_achieved(self) -> torch.Tensor:
         return self._stepper.object_target_achieved(
@@ -399,6 +404,7 @@ class TrajectoryObjectAndHandBasePoseCommand(CommandTerm):
         # Reset the corrector first so this uses zero correction (the nominal grasp anchor).
         self._update_hand_base_pose_command(env_ids_tensor)
         self._trajectory_command_achieved[env_ids_tensor] = False
+        self._update_keep_hand_open_metric(env_ids_tensor)
         # Disarm the drop-recovery detector for the (re)sampled envs so the fresh pre-grasp reach is a
         # non-event until the object is secured again. Covers env-reset / timer resamples and the
         # on-demand recovery resample alike. Guarded for init ordering (the tracker is built late in

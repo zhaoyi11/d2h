@@ -9,12 +9,15 @@ The decision is a single distance test, per env, each step::
 
     use_low_level = hand_base_object_error < hand_at_object_dist    # else -> stretch (open) hand
 
-``hand_base_object_error`` is published by the trajectory command term: the distance from the current
-hand-base to the grasp anchor of the *live* object (its current pose, not the commanded goal). It is
-large during the approach (-> stretch), small once the arm arrives and stays small through transport
-(the grasped object moves with the hand, so the policy stays engaged with no latch), and large again
-after a drop (-> stretch, so the next reach re-opens the hand and re-grasps). Because it keys off the
-current object, no goal-frame terms, contact predicate, or reset/replan bookkeeping are needed.
+``hand_base_object_error`` is published by the trajectory command term: how far the *live* object
+sits, measured in the hand-base frame, from the commanded object-in-hand pose (``command[:, :7]``). It
+is large during the approach (-> stretch), small once the arm arrives and -- because the actual and
+commanded object-in-hand poses reorient together under a rigid grasp -- stays small through transport
+*and in-hand reorientation* (so the policy stays engaged with no latch), and large again after a drop
+(-> stretch, so the next reach re-opens the hand and re-grasps). Measuring the object in the hand frame
+against the commanded in-hand pose (rather than the object *root* against a fixed offset) is what makes
+it invariant to reorientation: a large in-hand flip swings the object origin away from the hand and
+would otherwise spuriously trip the gate.
 
 The stretch pose is the open/flat hand (all finger joints at 0 rad). Because the hand action term
 uses ``rescale_to_limits=True`` (``unscale_transform`` maps ``[-1, 1]`` onto the joint limits), the

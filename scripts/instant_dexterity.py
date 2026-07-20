@@ -283,6 +283,13 @@ def _print_snapshot(env, step: int) -> None:
             f"[STEP {step:04d}]: objgoal correction norm   pos={correction[0]:.5f} m  rot={correction[1]:.5f} rad",
             flush=True,
         )
+    command_term = env.command_manager.get_term("object_pose")
+    gate_err = getattr(command_term, "metrics", {}).get("hand_base_object_error")
+    if gate_err is not None:
+        print(
+            f"[STEP {step:04d}]: hand<->object gate error   {float(gate_err[0]):.5f} m",
+            flush=True,
+        )
 
 
 def main() -> None:

@@ -139,6 +139,24 @@ def slerp(start: torch.Tensor, end: torch.Tensor, alpha: torch.Tensor) -> torch.
     return _normalize_quat(start_scale * start + end_scale * end)
 
 
+def compose_world_yaw(quat: torch.Tensor, angle: float | torch.Tensor) -> torch.Tensor:
+    """Rotate a ``(w, x, y, z)`` orientation by ``angle`` (rad) about the world/base +Z axis.
+
+    Returns ``q_yaw ⊗ quat`` (Hamilton product, left-multiply), i.e. an *extrinsic* yaw about the
+    fixed vertical Z axis applied to ``quat`` -- used to build the pick-screw twist keyframes that spin
+    the (vertically standing) leg about its long/insertion axis. ``q_yaw = (cos(angle/2), 0, 0,
+    sin(angle/2))``. Pure ``torch`` so the trajectory builders that call it stay isaaclab-independent.
+    """
+    quat = _normalize_quat(quat)
+    half = quat.new_tensor(angle) * 0.5
+    c, s = torch.cos(half), torch.sin(half)
+    w, x, y, z = quat[0], quat[1], quat[2], quat[3]
+    # (c, 0, 0, s) ⊗ (w, x, y, z):
+    return _normalize_quat(
+        torch.stack((c * w - s * z, c * x - s * y, c * y + s * x, c * z + s * w))
+    )
+
+
 #############
 # Grasp-anchor kinematics (isaaclab.utils.math)
 #############
@@ -210,6 +228,7 @@ __all__ = [
     "DEFAULT_OBJECT_TO_ANCHOR_POSE",
     "DEFAULT_SEGMENT_STEPS",
     "build_object_pose_sequence_from_keyframes",
+    "compose_world_yaw",
     "hand_base_pose_from_object_command_b",
     "interpolate_pose_segment",
     "slerp",

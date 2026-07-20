@@ -29,6 +29,7 @@ from isaaclab.sensors import ContactSensorCfg, FrameTransformerCfg, OffsetCfg
 
 import src.tasks.pick_insert.mdps as mdp
 import src.tasks.reorient.mdps as task_mdps
+from src.policy.high_level.trajectory_stepper import StageObjTol
 from src.tasks.pick_insert.mdps.contact_filters import (
     contact_filter_prim_paths,
     external_indices,
@@ -66,7 +67,7 @@ class SceneCfg(InteractiveSceneCfg):
             ),
             mass_props=sim_utils.MassPropertiesCfg(mass=0.02),
         ),
-        init_state=RigidObjectCfg.InitialStateCfg(pos=(0.45, 0.2, 0.30), rot=(0.7071068, 0.0, 0.7071068, 0.0)),
+        init_state=RigidObjectCfg.InitialStateCfg(pos=(0.45, 0.2, 0.30), rot=(0.5, -0.5, 0.5, 0.5)),
     )
 
     receptive_object: RigidObjectCfg = RigidObjectCfg(
@@ -986,6 +987,21 @@ class DexsuiteFrankaLeapInsertHrlEnvCfg(FrankaLeapMixinCfg, DexsuiteInsertEnvCfg
     def __post_init__(self):
         self.observations.low_level = ObservationsCfg.LowLevelObsCfg()
         super().__post_init__()
+        # Add a contact-confirmed close phase before lift. The raw env keeps the legacy seven stages.
+        self.commands.object_pose.enable_grasp_establish = True
+        self.commands.object_pose.trajectory_segment_steps = (0, 1, 1, 2, 1, 1, 1, 1)
+        self.commands.object_pose.stage_object_tolerances = (
+            StageObjTol(0.02, 0.3),  # reach
+            StageObjTol(0.02, 0.3),  # establish grasp
+            StageObjTol(0.02, 0.1),  # lift
+            StageObjTol(0.02, 0.3),  # move
+            StageObjTol(0.02, 0.2),  # align
+            StageObjTol(0.01, 0.2),  # approach
+            StageObjTol(0.005, 0.1),  # insert
+            StageObjTol(0.005, 0.1),  # hold
+        )
+        self.commands.object_pose.recovery_arm_after_stage = 2
+        self.commands.object_pose.hand_base_hold_until_stage = 1
         # cuRobo MPC owns the arm: zero the arm position gains (the MPC action restores them on
         # reset); the LEAP hand ("fingers") stays position-controlled.
         self.scene.robot.actuators["joints"].stiffness = 0.0

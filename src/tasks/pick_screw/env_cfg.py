@@ -3,6 +3,7 @@
 #
 # SPDX-License-Identifier: BSD-3-Clause
 
+import math
 from dataclasses import MISSING
 from pathlib import Path
 
@@ -26,6 +27,7 @@ from isaaclab.sensors import ContactSensorCfg, FrameTransformerCfg, OffsetCfg
 
 import src.tasks.pick_anyrotate.mdps as mdp
 import src.tasks.pick_insert.mdps as insert_mdp
+import src.tasks.pick_screw.mdps as screw_mdp
 import src.tasks.reorient.mdps as task_mdps
 from src.tasks.pick_screw.mdps.contacts import (
     contact_filter_prim_paths,
@@ -840,7 +842,7 @@ class HrlCommandsCfg:
     low-level policy reads the object goal from ``command[:, :7]``.
     """
 
-    object_pose = insert_mdp.PickInsertTrajectoryObjectAndHandBasePoseCommandCfg(
+    object_pose = screw_mdp.PickScrewTrajectoryObjectAndHandBasePoseCommandCfg(
         asset_name="robot",
         object_name="object",
         resampling_time_range=(10.0, 10.0),
@@ -848,6 +850,27 @@ class HrlCommandsCfg:
         success_vis_asset_name="table",
         # receptacle (table top) the screw trajectory targets — matches the scene's ReceptiveObject.
         receptive_pose=(0.55, 0.0, 0.271, 1.0, 0.0, 0.0, 0.0),
+        # Twist phase: after insertion, spin the leg one full turn about its +Z insertion axis, chained
+        # across 4 <= 90 deg sub-segments (slerp takes the short geodesic). thread_pitch=0 => in-place
+        # spin (the USDs have no real threads; the rotation is executed in-hand by the frozen policy).
+        twist_total_angle=2.0 * math.pi,
+        twist_segments=4,
+        thread_pitch=0.0,
+        # Fail recovery: if the leg leaves the hand mid-episode, wait for it to come to rest and
+        # regenerate the whole reach->twist trajectory from its new pose so the arm re-grasps it.
+        enable_drop_recovery=True,
+        recovery_settle_speed=0.05,
+        recovery_settle_steps=5,
+        drop_object_hand_distance=0.10,
+        # Arm recovery only after reach(0)+lift(1); capture the reach goal from the leg's settled pose.
+        recovery_arm_after_stage=1,
+        capture_goal_after_settle=True,
+        # Lift-stall recovery: if the grasp fails to lift the leg, replan (re-open, re-grasp).
+        grasp_stall_steps=60,
+        # Grasp sequencing: keep the hand open through the reach stage (0), then close at lift.
+        hand_open_until_stage=0,
+        # Hand-base follows the object goal (see pick_insert CommandsCfg for the rationale).
+        hand_base_hold_until_stage=-1,
         # Nudge the hand-base anchor so the object reaches its goal when the in-hand policy alone
         # cannot; bounded, memoryless, gated on a settled arm + stalled object (as in pick_insert).
         correction=insert_mdp.AnchorCorrectionCfg(
@@ -957,3 +980,19 @@ class DexsuiteFrankaLeapScrewHrlEnvCfg(FrankaLeapMixinCfg, DexsuiteScrewEnvCfg):
         # no PD authority until the MPC action restores them on reset (mirrors pick_insert demo).
         self.scene.robot.actuators["joints"].stiffness = 0.0
         self.scene.robot.actuators["joints"].damping = 0.0
+
+        # HRL-only reset overrides so the scripted reach->insert->twist demo is deterministic (the flat
+        # RL env keeps the base reorient-style resets untouched):
+        #  - Reduced gravity (-1.81) is the regime the frozen reorient hand policy was trained under
+        #    (matches pick_insert/cupcake); the base env uses 0 gravity.
+        self.events.variable_gravity.params["gravity_distribution_params"] = (
+            [0.0, 0.0, -1.81],
+            [0.0, 0.0, -1.81],
+        )
+        #  - Rest the leg at a consistent, canonical pose (small x/y jitter, fixed orientation) so the
+        #    scripted grasp from the fixed anchor is repeatable; the base env spawns it fully randomized.
+        self.events.reset_object.params["pose_range"] = {
+            "x": [-0.03, 0.03],
+            "y": [-0.03, 0.03],
+            "yaw": [0.0, 0.0],
+        }
