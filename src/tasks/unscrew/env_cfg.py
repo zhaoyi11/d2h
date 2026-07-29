@@ -57,7 +57,7 @@ class SceneCfg(InteractiveSceneCfg):
         prim_path="{ENV_REGEX_NS}/Object",
         spawn=sim_utils.UsdFileCfg(
             usd_path=f"{UWLAB_CLOUD_ASSETS_DIR}/Props/FurnitureBench/SquareLeg/square_leg.usd",
-            scale=(ASSET_SCALE, ASSET_SCALE, ASSET_SCALE),
+            scale=(ASSET_SCALE*0.9, ASSET_SCALE*0.9, ASSET_SCALE*0.9),
             rigid_props=sim_utils.RigidBodyPropertiesCfg(
                 solver_position_iteration_count=16,
                 solver_velocity_iteration_count=2,
