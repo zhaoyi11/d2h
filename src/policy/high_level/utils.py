@@ -164,7 +164,7 @@ def compose_world_yaw(quat: torch.Tensor, angle: float | torch.Tensor) -> torch.
 DEFAULT_HAND_BASE_TO_ANCHOR_POSE = (0.10623648, 0.01035594, 0.07579897, 1.0, 0.0, 0.0, 0.0)
 # Anchor pose offset in the robot root frame as (x, y, z, qw, qx, qy, qz).
 # Position (0, 0, -0.01) is a fixed -1 cm z-offset in root; orientation (√2/2, 0, √2/2, 0) is 90° rotation about root +Y axis.
-DEFAULT_OBJECT_TO_ANCHOR_POSE = (0.0, 0.0, -0.01, 0.70710678, 0.0, 0.70710678, 0.0)
+DEFAULT_OBJECT_TO_ANCHOR_POSE = (0.0, 0.0, 0.01, 0.70710678, 0.0, 0.70710678, 0.0)
 
 
 def hand_base_pose_from_object_command_b(

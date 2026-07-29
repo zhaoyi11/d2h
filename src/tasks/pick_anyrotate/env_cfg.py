@@ -20,10 +20,12 @@ from isaaclab.scene import InteractiveSceneCfg
 from isaaclab.sim import CapsuleCfg, ConeCfg, CuboidCfg, RigidBodyMaterialCfg, SphereCfg
 from isaaclab.utils import configclass
 from isaaclab.utils.assets import ISAAC_NUCLEUS_DIR
+from isaaclab.utils.noise import AdditiveGaussianNoiseCfg as Gnoise
 from isaaclab.utils.noise import AdditiveUniformNoiseCfg as Unoise
-from isaaclab.sensors import ContactSensorCfg
+from isaaclab.sensors import ContactSensorCfg, FrameTransformerCfg, OffsetCfg
 
 import src.tasks.pick_anyrotate.mdps as mdp
+import src.tasks.reorient.mdps as task_mdps
 from src.assets.franka_leap_hand.franka_leap import FRANKA_LEAP_HAND_CFG
 
 
@@ -133,6 +135,41 @@ class CommandsCfg:
         success_vis_asset_name="table",
     )
 
+
+@configclass
+class HrlCommandsCfg:
+    """Pick, lift, and six-target trajectory command."""
+
+    object_pose = mdp.PickAnyRotateTrajectoryObjectAndHandBasePoseCommandCfg(
+        asset_name="robot",
+        object_name="object",
+        resampling_time_range=(1.0e6, 1.0e6),
+        debug_vis=False,
+        position_only=False,
+        success_vis_asset_name="table",
+        enable_drop_recovery=True,
+        recovery_settle_speed=0.05,
+        recovery_settle_steps=5,
+        drop_object_hand_distance=0.12,
+        recovery_arm_after_stage=2,
+        capture_goal_after_settle=True,
+        grasp_stall_steps=60,
+        hand_open_until_stage=0,
+        hand_base_hold_until_stage=1,
+        correction=mdp.AnchorCorrectionCfg(
+            enable=True,
+            slew_pos=1.0,
+            slew_rot=10.0,
+            max_pos=0.05,
+            max_rot=0.2,
+            anchor_achieved_pos=0.01,
+            anchor_achieved_rot=0.05,
+            stall_window=5,
+            stall_delta_pos=0.003,
+            stall_delta_rot=0.01,
+        ),
+    )
+
 @configclass
 class ObservationsCfg:
     """Observation specifications for the MDP."""
@@ -198,10 +235,172 @@ class ObservationsCfg:
             self.flatten_history_dim = True
             self.history_length = 5
 
+    @configclass
+    class LowLevelObsCfg(ObsGroup):
+        """155-D hand-frame observation used by the frozen anyreorient policy."""
+
+        joint_pos = ObsTerm(
+            func=mdp.joint_pos_limit_normalized,
+            noise=Gnoise(std=0.005),
+            params={"asset_cfg": SceneEntityCfg("robot", joint_names=["a_.*"])},
+        )
+        joint_vel = ObsTerm(
+            func=mdp.joint_vel_rel,
+            scale=0.2,
+            noise=Gnoise(std=0.01),
+            params={"asset_cfg": SceneEntityCfg("robot", joint_names=["a_.*"])},
+        )
+        fingertip_pose = ObsTerm(
+            func=mdp.body_state_body_b,
+            params={
+                "body_asset_cfg": SceneEntityCfg("robot", body_names=".*fingertip.*"),
+                "base_body_asset_cfg": SceneEntityCfg("robot", body_names="base"),
+            },
+        )
+        contact_mask = ObsTerm(
+            func=task_mdps.tip_contact_mask_obs,
+            params={
+                "contact_sensor_names": [
+                    "thumb_fingertip_object_s",
+                    "fingertip_object_s",
+                    "fingertip_2_object_s",
+                    "fingertip_3_object_s",
+                ],
+                "force_threshold": 0.25,
+            },
+        )
+        contact_force_mag = ObsTerm(
+            func=task_mdps.tip_contact_force_mag_obs,
+            params={
+                "contact_sensor_names": [
+                    "thumb_fingertip_object_s",
+                    "fingertip_object_s",
+                    "fingertip_2_object_s",
+                    "fingertip_3_object_s",
+                ],
+                "force_threshold": 0.25,
+            },
+        )
+        contact_pose = ObsTerm(
+            func=task_mdps.tip_contact_pose_flat,
+            params={
+                "contact_sensor_names": [
+                    "thumb_fingertip_object_s",
+                    "fingertip_object_s",
+                    "fingertip_2_object_s",
+                    "fingertip_3_object_s",
+                ],
+                "force_threshold": 0.25,
+                "contact_pose_range_deg": 90.0,
+            },
+        )
+        external_contact_mask = ObsTerm(
+            func=task_mdps.tip_contact_mask_obs,
+            params={
+                "contact_sensor_names": [
+                    "thumb_fingertip_object_s",
+                    "fingertip_object_s",
+                    "fingertip_2_object_s",
+                    "fingertip_3_object_s",
+                ],
+                "force_threshold": 0.25,
+                "filter_indices": [1],
+            },
+        )
+        external_contact_force_mag = ObsTerm(
+            func=task_mdps.tip_contact_force_mag_obs,
+            params={
+                "contact_sensor_names": [
+                    "thumb_fingertip_object_s",
+                    "fingertip_object_s",
+                    "fingertip_2_object_s",
+                    "fingertip_3_object_s",
+                ],
+                "force_threshold": 0.25,
+                "filter_indices": [1],
+            },
+        )
+        external_contact_pose = ObsTerm(
+            func=task_mdps.tip_contact_pose_flat,
+            params={
+                "contact_sensor_names": [
+                    "thumb_fingertip_object_s",
+                    "fingertip_object_s",
+                    "fingertip_2_object_s",
+                    "fingertip_3_object_s",
+                ],
+                "force_threshold": 0.25,
+                "contact_pose_range_deg": 45.0,
+                "filter_indices": [1],
+            },
+        )
+        object_pos = ObsTerm(
+            func=mdp.object_pos_body_b,
+            noise=Gnoise(std=0.002),
+            params={
+                "body_asset_cfg": SceneEntityCfg("robot", body_names="base"),
+                "object_cfg": SceneEntityCfg("object"),
+            },
+        )
+        object_quat = ObsTerm(
+            func=mdp.object_quat_body_b,
+            params={
+                "body_asset_cfg": SceneEntityCfg("robot", body_names="base"),
+                "object_cfg": SceneEntityCfg("object"),
+            },
+        )
+        object_lin_vel = ObsTerm(
+            func=mdp.object_lin_vel_body_b,
+            noise=Gnoise(std=0.002),
+            params={
+                "body_asset_cfg": SceneEntityCfg("robot", body_names="base"),
+                "object_cfg": SceneEntityCfg("object"),
+            },
+        )
+        object_ang_vel = ObsTerm(
+            func=mdp.object_ang_vel_body_b,
+            scale=0.2,
+            noise=Gnoise(std=0.002),
+            params={
+                "body_asset_cfg": SceneEntityCfg("robot", body_names="base"),
+                "object_cfg": SceneEntityCfg("object"),
+            },
+        )
+        gravity_dir = ObsTerm(
+            func=mdp.gravity_dir_body_b,
+            params={"body_asset_cfg": SceneEntityCfg("robot", body_names="base")},
+        )
+        goal_pos_diff = ObsTerm(
+            func=mdp.goal_pos_diff_body_b,
+            params={
+                "asset_cfg": SceneEntityCfg("object"),
+                "command_name": "object_pose",
+                "body_asset_cfg": SceneEntityCfg("robot", body_names="base"),
+                "command_asset_cfg": SceneEntityCfg("robot"),
+            },
+        )
+        goal_quat_diff = ObsTerm(
+            func=mdp.goal_quat_diff_body_b,
+            params={
+                "asset_cfg": SceneEntityCfg("object"),
+                "command_name": "object_pose",
+                "make_quat_unique": False,
+                "body_asset_cfg": SceneEntityCfg("robot", body_names="base"),
+                "command_asset_cfg": SceneEntityCfg("robot"),
+            },
+        )
+        last_action = ObsTerm(func=mdp.last_action, params={"action_name": "hand_action"})
+
+        def __post_init__(self):
+            self.enable_corruption = True
+            self.concatenate_terms = True
+            self.history_length = 1
+
     # # observation groups
     policy: PolicyCfg = PolicyCfg()
     proprio: ProprioObsCfg = ProprioObsCfg()
     perception: PerceptionObsCfg = PerceptionObsCfg()
+    low_level: LowLevelObsCfg | None = None
 
 
 @configclass
@@ -332,10 +531,56 @@ class EventCfg:
 
 
 @configclass
+class HrlEventCfg(EventCfg):
+    """Table-top reset and reduced gravity for the frozen-hand rollout."""
+
+    reset_object = EventTerm(
+        func=mdp.reset_root_state_uniform,
+        mode="reset",
+        params={
+            "pose_range": {"x": [-0.03, 0.03], "y": [-0.03, 0.03], "yaw": [0.0, 0.0]},
+            "velocity_range": {"x": [0.0, 0.0], "y": [0.0, 0.0], "z": [0.0, 0.0]},
+            "asset_cfg": SceneEntityCfg("object"),
+        },
+    )
+    reset_robot_joints: EventTerm | None = None
+    variable_gravity = EventTerm(
+        func=mdp.randomize_physics_scene_gravity,
+        mode="reset",
+        params={
+            "gravity_distribution_params": ([0.0, 0.0, -1.81], [0.0, 0.0, -1.81]),
+            "operation": "abs",
+        },
+    )
+
+
+@configclass
 class ActionsCfg:
 
     action = mdp.RelativeJointPositionActionCfg(
         asset_name="robot", joint_names=[".*"], scale=0.1
+    )
+
+
+@configclass
+class HrlActionsCfg:
+    """cuRobo arm target plus the frozen policy's 16-DOF hand action."""
+
+    arm_action = mdp.CommandHandBaseCuroboMpcActionCfg(
+        asset_name="robot",
+        joint_names=["panda_joint.*"],
+        body_name="base",
+        command_name="object_pose",
+        robot_config_file=(
+            f"{Path(__file__).resolve().parents[2]}/assets/franka_leap_hand/curobo/franka_leap.yml"
+        ),
+        obstacle_cuboids={},
+    )
+    hand_action = mdp.EMAJointPositionToLimitsActionCfg(
+        asset_name="robot",
+        joint_names=["a_.*"],
+        alpha=0.5,
+        rescale_to_limits=True,
     )
 
 
@@ -398,6 +643,41 @@ class RewardsCfg:
 
 
 @configclass
+class HrlRewardsCfg:
+    """Rewards that consume trajectory-command metrics instead of its 14-D public command."""
+
+    action_l2 = RewTerm(func=mdp.action_l2_clamped, weight=-0.002)
+    action_rate_l2 = RewTerm(func=mdp.action_rate_l2_clamped, weight=-0.005)
+    fingers_to_object = RewTerm(func=mdp.object_ee_distance, params={"std": 0.25}, weight=1.0)
+    good_finger_contact = RewTerm(func=mdp.contacts, weight=1.0, params={"threshold": 1.0})
+    object_lifted = RewTerm(
+        func=mdp.object_lifted_above_table,
+        weight=2.0,
+        params={
+            "object_cfg": SceneEntityCfg("object"),
+            "table_cfg": SceneEntityCfg("table"),
+            "height": 0.10,
+            "table_half_height": 0.02,
+        },
+    )
+    orientation_tracking = RewTerm(
+        func=mdp.trajectory_orientation_tracking,
+        weight=4.0,
+        params={"command_name": "object_pose", "std": 0.5},
+    )
+    target_achieved = RewTerm(
+        func=mdp.reorientation_goal_achieved,
+        weight=15.0,
+        params={"command_name": "object_pose"},
+    )
+    sequence_complete = RewTerm(
+        func=mdp.sequence_completion_reward,
+        weight=50.0,
+        params={"command_name": "object_pose"},
+    )
+
+
+@configclass
 class TerminationsCfg:
     """Termination terms for the MDP."""
 
@@ -412,6 +692,14 @@ class TerminationsCfg:
     )
 
     abnormal_robot = DoneTerm(func=mdp.abnormal_robot_state)
+
+
+@configclass
+class HrlTerminationsCfg(TerminationsCfg):
+    sequence_complete = DoneTerm(
+        func=mdp.reorientation_sequence_complete,
+        params={"command_name": "object_pose"},
+    )
 
 
 @configclass
@@ -438,7 +726,7 @@ class DexsuiteReorientEnvCfg(ManagerBasedRLEnvCfg):
     def __post_init__(self):
         """Post initialization."""
         # general settings
-        self.decimation = 2  # 50 Hz
+        self.decimation = 4  # 50 Hz
 
         # *single-goal setup
         self.commands.object_pose.resampling_time_range = (10.0, 10.0)
@@ -585,3 +873,76 @@ class DexsuiteFrankaLeapLiftEnvCfg(FrankaLeapMixinCfg, DexsuiteLiftEnvCfg):
 @configclass
 class DexsuiteFrankaLeapLiftEnvCfg_PLAY(FrankaLeapMixinCfg, DexsuiteLiftEnvCfg_PLAY):
     pass
+
+
+@configclass
+class DexsuiteFrankaLeapAnyRotateHrlEnvCfg(FrankaLeapMixinCfg, DexsuiteReorientEnvCfg):
+    """Pick an object from the table and reach six sampled in-hand orientations."""
+
+    commands: HrlCommandsCfg = HrlCommandsCfg()
+    actions: HrlActionsCfg = HrlActionsCfg()
+    rewards: HrlRewardsCfg = HrlRewardsCfg()
+    terminations: HrlTerminationsCfg = HrlTerminationsCfg()
+    events: HrlEventCfg = HrlEventCfg()
+    curriculum: mdp.CurriculumCfg | None = None
+
+    def __post_init__(self):
+        self.observations.low_level = ObservationsCfg.LowLevelObsCfg()
+        super().__post_init__()
+
+        self.observations.policy.target_object_pose_b.func = mdp.command_object_pose_b
+        self.commands.object_pose.resampling_time_range = (1.0e6, 1.0e6)
+        self.commands.object_pose.position_only = False
+
+        self.scene.fingertip_transforms = FrameTransformerCfg(
+            prim_path="{ENV_REGEX_NS}/Robot/Franka_LeapHand/leap_hand_right/base",
+            target_frames=[
+                FrameTransformerCfg.FrameCfg(
+                    prim_path="{ENV_REGEX_NS}/Robot/Franka_LeapHand/leap_hand_right/thumb_fingertip",
+                    offset=OffsetCfg(pos=(0.0, -0.045, -0.015)),
+                ),
+                FrameTransformerCfg.FrameCfg(
+                    prim_path="{ENV_REGEX_NS}/Robot/Franka_LeapHand/leap_hand_right/fingertip",
+                    offset=OffsetCfg(pos=(0.0, -0.03, 0.015)),
+                ),
+                FrameTransformerCfg.FrameCfg(
+                    prim_path="{ENV_REGEX_NS}/Robot/Franka_LeapHand/leap_hand_right/fingertip_2",
+                    offset=OffsetCfg(pos=(0.0, -0.03, 0.015)),
+                ),
+                FrameTransformerCfg.FrameCfg(
+                    prim_path="{ENV_REGEX_NS}/Robot/Franka_LeapHand/leap_hand_right/fingertip_3",
+                    offset=OffsetCfg(pos=(0.0, -0.03, 0.015)),
+                ),
+            ],
+            debug_vis=False,
+        )
+        for sensor_name in (
+            "thumb_fingertip_object_s",
+            "fingertip_object_s",
+            "fingertip_2_object_s",
+            "fingertip_3_object_s",
+        ):
+            getattr(self.scene, sensor_name).filter_prim_paths_expr = [
+                "{ENV_REGEX_NS}/Object/baseLink",
+                "{ENV_REGEX_NS}/Table",
+            ]
+        self.observations.proprio.contact.params["filter_indices"] = [0]
+
+        self.decimation = 4  # 30 Hz, matching the frozen hand policy.
+        self.episode_length_s = 30.0
+        self.sim.render_interval = self.decimation
+        self.sim.physx.solver_type = 1
+        self.sim.physx.max_position_iteration_count = 192
+        self.sim.physx.max_velocity_iteration_count = 1
+        self.sim.physx.bounce_threshold_velocity = 0.02
+        self.sim.physx.friction_offset_threshold = 0.01
+        self.sim.physx.friction_correlation_distance = 0.0005
+        self.sim.physx.gpu_found_lost_aggregate_pairs_capacity = 2**23
+        self.sim.physx.gpu_total_aggregate_pairs_capacity = 2**23
+        self.sim.physx.gpu_max_rigid_contact_count = 2**23
+        self.sim.physx.gpu_max_rigid_patch_count = 2**23
+        self.sim.physx.gpu_collision_stack_size = 2**31
+
+        # The MPC action restores arm gains on reset; the LEAP hand remains position-controlled.
+        self.scene.robot.actuators["joints"].stiffness = 0.0
+        self.scene.robot.actuators["joints"].damping = 0.0

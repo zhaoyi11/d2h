@@ -40,7 +40,7 @@ DEFAULT_PICK_INSERT_SEGMENT_STEPS = (0, 1, 2, 1, 1, 1, 1)
 # tolerances for each of the 7 segments: reach / lift / move / align / approach / insert / hold
 DEFAULT_PICK_INSERT_STAGE_OBJECT_TOLERANCES = (
     StageObjTol(0.02, 0.3),  # reach (object held at its settled pose; advance is arm-gated, hand open)
-    StageObjTol(0.02, 0.1),  # lift (goal lift_height above the object; the grip must lift it there)
+    StageObjTol(0.02, 0.3),  # lift (goal lift_height above the object; the grip must lift it there)
     StageObjTol(0.02, 0.3),  # move
     StageObjTol(0.02, 0.2),  # align
     StageObjTol(0.01, 0.2),  # approach

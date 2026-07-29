@@ -139,8 +139,11 @@ def _make_frame_marker(prim_path: str) -> VisualizationMarkers:
 def _make_target_object_marker(env) -> VisualizationMarkers:
     object_spawn = env.scene["object"].cfg.spawn
     if hasattr(object_spawn, "usd_path"):
+        usd_path = object_spawn.usd_path
+        if isinstance(usd_path, list):
+            usd_path = usd_path[0]
         target_object_cfg = sim_utils.UsdFileCfg(
-            usd_path=object_spawn.usd_path,
+            usd_path=usd_path,
             scale=object_spawn.scale,
             visual_material=sim_utils.PreviewSurfaceCfg(diffuse_color=(0.1, 0.9, 0.2), opacity=0.8),
         )

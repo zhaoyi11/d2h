@@ -27,9 +27,9 @@ from isaaclab.sensors import ContactSensorCfg, FrameTransformerCfg, OffsetCfg
 
 import src.tasks.pick_anyrotate.mdps as mdp
 import src.tasks.pick_insert.mdps as insert_mdp
-import src.tasks.pick_screw.mdps as screw_mdp
+import src.tasks.unscrew.mdps as unscrew_mdp
 import src.tasks.reorient.mdps as task_mdps
-from src.tasks.pick_screw.mdps.contacts import (
+from src.tasks.unscrew.mdps.contacts import (
     contact_filter_prim_paths,
     external_indices,
     object_indices,
@@ -38,9 +38,16 @@ from src.assets.franka_leap_hand.franka_leap import FRANKA_LEAP_HAND_CFG
 
 UWLAB_CLOUD_ASSETS_DIR = "https://huggingface.co/datasets/UW-Lab/uwlab-assets/resolve/main"
 
+ASSET_SCALE = 1.5
+RECEPTIVE_OBJECT_POS = (0.55, 0.0, 0.271)
+INSTALLED_OBJECT_POS = (0.465625, 0.084375, 0.341834)
+EXTRACTED_OBJECT_POS = (0.465625, 0.084375, 0.416834)
+TABLE_POS = (0.55, 0.0, 0.235)
+IDENTITY_QUAT = (1.0, 0.0, 0.0, 0.0)
+
 @configclass
 class SceneCfg(InteractiveSceneCfg):
-    """Dexsuite Scene for multi-objects Lifting"""
+    """Square-table scene with one leg initialized in a threaded socket."""
 
     # robot
     robot = FRANKA_LEAP_HAND_CFG.replace(prim_path="{ENV_REGEX_NS}/Robot")
@@ -50,33 +57,32 @@ class SceneCfg(InteractiveSceneCfg):
         prim_path="{ENV_REGEX_NS}/Object",
         spawn=sim_utils.UsdFileCfg(
             usd_path=f"{UWLAB_CLOUD_ASSETS_DIR}/Props/FurnitureBench/SquareLeg/square_leg.usd",
-            scale=(1.5, 1.5, 1.5),
+            scale=(ASSET_SCALE, ASSET_SCALE, ASSET_SCALE),
             rigid_props=sim_utils.RigidBodyPropertiesCfg(
-                solver_position_iteration_count=4,
-                solver_velocity_iteration_count=0,
+                solver_position_iteration_count=16,
+                solver_velocity_iteration_count=2,
                 disable_gravity=False,
                 kinematic_enabled=False,
             ),
             mass_props=sim_utils.MassPropertiesCfg(mass=0.02),
         ),
-        init_state=RigidObjectCfg.InitialStateCfg(pos=(0.55, 0.1, 0.34), 
-                                                rot=(1.0, 0.0, 0.0, 0.0)),
+        init_state=RigidObjectCfg.InitialStateCfg(pos=INSTALLED_OBJECT_POS, rot=IDENTITY_QUAT),
     )
     
     receptive_object = RigidObjectCfg(
         prim_path="{ENV_REGEX_NS}/ReceptiveObject",
         spawn=sim_utils.UsdFileCfg(
             usd_path=f"{UWLAB_CLOUD_ASSETS_DIR}/Props/FurnitureBench/SquareTableTop/square_table_top.usd",
-            scale=(2.0, 2.0, 1.0),
+            scale=(ASSET_SCALE, ASSET_SCALE, ASSET_SCALE),
             rigid_props=sim_utils.RigidBodyPropertiesCfg(
-                solver_position_iteration_count=4,
-                solver_velocity_iteration_count=0,
+                solver_position_iteration_count=16,
+                solver_velocity_iteration_count=2,
                 disable_gravity=False,
                 kinematic_enabled=True,
             ),
             mass_props=sim_utils.MassPropertiesCfg(mass=0.05),
         ),
-        init_state=RigidObjectCfg.InitialStateCfg(pos=(0.55, 0.0, 0.271), rot=(1.0, 0.0, 0.0, 0.0)),
+        init_state=RigidObjectCfg.InitialStateCfg(pos=RECEPTIVE_OBJECT_POS, rot=IDENTITY_QUAT),
     )
 
     # # table base
@@ -108,7 +114,7 @@ class SceneCfg(InteractiveSceneCfg):
     # # table leg
     # object = RigidObjectCfg(
     #     prim_path="{ENV_REGEX_NS}/Object",
-    #     spawn=sim_utils.UsdFileCfg(
+    #     spawn=sim_utils.UsdFileCfg(https://github.com/mattpocock/skills/tree/main
     #         usd_path=f"/home/yizhao/yi/D2H/src/assets/square_table_leg/square_table_leg1_convex.usd",
     #         activate_contact_sensors=True,
     #         rigid_props=sim_utils.RigidBodyPropertiesCfg(
@@ -141,7 +147,7 @@ class SceneCfg(InteractiveSceneCfg):
             visible=True,
         ),
         init_state=RigidObjectCfg.InitialStateCfg(
-            pos=(0.55, 0.0, 0.235), rot=(1.0, 0.0, 0.0, 0.0)
+            pos=TABLE_POS, rot=IDENTITY_QUAT
         ),
     )
 
@@ -166,14 +172,14 @@ class CommandsCfg:
     object_pose = mdp.ObjectUniformPoseCommandCfg(
         asset_name="robot",
         object_name="object",
-        resampling_time_range=(3.0, 5.0),
+        resampling_time_range=(20.0, 20.0),
         debug_vis=False,
         ranges=mdp.ObjectUniformPoseCommandCfg.Ranges(
-            pos_x=(0.3, 0.7),
-            pos_y=(-0.25, 0.25),
-            pos_z=(0.55, 0.95),
-            roll=(-3.14, 3.14),
-            pitch=(-3.14, 3.14),
+            pos_x=(EXTRACTED_OBJECT_POS[0], EXTRACTED_OBJECT_POS[0]),
+            pos_y=(EXTRACTED_OBJECT_POS[1], EXTRACTED_OBJECT_POS[1]),
+            pos_z=(EXTRACTED_OBJECT_POS[2], EXTRACTED_OBJECT_POS[2]),
+            roll=(0.0, 0.0),
+            pitch=(0.0, 0.0),
             yaw=(0.0, 0.0),
         ),
         success_vis_asset_name="table",
@@ -277,19 +283,19 @@ class ObservationsCfg:
             },
         )
         # -- object contact: raw 3D force in hand-base frame (object filter only)
-        fingertip_contact_force_b = ObsTerm(
-            func=insert_mdp.fingers_contact_force_body_b,
-            params={
-                "contact_sensor_names": [
-                    "thumb_fingertip_object_s",
-                    "fingertip_object_s",
-                    "fingertip_2_object_s",
-                    "fingertip_3_object_s",
-                ],
-                "base_body_asset_cfg": SceneEntityCfg("robot", body_names="base"),
-                "filter_indices": object_indices(),
-            },
-        )
+        # fingertip_contact_force_b = ObsTerm(
+        #     func=insert_mdp.fingers_contact_force_body_b,
+        #     params={
+        #         "contact_sensor_names": [
+        #             "thumb_fingertip_object_s",
+        #             "fingertip_object_s",
+        #             "fingertip_2_object_s",
+        #             "fingertip_3_object_s",
+        #         ],
+        #         "base_body_asset_cfg": SceneEntityCfg("robot", body_names="base"),
+        #         "filter_indices": object_indices(),
+        #     },
+        # )
         contact_mask = ObsTerm(
             func=task_mdps.tip_contact_mask_obs,
             params={
@@ -512,8 +518,8 @@ class EventCfg:
         func=mdp.reset_root_state_uniform,
         mode="reset",
         params={
-            "pose_range": {"x": [-0.05, 0.05], "y": [-0.05, 0.05], "z": [0.0, 0.0]},
-            "velocity_range": {"x": [-0.0, 0.0], "y": [-0.0, 0.0], "z": [-0.0, 0.0]},
+            "pose_range": {},
+            "velocity_range": {},
             "asset_cfg": SceneEntityCfg("table"),
         },
     )
@@ -522,15 +528,8 @@ class EventCfg:
         func=mdp.reset_root_state_uniform,
         mode="reset",
         params={
-            "pose_range": {
-                "x": [-0.2, 0.2],
-                "y": [-0.2, 0.2],
-                "z": [0.0, 0.4],
-                "roll": [-3.14, 3.14],
-                "pitch": [-3.14, 3.14],
-                "yaw": [-3.14, 3.14],
-            },
-            "velocity_range": {"x": [-0.0, 0.0], "y": [-0.0, 0.0], "z": [-0.0, 0.0]},
+            "pose_range": {},
+            "velocity_range": {},
             "asset_cfg": SceneEntityCfg("object"),
         },
     )
@@ -549,7 +548,7 @@ class EventCfg:
         func=mdp.reset_joints_by_offset,
         mode="reset",
         params={
-            "position_range": [-0.50, 0.50],
+            "position_range": [0.0, 0.0],
             "velocity_range": [0.0, 0.0],
         },
     )
@@ -600,16 +599,7 @@ class RewardsCfg:
         },
     )
 
-    orientation_tracking = RewTerm(
-        func=mdp.orientation_command_error_tanh,
-        weight=2.0,
-        params={
-            "asset_cfg": SceneEntityCfg("robot"),
-            "std": 1.5,
-            "command_name": "object_pose",
-            "align_asset_cfg": SceneEntityCfg("object"),
-        },
-    )
+    orientation_tracking = None
 
     # success_position = RewTerm(
     #     func=mdp.success_reward,
@@ -628,11 +618,17 @@ class RewardsCfg:
         weight=10,
         params={
             "asset_cfg": SceneEntityCfg("robot"),
-            "pos_std": 0.1,
-            "rot_std": 0.5,
+            "pos_std": 0.01,
+            "rot_std": None,
             "command_name": "object_pose",
             "align_asset_cfg": SceneEntityCfg("object"),
         },
+    )
+
+    completion = RewTerm(
+        func=mdp.is_terminated_term,
+        weight=10.0,
+        params={"term_keys": "unscrew_success"},
     )
 
     early_termination = RewTerm(
@@ -656,10 +652,21 @@ class TerminationsCfg:
 
     abnormal_robot = DoneTerm(func=mdp.abnormal_robot_state)
 
+    unscrew_success = DoneTerm(
+        func=unscrew_mdp.StableUnscrewSuccess,
+        params={
+            "object_cfg": SceneEntityCfg("object"),
+            "receptive_cfg": SceneEntityCfg("receptive_object"),
+            "clearance_margin": 0.030,
+            "force_threshold": 1.0,
+            "stable_steps": 5,
+        },
+    )
+
 
 @configclass
-class DexsuiteScrewEnvCfg(ManagerBasedRLEnvCfg):
-    """Dexsuite screw task definition, also the base definition for derivative Lift task and evaluation task"""
+class DexsuiteUnscrewEnvCfg(ManagerBasedRLEnvCfg):
+    """Flat RL task for extracting a threaded square-table leg."""
 
     # Scene settings
     viewer: ViewerCfg = ViewerCfg(
@@ -679,11 +686,11 @@ class DexsuiteScrewEnvCfg(ManagerBasedRLEnvCfg):
     def __post_init__(self):
         """Post initialization."""
         # general settings
-        self.decimation = 2  # 50 Hz
+        self.decimation = 4  # 50 Hz
 
         # *single-goal setup
-        self.commands.object_pose.resampling_time_range = (10.0, 10.0)
-        self.commands.object_pose.position_only = False
+        self.commands.object_pose.resampling_time_range = (20.0, 20.0)
+        self.commands.object_pose.position_only = True
         self.commands.object_pose.success_visualizer_cfg.markers["failure"] = (
             self.scene.table.spawn.replace(
                 visual_material=sim_utils.PreviewSurfaceCfg(
@@ -701,7 +708,7 @@ class DexsuiteScrewEnvCfg(ManagerBasedRLEnvCfg):
             )
         )
 
-        self.episode_length_s = 4.0
+        self.episode_length_s = 20.0
         self.is_finite_horizon = True
 
         # simulation settings
@@ -717,51 +724,19 @@ class DexsuiteScrewEnvCfg(ManagerBasedRLEnvCfg):
                 self.rewards.success.params["pos_std"] / 2
             )
 
-            self.curriculum.adr.params["rot_tol"] = (
-                self.rewards.success.params["rot_std"] / 2
-            )
+            self.curriculum.adr.params["rot_tol"] = None
 
 
-class DexsuiteScrewLiftEnvCfg(DexsuiteScrewEnvCfg):
-    """Dexsuite screw lift task definition"""
+class DexsuiteUnscrewEnvCfg_PLAY(DexsuiteUnscrewEnvCfg):
+    """Unscrew evaluation environment definition."""
 
     def __post_init__(self):
         super().__post_init__()
-        self.rewards.orientation_tracking = None  # no orientation reward
-        self.commands.object_pose.position_only = True
-        if self.curriculum is not None:
-            self.rewards.success.params["rot_std"] = (
-                None  # make success reward not consider orientation
-            )
-            self.curriculum.adr.params["rot_tol"] = (
-                None  # make adr not tracking orientation
-            )
-
-
-class DexsuiteScrewEnvCfg_PLAY(DexsuiteScrewEnvCfg):
-    """Dexsuite reorientation task evaluation environment definition"""
-
-    def __post_init__(self):
-        super().__post_init__()
-        self.commands.object_pose.resampling_time_range = (2.0, 3.0)
+        self.commands.object_pose.resampling_time_range = (20.0, 20.0)
         self.commands.object_pose.debug_vis = True
         self.curriculum.adr.params["init_difficulty"] = self.curriculum.adr.params[
             "max_difficulty"
         ]
-
-
-class DexsuiteScrewLiftEnvCfg_PLAY(DexsuiteScrewLiftEnvCfg):
-    """Dexsuite lift task evaluation environment definition"""
-
-    def __post_init__(self):
-        super().__post_init__()
-        self.commands.object_pose.resampling_time_range = (2.0, 3.0)
-        self.commands.object_pose.debug_vis = True
-        self.commands.object_pose.position_only = True
-        self.curriculum.adr.params["init_difficulty"] = self.curriculum.adr.params[
-            "max_difficulty"
-        ]
-
 
 ##########
 #  Tasks
@@ -771,7 +746,7 @@ class DexsuiteScrewLiftEnvCfg_PLAY(DexsuiteScrewLiftEnvCfg):
 @configclass
 class FrankaLeapMixinCfg:
 
-    def __post_init__(self: DexsuiteScrewEnvCfg):
+    def __post_init__(self: DexsuiteUnscrewEnvCfg):
         super().__post_init__()
         self.commands.object_pose.body_name = "base"  # TODO: check this !!
         finger_tip_body_list = [
@@ -786,7 +761,7 @@ class FrankaLeapMixinCfg:
                 f"{link_name}_object_s",
                 ContactSensorCfg(
                     prim_path="{ENV_REGEX_NS}/Robot/Franka_LeapHand/leap_hand_right/" + link_name,
-                    filter_prim_paths_expr=["{ENV_REGEX_NS}/Object/square_table_leg1"],
+                    filter_prim_paths_expr=["{ENV_REGEX_NS}/Object"],
                 ),
             )
         self.observations.proprio.contact = ObsTerm(
@@ -808,24 +783,14 @@ class FrankaLeapMixinCfg:
 
 
 @configclass
-class DexsuiteFrankaLeapScrewEnvCfg(FrankaLeapMixinCfg, DexsuiteScrewEnvCfg):
+class DexsuiteFrankaLeapUnscrewEnvCfg(FrankaLeapMixinCfg, DexsuiteUnscrewEnvCfg):
     pass
 
 
 @configclass
-class DexsuiteFrankaLeapScrewEnvCfg_PLAY(
-    FrankaLeapMixinCfg, DexsuiteScrewEnvCfg_PLAY
+class DexsuiteFrankaLeapUnscrewEnvCfg_PLAY(
+    FrankaLeapMixinCfg, DexsuiteUnscrewEnvCfg_PLAY
 ):
-    pass
-
-
-@configclass
-class DexsuiteFrankaLeapScrewLiftEnvCfg(FrankaLeapMixinCfg, DexsuiteScrewLiftEnvCfg):
-    pass
-
-
-@configclass
-class DexsuiteFrankaLeapScrewLiftEnvCfg_PLAY(FrankaLeapMixinCfg, DexsuiteScrewLiftEnvCfg_PLAY):
     pass
 
 
@@ -842,35 +807,30 @@ class HrlCommandsCfg:
     low-level policy reads the object goal from ``command[:, :7]``.
     """
 
-    object_pose = screw_mdp.PickScrewTrajectoryObjectAndHandBasePoseCommandCfg(
+    object_pose = unscrew_mdp.UnscrewTrajectoryObjectAndHandBasePoseCommandCfg(
         asset_name="robot",
         object_name="object",
-        resampling_time_range=(10.0, 10.0),
+        resampling_time_range=(20.0, 20.0),
         debug_vis=False,
         success_vis_asset_name="table",
-        # receptacle (table top) the screw trajectory targets — matches the scene's ReceptiveObject.
-        receptive_pose=(0.55, 0.0, 0.271, 1.0, 0.0, 0.0, 0.0),
-        # Twist phase: after insertion, spin the leg one full turn about its +Z insertion axis, chained
-        # across 4 <= 90 deg sub-segments (slerp takes the short geodesic). thread_pitch=0 => in-place
-        # spin (the USDs have no real threads; the rotation is executed in-hand by the frozen policy).
-        twist_total_angle=2.0 * math.pi,
-        twist_segments=4,
-        thread_pitch=0.0,
+        # Three positive-yaw turns rise along the authored 15 mm thread pitch, followed by extraction.
+        # The frozen hand policy supplies in-hand rotation; the hand-base orientation stays fixed.
+        twist_total_angle=6.0 * math.pi,
+        twist_segments=12,
+        thread_pitch=0.015,
+        extraction_height=0.030,
         # Fail recovery: if the leg leaves the hand mid-episode, wait for it to come to rest and
-        # regenerate the whole reach->twist trajectory from its new pose so the arm re-grasps it.
+        # regenerate the reach->unscrew trajectory from its new pose so the arm re-grasps it.
         enable_drop_recovery=True,
         recovery_settle_speed=0.05,
         recovery_settle_steps=5,
         drop_object_hand_distance=0.10,
-        # Arm recovery only after reach(0)+lift(1); capture the reach goal from the leg's settled pose.
+        # Arm recovery only after reach(0)+grasp(1); capture the goal from the settled threaded pose.
         recovery_arm_after_stage=1,
         capture_goal_after_settle=True,
-        # Lift-stall recovery: if the grasp fails to lift the leg, replan (re-open, re-grasp).
-        grasp_stall_steps=60,
-        # Grasp sequencing: keep the hand open through the reach stage (0), then close at lift.
+        # Keep the hand open during reach, close during contact confirmation, then begin turning.
         hand_open_until_stage=0,
-        # Hand-base follows the object goal (see pick_insert CommandsCfg for the rationale).
-        hand_base_hold_until_stage=-1,
+        hand_base_hold_until_stage=1,
         # Nudge the hand-base anchor so the object reaches its goal when the in-hand policy alone
         # cannot; bounded, memoryless, gated on a settled arm + stalled object (as in pick_insert).
         correction=insert_mdp.AnchorCorrectionCfg(
@@ -918,8 +878,8 @@ class HrlActionsCfg:
 
 
 @configclass
-class DexsuiteFrankaLeapScrewHrlEnvCfg(FrankaLeapMixinCfg, DexsuiteScrewEnvCfg):
-    """Pick-screw HRL variant: cuRobo-MPC arm + frozen low-level LEAP-hand policy.
+class DexsuiteFrankaLeapUnscrewHrlEnvCfg(FrankaLeapMixinCfg, DexsuiteUnscrewEnvCfg):
+    """Unscrew HRL variant: cuRobo-MPC arm + frozen low-level LEAP-hand policy.
 
     The 7-DOF arm tracks the command hand-base anchor via cuRobo reactive MPC (0 external action
     dims); the 16-DOF LEAP hand is driven by a frozen reorient policy reading the ``low_level``
@@ -933,7 +893,10 @@ class DexsuiteFrankaLeapScrewHrlEnvCfg(FrankaLeapMixinCfg, DexsuiteScrewEnvCfg):
     def __post_init__(self):
         # Enable the reorient-style 167-dim low-level observation group.
         self.observations.low_level = ObservationsCfg.LowLevelObsCfg()
-        super().__post_init__()  # FrankaLeapMixinCfg -> DexsuiteScrewEnvCfg
+        super().__post_init__()  # FrankaLeapMixinCfg -> DexsuiteUnscrewEnvCfg
+        # The flat task's goal is position-only; the scripted HRL stepper must still enforce each
+        # quarter-turn orientation target.
+        self.commands.object_pose.position_only = False
 
         # FrameTransformer over the fingertips: tip_contact_* read its target_quat_w to rotate
         # contact forces into each fingertip frame.
@@ -981,18 +944,9 @@ class DexsuiteFrankaLeapScrewHrlEnvCfg(FrankaLeapMixinCfg, DexsuiteScrewEnvCfg):
         self.scene.robot.actuators["joints"].stiffness = 0.0
         self.scene.robot.actuators["joints"].damping = 0.0
 
-        # HRL-only reset overrides so the scripted reach->insert->twist demo is deterministic (the flat
-        # RL env keeps the base reorient-style resets untouched):
-        #  - Reduced gravity (-1.81) is the regime the frozen reorient hand policy was trained under
-        #    (matches pick_insert/cupcake); the base env uses 0 gravity.
+        # Reduced gravity (-1.81) is the regime the frozen reorient hand policy was trained under
+        # (matches pick_insert/cupcake); the flat env retains its gravity curriculum.
         self.events.variable_gravity.params["gravity_distribution_params"] = (
             [0.0, 0.0, -1.81],
             [0.0, 0.0, -1.81],
         )
-        #  - Rest the leg at a consistent, canonical pose (small x/y jitter, fixed orientation) so the
-        #    scripted grasp from the fixed anchor is repeatable; the base env spawns it fully randomized.
-        self.events.reset_object.params["pose_range"] = {
-            "x": [-0.03, 0.03],
-            "y": [-0.03, 0.03],
-            "yaw": [0.0, 0.0],
-        }

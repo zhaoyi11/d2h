@@ -1,10 +1,9 @@
-"""Live IsaacSim visualization for the pick-screw object trajectory.
+"""Live IsaacSim visualization for the unscrew object trajectory.
 
-Writes each scripted object-goal waypoint onto the leg (so you see it reach->lift->move->align->
-approach->insert and then *twist* about its +Z axis), and draws the root-aligned anchor + hand-base
-frames the cuRobo-MPC arm tracks -- computed by the SAME runtime function the command term uses
-(``hand_base_pose_from_object_command_b``), so the anchor stays root-aligned while the object goal
-yaws during the twist (open-loop -- no PI(D) correction here).
+Writes each scripted object-goal waypoint onto the installed leg (reach, grasp hold, three helical
+turns, and extraction) and draws the root-aligned anchor plus hand-base frames the cuRobo-MPC arm
+tracks. The anchor orientation remains fixed while the object goal yaws, so the frozen LEAP policy
+supplies in-hand rotation. This viewer is open-loop and does not apply PI(D) correction.
 """
 
 from __future__ import annotations
@@ -21,18 +20,18 @@ from isaaclab.app import AppLauncher
 
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
-PICK_SCREW_TRAJECTORY_PATH = REPO_ROOT / "src" / "tasks" / "pick_screw" / "mdps" / "trajectory.py"
-ENV_CFG_PATH = REPO_ROOT / "src" / "tasks" / "pick_screw" / "env_cfg.py"
+UNSCREW_TRAJECTORY_PATH = REPO_ROOT / "src" / "tasks" / "unscrew" / "mdps" / "trajectory.py"
+ENV_CFG_PATH = REPO_ROOT / "src" / "tasks" / "unscrew" / "env_cfg.py"
 
 
-parser = argparse.ArgumentParser(description="Visualize the pick-screw object trajectory in IsaacSim.")
+parser = argparse.ArgumentParser(description="Visualize the unscrew object trajectory in IsaacSim.")
 parser.add_argument(
     "--segment_steps",
     type=int,
     nargs="+",
     default=None,
-    help="Interpolation samples per segment (reach lift move align approach insert twist... hold). "
-    "Must be 7 + twist_segments values; defaults to DEFAULT_PICK_SCREW_SEGMENT_STEPS.",
+    help="Interpolation samples for reach, grasp, twelve twist segments, extract, and hold. "
+    "Defaults to DEFAULT_UNSCREW_SEGMENT_STEPS.",
 )
 parser.add_argument("--frame_dt", type=float, default=0.03, help="Wall-clock seconds between displayed frames.")
 parser.add_argument("--loop", action="store_true", default=False, help="Loop the trajectory until the viewer closes.")
@@ -100,10 +99,10 @@ def _write_demo_frame(scene: InteractiveScene, object_pose_w: torch.Tensor) -> N
 
 
 def main() -> None:
-    print("[INFO]: Loading pick-screw object trajectory helper.", flush=True)
-    trajectory_module = _load_module("pick_screw_trajectory", PICK_SCREW_TRAJECTORY_PATH)
-    print("[INFO]: Loading pick-screw scene config.", flush=True)
-    env_cfg_module = _load_module("pick_screw_env_cfg", ENV_CFG_PATH)
+    print("[INFO]: Loading unscrew object trajectory helper.", flush=True)
+    trajectory_module = _load_module("unscrew_trajectory", UNSCREW_TRAJECTORY_PATH)
+    print("[INFO]: Loading unscrew scene config.", flush=True)
+    env_cfg_module = _load_module("unscrew_env_cfg", ENV_CFG_PATH)
 
     print("[INFO]: Creating SimulationContext.", flush=True)
     sim_cfg = sim_utils.SimulationCfg(device=args_cli.device)
@@ -119,8 +118,8 @@ def main() -> None:
 
     print("[INFO]: Building object and anchor trajectories.", flush=True)
     current_pose_w = _current_object_pose_w(scene)
-    segment_steps = tuple(args_cli.segment_steps or trajectory_module.DEFAULT_PICK_SCREW_SEGMENT_STEPS)
-    trajectory_w = trajectory_module.build_pick_screw_object_pose_sequence(
+    segment_steps = tuple(args_cli.segment_steps or trajectory_module.DEFAULT_UNSCREW_SEGMENT_STEPS)
+    trajectory_w = trajectory_module.build_unscrew_object_pose_sequence(
         current_pose_w,
         segment_steps=segment_steps,
     )
@@ -133,8 +132,8 @@ def main() -> None:
         trajectory_w, hand_base_to_anchor, DEFAULT_OBJECT_TO_ANCHOR_POSE, None
     )
 
-    anchor_marker = _make_frame_marker("/Visuals/PickScrewObjectTrajectory/AnchorFrame")
-    base_marker = _make_frame_marker("/Visuals/PickScrewObjectTrajectory/BaseFrame")
+    anchor_marker = _make_frame_marker("/Visuals/UnscrewObjectTrajectory/AnchorFrame")
+    base_marker = _make_frame_marker("/Visuals/UnscrewObjectTrajectory/BaseFrame")
 
     sim.set_camera_view(eye=(1.0, -1.2, 0.75), target=(0.55, 0.0, 0.30))
 
@@ -171,7 +170,7 @@ if __name__ == "__main__":
     try:
         main()
     except BaseException:
-        print("[ERROR]: visualize_pick_screw_object_trajectory.py failed before the visualization loop.", flush=True)
+        print("[ERROR]: visualize_unscrew_object_trajectory.py failed before the visualization loop.", flush=True)
         traceback.print_exc()
         raise
     finally:

@@ -54,13 +54,13 @@ class SceneCfg(InteractiveSceneCfg):
         prim_path="{ENV_REGEX_NS}/Object",
         spawn=sim_utils.UsdFileCfg(
             usd_path=str(ASSETS_DIR / "uwlab/cupcake.usd"),
-            scale=(0.8, 0.8, 0.8),
+            scale=(0.9, 0.9, 0.9),
             rigid_props=sim_utils.RigidBodyPropertiesCfg(
                 solver_position_iteration_count=16,
                 solver_velocity_iteration_count=1,
                 disable_gravity=False,
                 kinematic_enabled=False,
-                max_depenetration_velocity=0.1,
+                # max_depenetration_velocity=0.1,
             ),
             collision_props=sim_utils.CollisionPropertiesCfg(collision_enabled=True),
             mass_props=sim_utils.MassPropertiesCfg(mass=0.05),
@@ -255,20 +255,20 @@ class ObservationsCfg:
                 "base_body_asset_cfg": SceneEntityCfg("robot", body_names="base"),
             },
         )
-        # -- object contact: raw 3D force in hand-base frame (object filter only)
-        fingertip_contact_force_b = ObsTerm(
-            func=mdp.fingers_contact_force_body_b,
-            params={
-                "contact_sensor_names": [
-                    "thumb_fingertip_object_s",
-                    "fingertip_object_s",
-                    "fingertip_2_object_s",
-                    "fingertip_3_object_s",
-                ],
-                "base_body_asset_cfg": SceneEntityCfg("robot", body_names="base"),
-                "filter_indices": object_indices(),
-            },
-        )
+        # # -- object contact: raw 3D force in hand-base frame (object filter only)
+        # fingertip_contact_force_b = ObsTerm(
+        #     func=mdp.fingers_contact_force_body_b,
+        #     params={
+        #         "contact_sensor_names": [
+        #             "thumb_fingertip_object_s",
+        #             "fingertip_object_s",
+        #             "fingertip_2_object_s",
+        #             "fingertip_3_object_s",
+        #         ],
+        #         "base_body_asset_cfg": SceneEntityCfg("robot", body_names="base"),
+        #         "filter_indices": object_indices(),
+        #     },
+        # )
         contact_mask = ObsTerm(
             func=task_mdps.tip_contact_mask_obs,
             params={

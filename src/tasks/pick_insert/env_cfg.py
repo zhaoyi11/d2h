@@ -60,12 +60,13 @@ class SceneCfg(InteractiveSceneCfg):
                 kinematic_enabled=False,
                 # Gently correct any residual overlap instead of flinging the ~0.02 kg peg out of the
                 # workspace (which reads as an env reset).
-                max_depenetration_velocity=0.1,
+                # max_depenetration_velocity=0.1,
             ),
             collision_props=sim_utils.CollisionPropertiesCfg(
                 collision_enabled=True,
+                rest_offset=0.0,
             ),
-            mass_props=sim_utils.MassPropertiesCfg(mass=0.02),
+            mass_props=sim_utils.MassPropertiesCfg(mass=0.05),
         ),
         init_state=RigidObjectCfg.InitialStateCfg(pos=(0.45, 0.2, 0.30), rot=(0.5, -0.5, 0.5, 0.5)),
     )
@@ -284,7 +285,7 @@ class ObservationsCfg:
 
     @configclass
     class LowLevelObsCfg(ObsGroup):
-        """Reorient-style current-step state used by the frozen low-level VAE."""
+        """155-D current-step state used by the frozen low-level policy."""
 
         joint_pos = ObsTerm(
             func=mdp.joint_pos_limit_normalized,
@@ -302,21 +303,6 @@ class ObservationsCfg:
             params={
                 "body_asset_cfg": SceneEntityCfg("robot", body_names=".*fingertip.*"),
                 "base_body_asset_cfg": SceneEntityCfg("robot", body_names="base"),
-            },
-        )
-        # -- object contact: raw 3D force in hand-base frame (object filter only) 
-        # TODO: remove this in the latest policy
-        fingertip_contact_force_b = ObsTerm(
-            func=mdp.fingers_contact_force_body_b,
-            params={
-                "contact_sensor_names": [
-                    "thumb_fingertip_object_s",
-                    "fingertip_object_s",
-                    "fingertip_2_object_s",
-                    "fingertip_3_object_s",
-                ],
-                "base_body_asset_cfg": SceneEntityCfg("robot", body_names="base"),
-                "filter_indices": object_indices(),
             },
         )
         contact_mask = ObsTerm(
@@ -355,14 +341,13 @@ class ObservationsCfg:
                     "fingertip_3_object_s",
                 ],
                 "force_threshold": 0.25,
-                "contact_pose_range_deg": 45.0,
+                "contact_pose_range_deg": 90.0,
                 "filter_indices": object_indices(),
             },
         )
         # -- external contact: receptacle + table, vector-summed per fingertip (the
         #    "external force sensing" channel). mask (4) + magnitude (4) + pose (8) = 16 dims.
-        #    These 16 dims turn the 151-dim object-only group into the 167-dim layout the
-        #    dex_reorient external-force checkpoint was trained on.
+        #    The checkpoint uses these features without the obsolete 12-D raw XYZ force term.
         external_contact_mask = ObsTerm(
             func=task_mdps.tip_contact_mask_obs,
             params={
@@ -785,7 +770,7 @@ class DexsuiteInsertPegEnvCfg(ManagerBasedRLEnvCfg):
     def __post_init__(self):
         """Post initialization."""
         # general settings
-        self.decimation = 2  # 50 Hz
+        self.decimation = 4  # 50 Hz
 
         # *single-goal setup
         self.commands.object_pose.resampling_time_range = (10.0, 10.0)
@@ -807,7 +792,7 @@ class DexsuiteInsertPegEnvCfg(ManagerBasedRLEnvCfg):
             )
         )
 
-        self.episode_length_s = 10.0
+        self.episode_length_s = 20.0
         self.is_finite_horizon = True
 
         # simulation settings
@@ -821,11 +806,11 @@ class DexsuiteInsertPegEnvCfg(ManagerBasedRLEnvCfg):
         self.sim.physx.friction_offset_threshold = 0.01
         self.sim.physx.friction_correlation_distance = 0.0005
 
-        self.sim.physx.gpu_found_lost_aggregate_pairs_capacity = 1024 * 1024 * 4
+        self.sim.physx.gpu_found_lost_aggregate_pairs_capacity = 2**23
         self.sim.physx.gpu_total_aggregate_pairs_capacity = 2**23
         self.sim.physx.gpu_max_rigid_contact_count = 2**23
         self.sim.physx.gpu_max_rigid_patch_count = 2**23
-        self.sim.physx.gpu_collision_stack_size = 2**30
+        self.sim.physx.gpu_collision_stack_size = 2**31
 
         # # Render settings
         # self.sim.render.enable_dlssg = True
@@ -977,7 +962,7 @@ class DexsuiteFrankaLeapInsertHrlEnvCfg(FrankaLeapMixinCfg, DexsuiteInsertEnvCfg
 
     cuRobo-MPC arm + frozen low-level LEAP-hand policy. The peg spawns on the table and the
     reach-to-grasp command drives the pick before the pick->insert trajectory. The ``low_level``
-    observation group is the 167-dim reorient layout (object + external fingertip-contact
+    observation group is the 155-dim reorient layout (object + external fingertip-contact
     sensing), matching the dex_reorient ``reorient`` checkpoint. The 7-DOF arm is purely
     MPC-driven (0 external action dims).
     """
