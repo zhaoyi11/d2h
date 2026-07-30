@@ -55,12 +55,14 @@ def test_physics_verifier_runner_source_contract():
     source, tree = _runner_source_and_tree()
 
     app_launcher_assignment = source.index("app_launcher = AppLauncher(args_cli)")
+    repo_path_precedence = source.index("sys.path.insert(0, str(REPO_ROOT))")
     runtime_imports = (
         "import isaaclab.sim",
         "from isaaclab.scene import InteractiveScene",
         "from isaaclab.sim import SimulationContext",
     )
     assert all(app_launcher_assignment < source.index(statement) for statement in runtime_imports)
+    assert all(repo_path_precedence < source.index(statement) for statement in runtime_imports)
 
     calls = [node for node in ast.walk(tree) if isinstance(node, ast.Call)]
     attribute_calls = {node.func.attr for node in calls if isinstance(node.func, ast.Attribute)}
@@ -132,10 +134,13 @@ def test_physics_verifier_runner_closes_app_on_delayed_import_failure_and_module
     assert len(delayed_import_try.handlers) == 1
     handler = delayed_import_try.handlers[0]
     assert isinstance(handler.type, ast.Name) and handler.type.id == "BaseException"
-    assert any(
-        isinstance(node, ast.Call) and _qualified_name(node.func) == "simulation_app.close"
-        for node in ast.walk(handler)
-    )
+    handler_calls = [
+        _qualified_name(node.func)
+        for statement in handler.body
+        for node in ast.walk(statement)
+        if isinstance(node, ast.Call)
+    ]
+    assert handler_calls.index("traceback.print_exc") < handler_calls.index("simulation_app.close")
     assert isinstance(handler.body[-1], ast.Raise)
 
     main_guard = next(
@@ -175,6 +180,8 @@ def test_physics_verifier_runner_logs_and_uses_reproducible_configuration():
         "SATURATION_INCONCLUSIVE_FRACTION",
     }
     assert all(name in printed_config for name in required_logged_values)
+    assert "OBJECT_MASS_KG" in printed_config
+    assert "masses.tolist()" in printed_config
 
     classify_call = next(
         node

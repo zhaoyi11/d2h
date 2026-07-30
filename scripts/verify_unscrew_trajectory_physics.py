@@ -4,9 +4,16 @@ from __future__ import annotations
 
 import argparse
 import itertools
+import sys
 import traceback
+from pathlib import Path
 
 from isaaclab.app import AppLauncher
+
+
+REPO_ROOT = Path(__file__).resolve().parents[1]
+if str(REPO_ROOT) not in sys.path:
+    sys.path.insert(0, str(REPO_ROOT))
 
 
 parser = argparse.ArgumentParser(description="Run the physical unscrew trajectory feasibility test.")
@@ -35,6 +42,7 @@ try:
     from src.tasks.unscrew.mdps import physics_verifier, trajectory  # noqa: E402
     from src.tasks.unscrew.mdps.task_mdps import BOLT_AABB_MAX, BOLT_AABB_MIN, SOCKET_TOP_Z  # noqa: E402
 except BaseException:
+    traceback.print_exc()
     simulation_app.close()
     raise
 
@@ -173,6 +181,7 @@ def main() -> None:
         targets_w[1] = physics_verifier.straight_pull_targets(targets_w[1])
 
         masses = obj.root_physx_view.get_masses().to(device=settled_pose_w.device)[:, 0]
+        print(f"OBJECT_MASS_KG: {masses.tolist()}", flush=True)
         gravity_w = settled_pose_w.new_tensor((0.0, 0.0, -9.81))
         bolt_corners = _bolt_corners(device=settled_pose_w.device, dtype=settled_pose_w.dtype)
 
