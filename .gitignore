@@ -71,6 +71,11 @@ _build
 tests/*
 !tests/policy/
 !tests/policy/test_vae.py
+!tests/tasks/
+tests/tasks/*
+!tests/tasks/unscrew/
+tests/tasks/unscrew/*
+!tests/tasks/unscrew/test_physics_verifier.py
 
 # Docker history
 .isaac-lab-docker-history
