@@ -1,3 +1,4 @@
+import ast
 import importlib.util
 import math
 import sys
@@ -7,11 +8,44 @@ import torch
 
 
 MODULE_PATH = Path(__file__).parents[3] / "src/tasks/unscrew/mdps/physics_verifier.py"
+SCRIPT_PATH = Path(__file__).parents[3] / "scripts/verify_unscrew_trajectory_physics.py"
 SPEC = importlib.util.spec_from_file_location("unscrew_physics_verifier", MODULE_PATH)
 assert SPEC is not None and SPEC.loader is not None
 physics_verifier = importlib.util.module_from_spec(SPEC)
 sys.modules[SPEC.name] = physics_verifier
 SPEC.loader.exec_module(physics_verifier)
+
+
+def test_physics_verifier_runner_source_contract():
+    source = SCRIPT_PATH.read_text()
+    tree = ast.parse(source)
+
+    app_launcher_assignment = source.index("app_launcher = AppLauncher(args_cli)")
+    runtime_imports = (
+        "import isaaclab.sim",
+        "from isaaclab.scene import InteractiveScene",
+        "from isaaclab.sim import SimulationContext",
+    )
+    assert all(app_launcher_assignment < source.index(statement) for statement in runtime_imports)
+
+    calls = [node for node in ast.walk(tree) if isinstance(node, ast.Call)]
+    attribute_calls = {
+        node.func.attr for node in calls if isinstance(node.func, ast.Attribute)
+    }
+    assert {
+        "set_external_force_and_torque",
+        "write_data_to_sim",
+        "step",
+        "update",
+        "build_unscrew_object_pose_sequence",
+        "straight_pull_targets",
+    } <= attribute_calls
+    assert "write_root_pose_to_sim" not in attribute_calls
+    assert "write_root_velocity_to_sim" not in attribute_calls
+
+    assert "SceneCfg(num_envs=2" in source
+    assert "gravity=(0.0, 0.0, -9.81)" in source
+    assert "targets_w[1] = physics_verifier.straight_pull_targets" in source
 
 
 def test_bounded_pd_wrench_tracks_pose_and_clamps_vector_norms():
