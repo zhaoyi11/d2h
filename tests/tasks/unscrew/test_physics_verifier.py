@@ -16,9 +16,43 @@ sys.modules[SPEC.name] = physics_verifier
 SPEC.loader.exec_module(physics_verifier)
 
 
-def test_physics_verifier_runner_source_contract():
+FORBIDDEN_STATE_MUTATION_CALLS = {
+    # RigidObject root/link/COM writers in the installed IsaacLab version.
+    "write_root_state_to_sim",
+    "write_root_com_state_to_sim",
+    "write_root_link_state_to_sim",
+    "write_root_pose_to_sim",
+    "write_root_link_pose_to_sim",
+    "write_root_com_pose_to_sim",
+    "write_root_velocity_to_sim",
+    "write_root_com_velocity_to_sim",
+    "write_root_link_velocity_to_sim",
+    # Direct PhysX-view bypasses for rigid objects and articulation roots.
+    "set_transforms",
+    "set_velocities",
+    "set_kinematic_targets",
+    "set_root_transforms",
+    "set_root_velocities",
+    "set_root_kinematic_targets",
+}
+
+
+def _qualified_name(node: ast.expr) -> str:
+    if isinstance(node, ast.Name):
+        return node.id
+    if isinstance(node, ast.Attribute):
+        prefix = _qualified_name(node.value)
+        return f"{prefix}.{node.attr}" if prefix else node.attr
+    return ""
+
+
+def _runner_source_and_tree() -> tuple[str, ast.Module]:
     source = SCRIPT_PATH.read_text()
-    tree = ast.parse(source)
+    return source, ast.parse(source)
+
+
+def test_physics_verifier_runner_source_contract():
+    source, tree = _runner_source_and_tree()
 
     app_launcher_assignment = source.index("app_launcher = AppLauncher(args_cli)")
     runtime_imports = (
@@ -29,23 +63,134 @@ def test_physics_verifier_runner_source_contract():
     assert all(app_launcher_assignment < source.index(statement) for statement in runtime_imports)
 
     calls = [node for node in ast.walk(tree) if isinstance(node, ast.Call)]
-    attribute_calls = {
-        node.func.attr for node in calls if isinstance(node.func, ast.Attribute)
-    }
+    attribute_calls = {node.func.attr for node in calls if isinstance(node.func, ast.Attribute)}
     assert {
-        "set_external_force_and_torque",
-        "write_data_to_sim",
-        "step",
-        "update",
         "build_unscrew_object_pose_sequence",
         "straight_pull_targets",
     } <= attribute_calls
-    assert "write_root_pose_to_sim" not in attribute_calls
-    assert "write_root_velocity_to_sim" not in attribute_calls
 
     assert "SceneCfg(num_envs=2" in source
     assert "gravity=(0.0, 0.0, -9.81)" in source
     assert "targets_w[1] = physics_verifier.straight_pull_targets" in source
+
+
+def test_physics_verifier_runner_forbids_state_mutation_bypasses():
+    _, tree = _runner_source_and_tree()
+    called_attributes = {
+        node.func.attr
+        for node in ast.walk(tree)
+        if isinstance(node, ast.Call) and isinstance(node.func, ast.Attribute)
+    }
+
+    assert called_attributes.isdisjoint(FORBIDDEN_STATE_MUTATION_CALLS)
+
+
+def test_physics_verifier_runner_control_loop_applies_wrench_then_steps_physics():
+    _, tree = _runner_source_and_tree()
+    main = next(node for node in tree.body if isinstance(node, ast.FunctionDef) and node.name == "main")
+    control_loops = [
+        node
+        for node in ast.walk(main)
+        if isinstance(node, ast.For) and isinstance(node.target, ast.Name) and node.target.id == "target_index"
+    ]
+    assert len(control_loops) == 1
+
+    call_names = [
+        _qualified_name(node.func)
+        for node in sorted(
+            (node for node in ast.walk(control_loops[0]) if isinstance(node, ast.Call)),
+            key=lambda node: (node.lineno, node.col_offset),
+        )
+    ]
+    expected_order = (
+        "obj.set_external_force_and_torque",
+        "scene.write_data_to_sim",
+        "sim.step",
+        "scene.update",
+    )
+    assert all(call_names.count(name) == 1 for name in expected_order)
+    assert [call_names.index(name) for name in expected_order] == sorted(
+        call_names.index(name) for name in expected_order
+    )
+
+
+def test_physics_verifier_runner_closes_app_on_delayed_import_failure_and_module_import():
+    _, tree = _runner_source_and_tree()
+    delayed_import_try = next(
+        (
+            node
+            for node in tree.body
+            if isinstance(node, ast.Try)
+            and any(
+                isinstance(child, ast.Import) and any(alias.name == "isaaclab.sim" for alias in child.names)
+                for child in node.body
+            )
+        ),
+        None,
+    )
+    assert delayed_import_try is not None
+    assert len(delayed_import_try.handlers) == 1
+    handler = delayed_import_try.handlers[0]
+    assert isinstance(handler.type, ast.Name) and handler.type.id == "BaseException"
+    assert any(
+        isinstance(node, ast.Call) and _qualified_name(node.func) == "simulation_app.close"
+        for node in ast.walk(handler)
+    )
+    assert isinstance(handler.body[-1], ast.Raise)
+
+    main_guard = next(
+        node
+        for node in tree.body
+        if isinstance(node, ast.If) and ast.unparse(node.test) == "__name__ == '__main__'"
+    )
+    assert any(
+        isinstance(node, ast.Call) and _qualified_name(node.func) == "simulation_app.close"
+        for statement in main_guard.orelse
+        for node in ast.walk(statement)
+    )
+
+
+def test_physics_verifier_runner_logs_and_uses_reproducible_configuration():
+    _, tree = _runner_source_and_tree()
+    main = next(node for node in tree.body if isinstance(node, ast.FunctionDef) and node.name == "main")
+    printed_config = "\n".join(
+        ast.unparse(node)
+        for node in ast.walk(main)
+        if isinstance(node, ast.Call) and isinstance(node.func, ast.Name) and node.func.id == "print"
+    )
+    required_logged_values = {
+        "MAX_FORCE",
+        "MAX_TORQUE",
+        "POSITION_STIFFNESS",
+        "POSITION_DAMPING",
+        "ROTATION_STIFFNESS",
+        "ROTATION_DAMPING",
+        "CLEARANCE_MARGIN",
+        "trajectory.DEFAULT_UNSCREW_TWIST_TOTAL_ANGLE",
+        "trajectory.DEFAULT_UNSCREW_THREAD_PITCH",
+        "YAW_TOLERANCE",
+        "POSITION_TOLERANCE",
+        "ORIENTATION_TOLERANCE",
+        "LATERAL_TOLERANCE",
+        "SATURATION_INCONCLUSIVE_FRACTION",
+    }
+    assert all(name in printed_config for name in required_logged_values)
+
+    classify_call = next(
+        node
+        for node in ast.walk(main)
+        if isinstance(node, ast.Call)
+        and _qualified_name(node.func) == "physics_verifier.classify_verification"
+    )
+    actual_keywords = {keyword.arg: ast.unparse(keyword.value) for keyword in classify_call.keywords}
+    assert actual_keywords == {
+        "expected_yaw": "trajectory.DEFAULT_UNSCREW_TWIST_TOTAL_ANGLE",
+        "yaw_tolerance": "YAW_TOLERANCE",
+        "position_tolerance": "POSITION_TOLERANCE",
+        "orientation_tolerance": "ORIENTATION_TOLERANCE",
+        "lateral_tolerance": "LATERAL_TOLERANCE",
+        "saturation_inconclusive_fraction": "SATURATION_INCONCLUSIVE_FRACTION",
+    }
 
 
 def test_bounded_pd_wrench_tracks_pose_and_clamps_vector_norms():

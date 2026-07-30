@@ -24,15 +24,19 @@ app_launcher = AppLauncher(args_cli)
 simulation_app = app_launcher.app
 
 
-import isaaclab.sim as sim_utils  # noqa: E402
-import torch  # noqa: E402
-from isaaclab.scene import InteractiveScene  # noqa: E402
-from isaaclab.sim import SimulationContext  # noqa: E402
-from isaaclab.utils.math import quat_error_magnitude, subtract_frame_transforms  # noqa: E402
+try:
+    import isaaclab.sim as sim_utils  # noqa: E402
+    import torch  # noqa: E402
+    from isaaclab.scene import InteractiveScene  # noqa: E402
+    from isaaclab.sim import SimulationContext  # noqa: E402
+    from isaaclab.utils.math import quat_error_magnitude, subtract_frame_transforms  # noqa: E402
 
-from src.tasks.unscrew import env_cfg as task_env_cfg  # noqa: E402
-from src.tasks.unscrew.mdps import physics_verifier, trajectory  # noqa: E402
-from src.tasks.unscrew.mdps.task_mdps import BOLT_AABB_MAX, BOLT_AABB_MIN, SOCKET_TOP_Z  # noqa: E402
+    from src.tasks.unscrew import env_cfg as task_env_cfg  # noqa: E402
+    from src.tasks.unscrew.mdps import physics_verifier, trajectory  # noqa: E402
+    from src.tasks.unscrew.mdps.task_mdps import BOLT_AABB_MAX, BOLT_AABB_MIN, SOCKET_TOP_Z  # noqa: E402
+except BaseException:
+    simulation_app.close()
+    raise
 
 
 DT = 1.0 / 120.0
@@ -44,6 +48,11 @@ POSITION_DAMPING = 4.0
 ROTATION_STIFFNESS = 0.5
 ROTATION_DAMPING = 0.01
 CLEARANCE_MARGIN = 0.030
+YAW_TOLERANCE = 0.35
+POSITION_TOLERANCE = 0.005
+ORIENTATION_TOLERANCE = 0.35
+LATERAL_TOLERANCE = 0.005
+SATURATION_INCONCLUSIVE_FRACTION = 0.90
 
 
 def _step_count(duration: float, name: str) -> int:
@@ -112,7 +121,22 @@ def main() -> None:
         "CONFIG: "
         f"dt={DT:.6f}s, settle={settle_steps} steps, "
         f"turn={turn_steps_per_segment} steps/segment, extract={extract_steps} steps, "
-        f"hold={hold_steps} steps, max_force={MAX_FORCE}N, max_torque={MAX_TORQUE}Nm",
+        f"hold={hold_steps} steps, expected_yaw={trajectory.DEFAULT_UNSCREW_TWIST_TOTAL_ANGLE}rad, "
+        f"thread_pitch={trajectory.DEFAULT_UNSCREW_THREAD_PITCH}m, clearance={CLEARANCE_MARGIN}m",
+        flush=True,
+    )
+    print(
+        "CONTROLLER: "
+        f"max_force={MAX_FORCE}N, max_torque={MAX_TORQUE}Nm, "
+        f"position_kp={POSITION_STIFFNESS}, position_kd={POSITION_DAMPING}, "
+        f"rotation_kp={ROTATION_STIFFNESS}, rotation_kd={ROTATION_DAMPING}",
+        flush=True,
+    )
+    print(
+        "CLASSIFICATION_TOLERANCES: "
+        f"yaw={YAW_TOLERANCE}rad, position={POSITION_TOLERANCE}m, "
+        f"orientation={ORIENTATION_TOLERANCE}rad, lateral={LATERAL_TOLERANCE}m, "
+        f"saturation_fraction={SATURATION_INCONCLUSIVE_FRACTION}",
         flush=True,
     )
 
@@ -254,6 +278,11 @@ def main() -> None:
             summaries[0],
             summaries[1],
             expected_yaw=trajectory.DEFAULT_UNSCREW_TWIST_TOTAL_ANGLE,
+            yaw_tolerance=YAW_TOLERANCE,
+            position_tolerance=POSITION_TOLERANCE,
+            orientation_tolerance=ORIENTATION_TOLERANCE,
+            lateral_tolerance=LATERAL_TOLERANCE,
+            saturation_inconclusive_fraction=SATURATION_INCONCLUSIVE_FRACTION,
         )
         print(f"CLASSIFICATION: {result.value}", flush=True)
         if result is not physics_verifier.VerificationResult.PASS:
@@ -275,3 +304,5 @@ if __name__ == "__main__":
         raise
     finally:
         simulation_app.close()
+else:
+    simulation_app.close()
