@@ -29,11 +29,13 @@ authority is distinguishable from collision-induced jamming.
 
 ## Measurements and Result Classification
 
-The verifier records actual accumulated yaw by integrating world-frame angular velocity about the
-installed `+Z` thread axis. This avoids quaternion wrapping after complete turns. It also records
-vertical rise, lateral drift, position and orientation tracking errors, peak wrench, saturation
-fractions, and final bolt clearance using the same bolt bounds and socket-top convention as
-`StableUnscrewSuccess`.
+The verifier records actual geometric winding by accumulating consecutive quaternion deltas
+projected onto the installed world `+Z` thread axis. World-frame angular-velocity integration is
+retained only as a diagnostic. It also records twist-end vertical rise, dense maximum position and
+orientation tracking errors throughout the twist, lateral drift, peak wrench, saturation fractions,
+and final bolt clearance using the same bolt bounds and socket-top convention as
+`StableUnscrewSuccess`. From extraction onward, an `ever_cleared` measurement ensures the
+straight-pull counterfactual invalidates the physics model even if the object later falls back.
 
 Results are classified as:
 

@@ -381,6 +381,7 @@ def _run_main_and_close(main_fn, simulation_app) -> None:
         print("[ERROR]: verify_unscrew_trajectory_physics.py failed.", flush=True)
         traceback.print_exc()
     finally:
+        # Fast shutdown may terminate before post-close Python can raise, so post status to IApp first.
         simulation_app.app.post_uncancellable_quit(status)
         print("CLEANUP: closing simulation app", flush=True)
         simulation_app.close()
