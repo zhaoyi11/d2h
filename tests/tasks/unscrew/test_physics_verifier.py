@@ -76,6 +76,35 @@ def test_physics_verifier_runner_source_contract():
     assert "targets_w[1] = physics_verifier.straight_pull_targets" in source
 
 
+def test_physics_verifier_runner_prioritizes_worktree_root_already_later_on_sys_path():
+    _, tree = _runner_source_and_tree()
+    repo_root_assignment = next(
+        node
+        for node in tree.body
+        if isinstance(node, ast.Assign)
+        and any(isinstance(target, ast.Name) and target.id == "REPO_ROOT" for target in node.targets)
+    )
+    path_bootstrap = next(
+        statement
+        for statement in tree.body
+        if any(
+            isinstance(node, ast.Call) and _qualified_name(node.func) == "sys.path.insert"
+            for node in ast.walk(statement)
+        )
+    )
+    bootstrap = ast.Module(body=[repo_root_assignment, path_bootstrap], type_ignores=[])
+    fake_sys = type("FakeSys", (), {})()
+    worktree_root = str(SCRIPT_PATH.resolve().parents[1])
+    fake_sys.path = ["/some/other/checkout", worktree_root, "/some/dependency"]
+
+    exec(
+        compile(bootstrap, filename=str(SCRIPT_PATH), mode="exec"),
+        {"Path": Path, "sys": fake_sys, "__file__": str(SCRIPT_PATH)},
+    )
+
+    assert fake_sys.path[0] == worktree_root
+
+
 def test_physics_verifier_runner_forbids_state_mutation_bypasses():
     _, tree = _runner_source_and_tree()
     called_attributes = {
