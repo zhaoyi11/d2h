@@ -66,7 +66,6 @@ class SceneCfg(InteractiveSceneCfg):
                 collision_enabled=True,
                 rest_offset=0.0,
             ),
-            mass_props=sim_utils.MassPropertiesCfg(mass=0.05),
         ),
         init_state=RigidObjectCfg.InitialStateCfg(pos=(0.45, 0.2, 0.30), rot=(0.5, -0.5, 0.5, 0.5)),
     )
@@ -89,7 +88,6 @@ class SceneCfg(InteractiveSceneCfg):
                 collision_enabled=True, 
                 contact_offset=0.01, rest_offset=0.0
             ),
-            mass_props=sim_utils.MassPropertiesCfg(mass=0.05),
         ),
         init_state=RigidObjectCfg.InitialStateCfg(pos=(0.35, 0.0, 0.275), rot=(1.0, 0.0, 0.0, 0.0)),
     )
@@ -510,8 +508,8 @@ class EventCfg:
         mode="startup",
         params={
             "asset_cfg": SceneEntityCfg("object"),
-            "mass_distribution_params": [0.2, 2.0],
-            "operation": "scale",
+            "mass_distribution_params": [0.010, 0.100],
+            "operation": "abs",
         },
     )
 
