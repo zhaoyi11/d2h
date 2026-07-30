@@ -2,6 +2,8 @@ import ast
 import importlib.util
 import math
 import sys
+import traceback
+from dataclasses import replace
 from pathlib import Path
 
 import torch
@@ -143,6 +145,63 @@ def test_physics_verifier_runner_control_loop_applies_wrench_then_steps_physics(
     assert [call_names.index(name) for name in expected_order] == sorted(
         call_names.index(name) for name in expected_order
     )
+    loop_source = ast.unparse(control_loops[0])
+    assert "target_index <= twist_end_index" in loop_source
+    assert "physics_verifier.accumulate_geometric_world_yaw" in loop_source
+    assert "physics_verifier.accumulate_velocity_integrated_world_yaw" in loop_source
+    assert "target_index == twist_end_index" in loop_source
+    assert "twist_end_rise = current_pose_w[:, 2] - settled_pose_w[:, 2]" in loop_source
+    assert "target_index >= extraction_start_index" in loop_source
+    assert "ever_cleared |= clear" in loop_source
+    assert "max_clearance = torch.maximum(max_clearance, final_clearance)" in loop_source
+
+
+def test_physics_verifier_runner_footer_preserves_exit_status_after_close():
+    _, tree = _runner_source_and_tree()
+    footer = next(
+        node
+        for node in tree.body
+        if isinstance(node, ast.FunctionDef) and node.name == "_run_main_and_close"
+    )
+    namespace = {"traceback": traceback}
+    exec(compile(ast.Module(body=[footer], type_ignores=[]), str(SCRIPT_PATH), "exec"), namespace)
+    run_and_close = namespace["_run_main_and_close"]
+
+    for should_fail, expected_status in ((False, 0), (True, 1)):
+        kit_app = type(
+            "FakeKitApp",
+            (),
+            {
+                "post_uncancellable_quit": lambda self, code: setattr(
+                    self, "return_code", code
+                )
+            },
+        )()
+        kit_app.return_code = None
+        app = type(
+            "FakeApp",
+            (),
+            {
+                "app": kit_app,
+                "close": lambda self: setattr(self, "closed", True),
+            },
+        )()
+        app.closed = False
+
+        def fake_main():
+            if should_fail:
+                raise RuntimeError("forced failure")
+
+        try:
+            run_and_close(fake_main, app)
+        except SystemExit as exc:
+            status = exc.code
+        else:
+            raise AssertionError("Runner footer must terminate with an explicit status.")
+
+        assert app.closed
+        assert kit_app.return_code == expected_status
+        assert status == expected_status
 
 
 def test_physics_verifier_runner_closes_app_on_delayed_import_failure_and_module_import():
@@ -170,7 +229,14 @@ def test_physics_verifier_runner_closes_app_on_delayed_import_failure_and_module
         if isinstance(node, ast.Call)
     ]
     assert handler_calls.index("traceback.print_exc") < handler_calls.index("simulation_app.close")
-    assert isinstance(handler.body[-1], ast.Raise)
+    assert handler_calls.index("simulation_app.app.post_uncancellable_quit") < handler_calls.index(
+        "simulation_app.close"
+    )
+    delayed_exit = handler.body[-1]
+    assert isinstance(delayed_exit, ast.Raise)
+    assert isinstance(delayed_exit.exc, ast.Call)
+    assert _qualified_name(delayed_exit.exc.func) == "SystemExit"
+    assert ast.literal_eval(delayed_exit.exc.args[0]) == 1
 
     main_guard = next(
         node
@@ -221,12 +287,29 @@ def test_physics_verifier_runner_logs_and_uses_reproducible_configuration():
     actual_keywords = {keyword.arg: ast.unparse(keyword.value) for keyword in classify_call.keywords}
     assert actual_keywords == {
         "expected_yaw": "trajectory.DEFAULT_UNSCREW_TWIST_TOTAL_ANGLE",
+        "expected_twist_rise": "expected_twist_rise",
         "yaw_tolerance": "YAW_TOLERANCE",
         "position_tolerance": "POSITION_TOLERANCE",
         "orientation_tolerance": "ORIENTATION_TOLERANCE",
         "lateral_tolerance": "LATERAL_TOLERANCE",
         "saturation_inconclusive_fraction": "SATURATION_INCONCLUSIVE_FRACTION",
     }
+
+    summary_call = next(
+        node
+        for node in ast.walk(main)
+        if isinstance(node, ast.Call) and _qualified_name(node.func) == "physics_verifier.TrialSummary"
+    )
+    summary_fields = {keyword.arg for keyword in summary_call.keywords}
+    assert {
+        "geometric_yaw",
+        "velocity_integrated_yaw",
+        "twist_end_rise",
+        "max_twist_position_error",
+        "max_twist_orientation_error",
+        "ever_cleared",
+        "max_clearance",
+    } <= summary_fields
 
 
 def test_physics_verifier_runner_releases_normal_stage_without_stopping_sim():
@@ -245,17 +328,15 @@ def test_physics_verifier_runner_releases_normal_stage_without_stopping_sim():
         cleanup_source.index(statement) for statement in expected_order
     )
 
-    main_guard = next(
+    footer = next(
         node
         for node in tree.body
-        if isinstance(node, ast.If) and ast.unparse(node.test) == "__name__ == '__main__'"
+        if isinstance(node, ast.FunctionDef) and node.name == "_run_main_and_close"
     )
-    guarded_run = next(statement for statement in main_guard.body if isinstance(statement, ast.Try))
-    assert any(
-        isinstance(node, ast.Call) and _qualified_name(node.func) == "simulation_app.close"
-        for statement in guarded_run.finalbody
-        for node in ast.walk(statement)
-    )
+    footer_calls = {
+        _qualified_name(node.func) for node in ast.walk(footer) if isinstance(node, ast.Call)
+    }
+    assert "simulation_app.close" in footer_calls
 
 
 def test_bounded_pd_wrench_tracks_pose_and_clamps_vector_norms():
@@ -380,13 +461,64 @@ def test_straight_pull_targets_keep_each_batched_trajectory_initial_orientation(
     )
 
 
-def test_accumulated_world_yaw_integrates_world_angular_velocity_z():
+def test_velocity_integrated_world_yaw_integrates_world_angular_velocity_z():
     accumulated_yaw = torch.tensor([1.0, -2.0])
     angular_velocity_w = torch.tensor([[9.0, 8.0, 0.5], [7.0, 6.0, -1.0]])
 
-    result = physics_verifier.accumulate_world_yaw(accumulated_yaw, angular_velocity_w, dt=0.2)
+    result = physics_verifier.accumulate_velocity_integrated_world_yaw(
+        accumulated_yaw, angular_velocity_w, dt=0.2
+    )
 
     torch.testing.assert_close(result, torch.tensor([1.1, -2.2]))
+
+
+def test_geometric_world_yaw_accumulates_four_quarter_turns():
+    angles = torch.arange(5, dtype=torch.float64) * (math.pi / 2.0)
+    quaternions = torch.stack(
+        (
+            torch.cos(angles / 2.0),
+            torch.zeros_like(angles),
+            torch.zeros_like(angles),
+            torch.sin(angles / 2.0),
+        ),
+        dim=-1,
+    )
+    accumulated = torch.zeros((), dtype=torch.float64)
+    for previous, current in zip(quaternions[:-1], quaternions[1:]):
+        accumulated = physics_verifier.accumulate_geometric_world_yaw(
+            accumulated, previous, current
+        )
+
+    torch.testing.assert_close(accumulated, torch.tensor(2.0 * math.pi, dtype=torch.float64))
+
+
+def test_geometric_world_yaw_is_invariant_to_antipodal_quaternions():
+    half_sqrt = math.sqrt(0.5)
+    quaternions = torch.tensor(
+        [
+            [1.0, 0.0, 0.0, 0.0],
+            [-half_sqrt, 0.0, 0.0, -half_sqrt],
+            [0.0, 0.0, 0.0, 1.0],
+        ]
+    )
+    accumulated = torch.zeros(())
+    for previous, current in zip(quaternions[:-1], quaternions[1:]):
+        accumulated = physics_verifier.accumulate_geometric_world_yaw(
+            accumulated, previous, current
+        )
+
+    torch.testing.assert_close(accumulated, torch.tensor(math.pi))
+
+
+def test_geometric_world_yaw_does_not_count_non_z_rotation():
+    half_sqrt = math.sqrt(0.5)
+    accumulated = physics_verifier.accumulate_geometric_world_yaw(
+        torch.zeros(()),
+        torch.tensor([1.0, 0.0, 0.0, 0.0]),
+        torch.tensor([half_sqrt, half_sqrt, 0.0, 0.0]),
+    )
+
+    torch.testing.assert_close(accumulated, torch.zeros(()), atol=1.0e-7, rtol=0.0)
 
 
 def test_bolt_bottom_clearance_uses_rotated_aabb_corners():
@@ -406,11 +538,21 @@ def test_bolt_bottom_clearance_uses_rotated_aabb_corners():
     torch.testing.assert_close(clearance, torch.tensor([0.5]))
 
 
-def test_classification_pass_requires_helical_clear_and_pull_blocked():
-    helix = physics_verifier.TrialSummary(
+EXPECTED_YAW = 6.0 * math.pi
+EXPECTED_TWIST_RISE = 0.045
+
+
+def _valid_helix_summary(**changes) -> physics_verifier.TrialSummary:
+    summary = physics_verifier.TrialSummary(
         finite=True,
         held_clear=True,
-        accumulated_yaw=6.0 * math.pi,
+        geometric_yaw=EXPECTED_YAW,
+        velocity_integrated_yaw=123.0,
+        twist_end_rise=EXPECTED_TWIST_RISE,
+        max_twist_position_error=0.002,
+        max_twist_orientation_error=0.10,
+        ever_cleared=True,
+        max_clearance=0.04,
         final_position_error=0.002,
         final_orientation_error=0.10,
         max_lateral_drift=0.003,
@@ -418,12 +560,21 @@ def test_classification_pass_requires_helical_clear_and_pull_blocked():
         torque_saturation_fraction=0.20,
         peak_force=5.0,
         peak_torque=0.1,
-        final_clearance=0.01,
+        final_clearance=0.04,
     )
-    straight_pull = physics_verifier.TrialSummary(
-        finite=True,
+    return replace(summary, **changes)
+
+
+def _blocked_pull_summary(**changes) -> physics_verifier.TrialSummary:
+    summary = _valid_helix_summary(
         held_clear=False,
-        accumulated_yaw=0.0,
+        geometric_yaw=0.0,
+        velocity_integrated_yaw=0.0,
+        twist_end_rise=0.0,
+        max_twist_position_error=0.02,
+        max_twist_orientation_error=0.0,
+        ever_cleared=False,
+        max_clearance=-0.01,
         final_position_error=0.02,
         final_orientation_error=0.0,
         max_lateral_drift=0.001,
@@ -433,147 +584,101 @@ def test_classification_pass_requires_helical_clear_and_pull_blocked():
         peak_torque=0.0,
         final_clearance=-0.01,
     )
+    return replace(summary, **changes)
 
-    result = physics_verifier.classify_verification(
-        helix, straight_pull, expected_yaw=6.0 * math.pi
+
+def _classify(
+    helix: physics_verifier.TrialSummary, straight_pull: physics_verifier.TrialSummary
+) -> physics_verifier.VerificationResult:
+    return physics_verifier.classify_verification(
+        helix,
+        straight_pull,
+        expected_yaw=EXPECTED_YAW,
+        expected_twist_rise=EXPECTED_TWIST_RISE,
     )
+
+
+def test_classification_pass_uses_geometric_twist_and_blocked_pull():
+    result = _classify(_valid_helix_summary(), _blocked_pull_summary())
 
     assert result is physics_verifier.VerificationResult.PASS
 
 
-def test_classification_reports_invalid_collision_model_if_pull_clears():
-    helix = physics_verifier.TrialSummary(
-        finite=True,
-        held_clear=True,
-        accumulated_yaw=6.0 * math.pi,
-        final_position_error=0.0,
-        final_orientation_error=0.0,
-        max_lateral_drift=0.0,
-        force_saturation_fraction=0.0,
-        torque_saturation_fraction=0.0,
-        peak_force=1.0,
-        peak_torque=0.1,
-        final_clearance=0.01,
-    )
-    straight_pull = physics_verifier.TrialSummary(
-        finite=True,
-        held_clear=True,
-        accumulated_yaw=0.0,
-        final_position_error=0.0,
-        final_orientation_error=0.0,
-        max_lateral_drift=0.0,
-        force_saturation_fraction=0.0,
-        torque_saturation_fraction=0.0,
-        peak_force=1.0,
-        peak_torque=0.0,
-        final_clearance=0.01,
+def test_classification_requires_each_geometric_twist_measurement():
+    for field_name, failed_value in (
+        ("geometric_yaw", EXPECTED_YAW - 0.36),
+        ("twist_end_rise", EXPECTED_TWIST_RISE - 0.006),
+        ("max_twist_position_error", 0.006),
+        ("max_twist_orientation_error", 0.36),
+    ):
+        result = _classify(
+            _valid_helix_summary(**{field_name: failed_value}), _blocked_pull_summary()
+        )
+
+        assert result is physics_verifier.VerificationResult.TRAJECTORY_INFEASIBLE
+
+
+def test_classification_reports_transiently_cleared_pull_as_invalid_model():
+    straight_pull = _blocked_pull_summary(
+        ever_cleared=True,
+        max_clearance=0.031,
+        final_clearance=-0.01,
     )
 
-    result = physics_verifier.classify_verification(
-        helix, straight_pull, expected_yaw=6.0 * math.pi
+    result = _classify(_valid_helix_summary(), straight_pull)
+
+    assert result is physics_verifier.VerificationResult.INVALID_PHYSICS_MODEL
+
+
+def test_classification_reports_partially_held_clear_pull_as_invalid_model():
+    straight_pull = _blocked_pull_summary(
+        held_clear=False,
+        ever_cleared=True,
+        max_clearance=0.04,
+        final_clearance=0.04,
     )
+
+    result = _classify(_valid_helix_summary(), straight_pull)
 
     assert result is physics_verifier.VerificationResult.INVALID_PHYSICS_MODEL
 
 
 def test_classification_nonfinite_precedes_clear_pull_invalid_model():
-    helix = physics_verifier.TrialSummary(
+    helix = _valid_helix_summary(
         finite=False,
-        held_clear=True,
-        accumulated_yaw=float("nan"),
-        final_position_error=float("nan"),
-        final_orientation_error=float("nan"),
-        max_lateral_drift=float("nan"),
-        force_saturation_fraction=0.0,
-        torque_saturation_fraction=0.0,
-        peak_force=float("nan"),
-        peak_torque=float("nan"),
-        final_clearance=float("nan"),
+        geometric_yaw=float("nan"),
+        velocity_integrated_yaw=float("nan"),
+        twist_end_rise=float("nan"),
+        max_twist_position_error=float("nan"),
+        max_twist_orientation_error=float("nan"),
     )
-    straight_pull = physics_verifier.TrialSummary(
-        finite=True,
-        held_clear=True,
-        accumulated_yaw=0.0,
-        final_position_error=0.0,
-        final_orientation_error=0.0,
-        max_lateral_drift=0.0,
-        force_saturation_fraction=0.0,
-        torque_saturation_fraction=0.0,
-        peak_force=1.0,
-        peak_torque=0.0,
-        final_clearance=0.01,
-    )
+    straight_pull = _blocked_pull_summary(ever_cleared=True, max_clearance=0.04)
 
-    result = physics_verifier.classify_verification(helix, straight_pull, expected_yaw=0.0)
+    result = _classify(helix, straight_pull)
 
     assert result is physics_verifier.VerificationResult.CONTROLLER_INCONCLUSIVE
 
 
 def test_classification_reports_saturated_failed_trial_as_inconclusive():
-    helix = physics_verifier.TrialSummary(
-        finite=True,
+    helix = _valid_helix_summary(
         held_clear=False,
-        accumulated_yaw=1.0,
-        final_position_error=0.02,
-        final_orientation_error=0.5,
-        max_lateral_drift=0.01,
-        force_saturation_fraction=0.20,
+        geometric_yaw=1.0,
         torque_saturation_fraction=0.95,
-        peak_force=10.0,
-        peak_torque=0.2,
-        final_clearance=-0.01,
-    )
-    straight_pull = physics_verifier.TrialSummary(
-        finite=True,
-        held_clear=False,
-        accumulated_yaw=0.0,
-        final_position_error=0.02,
-        final_orientation_error=0.0,
-        max_lateral_drift=0.0,
-        force_saturation_fraction=0.95,
-        torque_saturation_fraction=0.0,
-        peak_force=10.0,
-        peak_torque=0.0,
-        final_clearance=-0.01,
     )
 
-    result = physics_verifier.classify_verification(
-        helix, straight_pull, expected_yaw=6.0 * math.pi
-    )
+    result = _classify(helix, _blocked_pull_summary())
 
     assert result is physics_verifier.VerificationResult.CONTROLLER_INCONCLUSIVE
 
 
 def test_classification_reports_unsaturated_failed_trial_as_infeasible():
-    helix = physics_verifier.TrialSummary(
-        finite=True,
+    helix = _valid_helix_summary(
         held_clear=False,
-        accumulated_yaw=1.0,
-        final_position_error=0.02,
-        final_orientation_error=0.5,
-        max_lateral_drift=0.01,
+        geometric_yaw=1.0,
         force_saturation_fraction=0.20,
         torque_saturation_fraction=0.30,
-        peak_force=5.0,
-        peak_torque=0.1,
-        final_clearance=-0.01,
-    )
-    straight_pull = physics_verifier.TrialSummary(
-        finite=True,
-        held_clear=False,
-        accumulated_yaw=0.0,
-        final_position_error=0.02,
-        final_orientation_error=0.0,
-        max_lateral_drift=0.0,
-        force_saturation_fraction=0.95,
-        torque_saturation_fraction=0.0,
-        peak_force=10.0,
-        peak_torque=0.0,
-        final_clearance=-0.01,
     )
 
-    result = physics_verifier.classify_verification(
-        helix, straight_pull, expected_yaw=6.0 * math.pi
-    )
+    result = _classify(helix, _blocked_pull_summary())
 
     assert result is physics_verifier.VerificationResult.TRAJECTORY_INFEASIBLE

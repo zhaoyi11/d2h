@@ -27,7 +27,13 @@ class WrenchCommand:
 class TrialSummary:
     finite: bool
     held_clear: bool
-    accumulated_yaw: float
+    geometric_yaw: float
+    velocity_integrated_yaw: float
+    twist_end_rise: float
+    max_twist_position_error: float
+    max_twist_orientation_error: float
+    ever_cleared: bool
+    max_clearance: float
     final_position_error: float
     final_orientation_error: float
     max_lateral_drift: float
@@ -114,10 +120,20 @@ def straight_pull_targets(helical_targets: torch.Tensor) -> torch.Tensor:
     return targets
 
 
-def accumulate_world_yaw(
+def accumulate_geometric_world_yaw(
+    accumulated_yaw: torch.Tensor,
+    previous_quat_w: torch.Tensor,
+    current_quat_w: torch.Tensor,
+) -> torch.Tensor:
+    """Accumulate shortest-step geometric rotation projected onto world +Z."""
+    delta_axis_angle_w = _rotation_error_axis_angle(previous_quat_w, current_quat_w)
+    return accumulated_yaw + delta_axis_angle_w[..., 2]
+
+
+def accumulate_velocity_integrated_world_yaw(
     accumulated_yaw: torch.Tensor, angular_velocity_w: torch.Tensor, dt: float
 ) -> torch.Tensor:
-    """Integrate the world-frame angular velocity about Z."""
+    """Integrate world-frame angular velocity about Z as a diagnostic."""
     return accumulated_yaw + angular_velocity_w[..., 2] * dt
 
 
@@ -147,6 +163,7 @@ def classify_verification(
     straight_pull: TrialSummary,
     *,
     expected_yaw: float,
+    expected_twist_rise: float,
     yaw_tolerance: float = 0.35,
     position_tolerance: float = 0.005,
     orientation_tolerance: float = 0.35,
@@ -156,12 +173,15 @@ def classify_verification(
     """Classify paired helical and straight-pull physics trials."""
     if not helix.finite or not straight_pull.finite:
         return VerificationResult.CONTROLLER_INCONCLUSIVE
-    if straight_pull.held_clear:
+    if straight_pull.ever_cleared or straight_pull.held_clear:
         return VerificationResult.INVALID_PHYSICS_MODEL
 
     helix_passed = (
         helix.held_clear
-        and abs(helix.accumulated_yaw - expected_yaw) <= yaw_tolerance
+        and abs(helix.geometric_yaw - expected_yaw) <= yaw_tolerance
+        and abs(helix.twist_end_rise - expected_twist_rise) <= position_tolerance
+        and helix.max_twist_position_error <= position_tolerance
+        and helix.max_twist_orientation_error <= orientation_tolerance
         and helix.final_position_error <= position_tolerance
         and helix.final_orientation_error <= orientation_tolerance
         and helix.max_lateral_drift <= lateral_tolerance
@@ -180,7 +200,8 @@ __all__ = [
     "TrialSummary",
     "VerificationResult",
     "WrenchCommand",
-    "accumulate_world_yaw",
+    "accumulate_geometric_world_yaw",
+    "accumulate_velocity_integrated_world_yaw",
     "bolt_bottom_clearance",
     "bounded_pd_wrench",
     "classify_verification",

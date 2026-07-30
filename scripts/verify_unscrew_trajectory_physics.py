@@ -42,8 +42,9 @@ try:
     from src.tasks.unscrew.mdps.task_mdps import BOLT_AABB_MAX, BOLT_AABB_MIN, SOCKET_TOP_Z  # noqa: E402
 except BaseException:
     traceback.print_exc()
+    simulation_app.app.post_uncancellable_quit(1)
     simulation_app.close()
-    raise
+    raise SystemExit(1)
 
 
 DT = 1.0 / 120.0
@@ -123,12 +124,23 @@ def main() -> None:
         + (turn_steps_per_segment,) * trajectory.DEFAULT_UNSCREW_TWIST_SEGMENTS
         + (extract_steps, hold_steps)
     )
+    twist_start_index = 1 + sum(segment_steps[:2])
+    twist_end_index = sum(
+        segment_steps[: 2 + trajectory.DEFAULT_UNSCREW_TWIST_SEGMENTS]
+    )
+    extraction_start_index = twist_end_index + 1
+    expected_twist_rise = (
+        trajectory.DEFAULT_UNSCREW_THREAD_PITCH
+        * trajectory.DEFAULT_UNSCREW_TWIST_TOTAL_ANGLE
+        / (2.0 * torch.pi)
+    )
 
     print(
         "CONFIG: "
         f"dt={DT:.6f}s, settle={settle_steps} steps, "
         f"turn={turn_steps_per_segment} steps/segment, extract={extract_steps} steps, "
         f"hold={hold_steps} steps, expected_yaw={trajectory.DEFAULT_UNSCREW_TWIST_TOTAL_ANGLE}rad, "
+        f"expected_twist_rise={expected_twist_rise}m, "
         f"thread_pitch={trajectory.DEFAULT_UNSCREW_THREAD_PITCH}m, clearance={CLEARANCE_MARGIN}m",
         flush=True,
     )
@@ -186,15 +198,22 @@ def main() -> None:
         gravity_w = settled_pose_w.new_tensor((0.0, 0.0, -9.81))
         bolt_corners = _bolt_corners(device=settled_pose_w.device, dtype=settled_pose_w.dtype)
 
-        accumulated_yaw = torch.zeros(NUM_TRIALS, device=settled_pose_w.device)
-        max_lateral_drift = torch.zeros_like(accumulated_yaw)
+        geometric_yaw = torch.zeros(NUM_TRIALS, device=settled_pose_w.device)
+        velocity_integrated_yaw = torch.zeros_like(geometric_yaw)
+        previous_twist_quat_w = settled_pose_w[:, 3:7].clone()
+        twist_end_rise = torch.full_like(geometric_yaw, float("nan"))
+        max_twist_position_error = torch.zeros_like(geometric_yaw)
+        max_twist_orientation_error = torch.zeros_like(geometric_yaw)
+        max_lateral_drift = torch.zeros_like(geometric_yaw)
         force_saturation_count = torch.zeros(NUM_TRIALS, dtype=torch.long, device=settled_pose_w.device)
         torque_saturation_count = torch.zeros_like(force_saturation_count)
-        peak_force = torch.zeros_like(accumulated_yaw)
-        peak_torque = torch.zeros_like(accumulated_yaw)
+        peak_force = torch.zeros_like(geometric_yaw)
+        peak_torque = torch.zeros_like(geometric_yaw)
         held_clear_count = torch.zeros_like(force_saturation_count)
+        ever_cleared = torch.zeros(NUM_TRIALS, dtype=torch.bool, device=settled_pose_w.device)
+        max_clearance = torch.full_like(geometric_yaw, -torch.inf)
         finite = torch.ones(NUM_TRIALS, dtype=torch.bool, device=settled_pose_w.device)
-        final_clearance = torch.full_like(accumulated_yaw, float("nan"))
+        final_clearance = torch.full_like(geometric_yaw, float("nan"))
         hold_start = targets_w.shape[1] - hold_steps
 
         for target_index in range(targets_w.shape[1]):
@@ -223,9 +242,6 @@ def main() -> None:
             scene.update(DT)
 
             current_pose_w = _object_pose_w(obj)
-            accumulated_yaw = physics_verifier.accumulate_world_yaw(
-                accumulated_yaw, obj.data.root_ang_vel_w, DT
-            )
             lateral_drift = torch.linalg.vector_norm(
                 current_pose_w[:, :2] - settled_pose_w[:, :2], dim=-1
             )
@@ -243,6 +259,36 @@ def main() -> None:
                 & torch.isfinite(command.torque_w).all(dim=-1)
                 & torch.isfinite(final_clearance)
             )
+            if target_index < twist_start_index:
+                previous_twist_quat_w = current_pose_w[:, 3:7].clone()
+            elif target_index <= twist_end_index:
+                geometric_yaw = physics_verifier.accumulate_geometric_world_yaw(
+                    geometric_yaw, previous_twist_quat_w, current_pose_w[:, 3:7]
+                )
+                velocity_integrated_yaw = (
+                    physics_verifier.accumulate_velocity_integrated_world_yaw(
+                        velocity_integrated_yaw, obj.data.root_ang_vel_w, DT
+                    )
+                )
+                previous_twist_quat_w = current_pose_w[:, 3:7].clone()
+                twist_position_error = torch.linalg.vector_norm(
+                    targets_w[:, target_index, :3] - current_pose_w[:, :3], dim=-1
+                )
+                twist_orientation_error = quat_error_magnitude(
+                    targets_w[:, target_index, 3:7], current_pose_w[:, 3:7]
+                )
+                max_twist_position_error = torch.maximum(
+                    max_twist_position_error, twist_position_error
+                )
+                max_twist_orientation_error = torch.maximum(
+                    max_twist_orientation_error, twist_orientation_error
+                )
+                if target_index == twist_end_index:
+                    twist_end_rise = current_pose_w[:, 2] - settled_pose_w[:, 2]
+            if target_index >= extraction_start_index:
+                clear = final_clearance >= CLEARANCE_MARGIN
+                ever_cleared |= clear
+                max_clearance = torch.maximum(max_clearance, final_clearance)
             if target_index >= hold_start:
                 clear = final_clearance >= CLEARANCE_MARGIN
                 held_clear_count = torch.where(
@@ -259,7 +305,12 @@ def main() -> None:
         finite &= (
             torch.isfinite(final_position_error)
             & torch.isfinite(final_orientation_error)
-            & torch.isfinite(accumulated_yaw)
+            & torch.isfinite(geometric_yaw)
+            & torch.isfinite(velocity_integrated_yaw)
+            & torch.isfinite(twist_end_rise)
+            & torch.isfinite(max_twist_position_error)
+            & torch.isfinite(max_twist_orientation_error)
+            & torch.isfinite(max_clearance)
             & torch.isfinite(max_lateral_drift)
             & torch.isfinite(peak_force)
             & torch.isfinite(peak_torque)
@@ -270,7 +321,13 @@ def main() -> None:
             physics_verifier.TrialSummary(
                 finite=bool(finite[index].item()),
                 held_clear=bool((held_clear_count[index] >= hold_steps).item()),
-                accumulated_yaw=float(accumulated_yaw[index].item()),
+                geometric_yaw=float(geometric_yaw[index].item()),
+                velocity_integrated_yaw=float(velocity_integrated_yaw[index].item()),
+                twist_end_rise=float(twist_end_rise[index].item()),
+                max_twist_position_error=float(max_twist_position_error[index].item()),
+                max_twist_orientation_error=float(max_twist_orientation_error[index].item()),
+                ever_cleared=bool(ever_cleared[index].item()),
+                max_clearance=float(max_clearance[index].item()),
                 final_position_error=float(final_position_error[index].item()),
                 final_orientation_error=float(final_orientation_error[index].item()),
                 max_lateral_drift=float(max_lateral_drift[index].item()),
@@ -288,6 +345,7 @@ def main() -> None:
             summaries[0],
             summaries[1],
             expected_yaw=trajectory.DEFAULT_UNSCREW_TWIST_TOTAL_ANGLE,
+            expected_twist_rise=expected_twist_rise,
             yaw_tolerance=YAW_TOLERANCE,
             position_tolerance=POSITION_TOLERANCE,
             orientation_tolerance=ORIENTATION_TOLERANCE,
@@ -314,15 +372,22 @@ def main() -> None:
             print("CLEANUP: simulation context cleared", flush=True)
 
 
-if __name__ == "__main__":
+def _run_main_and_close(main_fn, simulation_app) -> None:
+    status = 0
     try:
-        main()
+        main_fn()
     except BaseException:
+        status = 1
         print("[ERROR]: verify_unscrew_trajectory_physics.py failed.", flush=True)
         traceback.print_exc()
-        raise
     finally:
+        simulation_app.app.post_uncancellable_quit(status)
         print("CLEANUP: closing simulation app", flush=True)
         simulation_app.close()
+    raise SystemExit(status)
+
+
+if __name__ == "__main__":
+    _run_main_and_close(main, simulation_app)
 else:
     simulation_app.close()
