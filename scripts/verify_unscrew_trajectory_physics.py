@@ -150,6 +150,8 @@ def main() -> None:
 
     scene = None
     obj = None
+    receptive = None
+    sim = None
     try:
         sim_cfg = sim_utils.SimulationCfg(
             dt=DT, gravity=(0.0, 0.0, -9.81), device=args_cli.device
@@ -302,6 +304,15 @@ def main() -> None:
             obj.set_external_force_and_torque(zero_wrench, zero_wrench, is_global=True)
             if scene is not None:
                 scene.write_data_to_sim()
+        obj = None
+        receptive = None
+        scene = None
+        if sim is not None:
+            print("CLEANUP: clearing simulation callbacks", flush=True)
+            sim.clear_all_callbacks()
+            print("CLEANUP: clearing simulation context", flush=True)
+            sim.clear_instance()
+            print("CLEANUP: simulation context cleared", flush=True)
 
 
 if __name__ == "__main__":
@@ -312,6 +323,7 @@ if __name__ == "__main__":
         traceback.print_exc()
         raise
     finally:
+        print("CLEANUP: closing simulation app", flush=True)
         simulation_app.close()
 else:
     simulation_app.close()

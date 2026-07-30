@@ -200,6 +200,35 @@ def test_physics_verifier_runner_logs_and_uses_reproducible_configuration():
     }
 
 
+def test_physics_verifier_runner_releases_normal_stage_without_stopping_sim():
+    _, tree = _runner_source_and_tree()
+    main = next(node for node in tree.body if isinstance(node, ast.FunctionDef) and node.name == "main")
+    simulation_try = next(node for node in main.body if isinstance(node, ast.Try) and node.finalbody)
+    cleanup_source = "\n".join(ast.unparse(statement) for statement in simulation_try.finalbody)
+    main_calls = {
+        _qualified_name(node.func) for node in ast.walk(main) if isinstance(node, ast.Call)
+    }
+
+    assert "sim.stop" not in main_calls
+    expected_order = ("scene = None", "sim.clear_all_callbacks()", "sim.clear_instance()")
+    assert all(statement in cleanup_source for statement in expected_order)
+    assert [cleanup_source.index(statement) for statement in expected_order] == sorted(
+        cleanup_source.index(statement) for statement in expected_order
+    )
+
+    main_guard = next(
+        node
+        for node in tree.body
+        if isinstance(node, ast.If) and ast.unparse(node.test) == "__name__ == '__main__'"
+    )
+    guarded_run = next(statement for statement in main_guard.body if isinstance(statement, ast.Try))
+    assert any(
+        isinstance(node, ast.Call) and _qualified_name(node.func) == "simulation_app.close"
+        for statement in guarded_run.finalbody
+        for node in ast.walk(statement)
+    )
+
+
 def test_bounded_pd_wrench_tracks_pose_and_clamps_vector_norms():
     current_pose = torch.tensor([[0.0, 0.0, 0.0, 1.0, 0.0, 0.0, 0.0]])
     target_pose = torch.tensor(
