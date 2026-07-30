@@ -45,6 +45,55 @@ def test_bounded_pd_wrench_tracks_pose_and_clamps_vector_norms():
     assert torch.equal(command.torque_saturated, torch.tensor([True]))
 
 
+def test_bounded_pd_wrench_composes_world_rotation_error_with_nonidentity_current():
+    half_sqrt = math.sqrt(0.5)
+    current_pose = torch.tensor([[0.0, 0.0, 0.0, half_sqrt, half_sqrt, 0.0, 0.0]])
+    # target = q_world_z_90 * q_current_x_90 in wxyz convention.
+    target_pose = torch.tensor([[0.0, 0.0, 0.0, 0.5, 0.5, 0.5, 0.5]])
+
+    command = physics_verifier.bounded_pd_wrench(
+        current_pose,
+        target_pose,
+        linear_velocity_w=torch.zeros(1, 3),
+        angular_velocity_w=torch.zeros(1, 3),
+        mass=1.0,
+        gravity_w=torch.zeros(3),
+        position_stiffness=1.0,
+        position_damping=0.0,
+        rotation_stiffness=1.0,
+        rotation_damping=0.0,
+        max_force=1.0,
+        max_torque=10.0,
+    )
+
+    torch.testing.assert_close(command.torque_w, torch.tensor([[0.0, 0.0, math.pi / 2.0]]))
+
+
+def test_bounded_pd_wrench_treats_antipodal_quaternions_as_same_orientation():
+    half_sqrt = math.sqrt(0.5)
+    current_pose = torch.tensor([[0.0, 0.0, 0.0, half_sqrt, 0.0, 0.0, half_sqrt]])
+    target_pose = current_pose.clone()
+    target_pose[:, 3:7] *= -1.0
+
+    command = physics_verifier.bounded_pd_wrench(
+        current_pose,
+        target_pose,
+        linear_velocity_w=torch.zeros(1, 3),
+        angular_velocity_w=torch.zeros(1, 3),
+        mass=1.0,
+        gravity_w=torch.zeros(3),
+        position_stiffness=1.0,
+        position_damping=0.0,
+        rotation_stiffness=1.0,
+        rotation_damping=0.0,
+        max_force=1.0,
+        max_torque=1.0,
+    )
+
+    torch.testing.assert_close(command.torque_w, torch.zeros(1, 3), atol=1.0e-7, rtol=0.0)
+    assert not command.torque_saturated.item()
+
+
 def test_straight_pull_targets_retain_xyz_and_initial_orientation():
     half_sqrt = math.sqrt(0.5)
     helical_targets = torch.tensor(
@@ -62,6 +111,29 @@ def test_straight_pull_targets_retain_xyz_and_initial_orientation():
         straight_targets[:, 3:7], helical_targets[0, 3:7].expand(helical_targets.shape[0], -1)
     )
     assert straight_targets.data_ptr() != helical_targets.data_ptr()
+
+
+def test_straight_pull_targets_keep_each_batched_trajectory_initial_orientation():
+    half_sqrt = math.sqrt(0.5)
+    helical_targets = torch.tensor(
+        [
+            [
+                [1.0, 2.0, 3.0, 1.0, 0.0, 0.0, 0.0],
+                [1.0, 2.0, 4.0, half_sqrt, 0.0, 0.0, half_sqrt],
+            ],
+            [
+                [4.0, 5.0, 6.0, half_sqrt, 0.0, 0.0, half_sqrt],
+                [4.0, 5.0, 7.0, 0.0, 0.0, 0.0, 1.0],
+            ],
+        ]
+    )
+
+    straight_targets = physics_verifier.straight_pull_targets(helical_targets)
+
+    torch.testing.assert_close(straight_targets[..., :3], helical_targets[..., :3])
+    torch.testing.assert_close(
+        straight_targets[..., 3:7], helical_targets[..., :1, 3:7].expand(-1, 2, -1)
+    )
 
 
 def test_accumulated_world_yaw_integrates_world_angular_velocity_z():
@@ -158,6 +230,39 @@ def test_classification_reports_invalid_collision_model_if_pull_clears():
     )
 
     assert result is physics_verifier.VerificationResult.INVALID_PHYSICS_MODEL
+
+
+def test_classification_nonfinite_precedes_clear_pull_invalid_model():
+    helix = physics_verifier.TrialSummary(
+        finite=False,
+        held_clear=True,
+        accumulated_yaw=float("nan"),
+        final_position_error=float("nan"),
+        final_orientation_error=float("nan"),
+        max_lateral_drift=float("nan"),
+        force_saturation_fraction=0.0,
+        torque_saturation_fraction=0.0,
+        peak_force=float("nan"),
+        peak_torque=float("nan"),
+        final_clearance=float("nan"),
+    )
+    straight_pull = physics_verifier.TrialSummary(
+        finite=True,
+        held_clear=True,
+        accumulated_yaw=0.0,
+        final_position_error=0.0,
+        final_orientation_error=0.0,
+        max_lateral_drift=0.0,
+        force_saturation_fraction=0.0,
+        torque_saturation_fraction=0.0,
+        peak_force=1.0,
+        peak_torque=0.0,
+        final_clearance=0.01,
+    )
+
+    result = physics_verifier.classify_verification(helix, straight_pull, expected_yaw=0.0)
+
+    assert result is physics_verifier.VerificationResult.CONTROLLER_INCONCLUSIVE
 
 
 def test_classification_reports_saturated_failed_trial_as_inconclusive():

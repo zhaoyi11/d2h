@@ -110,7 +110,7 @@ def bounded_pd_wrench(
 def straight_pull_targets(helical_targets: torch.Tensor) -> torch.Tensor:
     """Keep helical positions while fixing every target to its initial orientation."""
     targets = helical_targets.clone()
-    targets[..., 3:7] = helical_targets[0, 3:7]
+    targets[..., 3:7] = helical_targets[..., :1, 3:7]
     return targets
 
 
