@@ -135,5 +135,23 @@ class TrajectoryStepper:
         """Advance the step for ``env_ids`` by one, clamped at the final waypoint."""
         self._step[env_ids] = torch.clamp(self._step[env_ids] + 1, max=self._length - 1)
 
+    def transition_to_step(
+        self,
+        env_ids: torch.Tensor,
+        step: int,
+        remaining_waypoints: torch.Tensor,
+    ) -> None:
+        """Replace the remaining waypoints for ``env_ids`` and jump directly to ``step``."""
+        if step < 0 or step >= self._length:
+            raise ValueError(f"step must be in [0, {self._length - 1}].")
+        expected_shape = (env_ids.numel(), self._length - step, 7)
+        if tuple(remaining_waypoints.shape) != expected_shape:
+            raise ValueError(
+                f"remaining_waypoints must have shape {expected_shape}; "
+                f"got {tuple(remaining_waypoints.shape)}."
+            )
+        self._trajectory[env_ids, step:] = remaining_waypoints
+        self._step[env_ids] = step
+
 
 __all__ = ["StageObjTol", "TrajectoryStepper", "stage_tolerance_tensors"]

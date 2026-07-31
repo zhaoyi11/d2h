@@ -35,6 +35,26 @@ def _aabb_corners(
     )
 
 
+def bolt_aabb_corners(device: str) -> torch.Tensor:
+    """Return the conservative bolt bounds used by runtime clearance checks."""
+    return _aabb_corners(BOLT_AABB_MIN, BOLT_AABB_MAX, device=device)
+
+
+def bolt_bottom_clearance(
+    object_pos_r: torch.Tensor,
+    object_quat_r: torch.Tensor,
+    bolt_corners: torch.Tensor,
+    socket_top_z: float = SOCKET_TOP_Z,
+) -> torch.Tensor:
+    """Return the lowest rotated bolt-corner height above the socket top."""
+    num_envs = object_pos_r.shape[0]
+    corner_quat = object_quat_r[:, None, :].expand(-1, 8, -1).reshape(-1, 4)
+    local_corners = bolt_corners[None, :, :].expand(num_envs, -1, -1).reshape(-1, 3)
+    corner_pos_r = quat_apply(corner_quat, local_corners).reshape(num_envs, 8, 3)
+    corner_pos_r = corner_pos_r + object_pos_r[:, None, :]
+    return corner_pos_r[:, :, 2].amin(dim=1) - socket_top_z
+
+
 class StableUnscrewSuccess(ManagerTermBase):
     """Terminate after the bolt is clear and a stable two-finger grasp is retained."""
 
@@ -44,7 +64,7 @@ class StableUnscrewSuccess(ManagerTermBase):
         receptive_cfg = cfg.params.get("receptive_cfg", SceneEntityCfg("receptive_object"))
         self._object: RigidObject = env.scene[object_cfg.name]
         self._receptive: RigidObject = env.scene[receptive_cfg.name]
-        self._bolt_corners = _aabb_corners(BOLT_AABB_MIN, BOLT_AABB_MAX, device=env.device)
+        self._bolt_corners = bolt_aabb_corners(env.device)
         self._stable_counter = torch.zeros(env.num_envs, dtype=torch.long, device=env.device)
 
     def reset(self, env_ids: Sequence[int] | None = None) -> None:
@@ -58,6 +78,8 @@ class StableUnscrewSuccess(ManagerTermBase):
         clearance_margin: float = 0.030,
         force_threshold: float = 1.0,
         stable_steps: int = 5,
+        require_lift_complete: bool = False,
+        command_name: str = "object_pose",
     ) -> torch.Tensor:
         if clearance_margin < 0.0:
             raise ValueError("clearance_margin must be non-negative.")
@@ -72,14 +94,20 @@ class StableUnscrewSuccess(ManagerTermBase):
             self._object.data.root_pos_w,
             self._object.data.root_quat_w,
         )
-        num_envs = object_pos_r.shape[0]
-        corner_quat = object_quat_r[:, None, :].expand(-1, 8, -1).reshape(-1, 4)
-        local_corners = self._bolt_corners[None, :, :].expand(num_envs, -1, -1).reshape(-1, 3)
-        corner_pos_r = quat_apply(corner_quat, local_corners).reshape(num_envs, 8, 3)
-        corner_pos_r = corner_pos_r + object_pos_r[:, None, :]
-        clear = corner_pos_r[:, :, 2].amin(dim=1) >= SOCKET_TOP_Z + clearance_margin
+        clear = (
+            bolt_bottom_clearance(object_pos_r, object_quat_r, self._bolt_corners)
+            >= clearance_margin
+        )
         grasped = good_object_contact(env, force_threshold)
         valid = clear & grasped
+        if require_lift_complete:
+            command = env.command_manager.get_term(command_name)
+            lift_complete = command.metrics.get("vertical_lift_complete")
+            if lift_complete is None:
+                raise ValueError(
+                    f"Command term '{command_name}' does not publish vertical_lift_complete."
+                )
+            valid &= lift_complete > 0.5
         self._stable_counter = torch.where(
             valid, self._stable_counter + 1, torch.zeros_like(self._stable_counter)
         )
@@ -91,4 +119,6 @@ __all__ = [
     "BOLT_AABB_MIN",
     "SOCKET_TOP_Z",
     "StableUnscrewSuccess",
+    "bolt_aabb_corners",
+    "bolt_bottom_clearance",
 ]

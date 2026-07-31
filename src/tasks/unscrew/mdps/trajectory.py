@@ -23,11 +23,11 @@ from src.policy.high_level.utils import (
 
 DEFAULT_UNSCREW_TWIST_SEGMENTS = 6
 DEFAULT_UNSCREW_TWIST_TOTAL_ANGLE = 2.0 * math.pi
-DEFAULT_UNSCREW_THREAD_PITCH = 0.015
+DEFAULT_UNSCREW_THREAD_PITCH = 0.02
 DEFAULT_UNSCREW_EXTRACTION_HEIGHT = 0.100
 
 # reach / establish grasp / (30-degree turn x 6) / lift / hold
-DEFAULT_UNSCREW_SEGMENT_STEPS = (0, 1) + (6,) * DEFAULT_UNSCREW_TWIST_SEGMENTS + (1, 1)
+DEFAULT_UNSCREW_SEGMENT_STEPS = (0, 1) + (2,) * DEFAULT_UNSCREW_TWIST_SEGMENTS + (1, 1)
 DEFAULT_UNSCREW_STAGE_OBJECT_TOLERANCES = (
     StageObjTol(0.005, 0.20),  # reach while the hand is held open
     StageObjTol(0.005, 0.20),  # establish grasp at the installed pose
@@ -104,6 +104,30 @@ def build_unscrew_object_pose_sequence(
     return build_object_pose_sequence_from_keyframes(key_poses, segment_steps)
 
 
+def build_unscrew_vertical_lift_pose_sequence(
+    current_pose: torch.Tensor | Sequence[float],
+    segment_steps: Sequence[int],
+    extraction_height: float = DEFAULT_UNSCREW_EXTRACTION_HEIGHT,
+) -> torch.Tensor:
+    """Build a base-frame +Z lift and hold from a live, already-cleared object pose."""
+    if len(segment_steps) != 2:
+        raise ValueError("segment_steps must contain lift and hold values.")
+    if any(steps < 0 for steps in segment_steps):
+        raise ValueError("segment_steps values must be non-negative.")
+    if segment_steps[0] < 1:
+        raise ValueError("the vertical lift segment must contain at least one step.")
+    if extraction_height < 0.0:
+        raise ValueError("extraction_height must be non-negative.")
+
+    current = _with_normalized_quat(_as_pose_tensor(current_pose))
+    lifted = current.clone()
+    lifted[2] += current.new_tensor(extraction_height)
+    return build_object_pose_sequence_from_keyframes(
+        (current, lifted, lifted),
+        segment_steps,
+    )
+
+
 __all__ = [
     "DEFAULT_UNSCREW_EXTRACTION_HEIGHT",
     "DEFAULT_UNSCREW_SEGMENT_STEPS",
@@ -112,4 +136,5 @@ __all__ = [
     "DEFAULT_UNSCREW_TWIST_SEGMENTS",
     "DEFAULT_UNSCREW_TWIST_TOTAL_ANGLE",
     "build_unscrew_object_pose_sequence",
+    "build_unscrew_vertical_lift_pose_sequence",
 ]

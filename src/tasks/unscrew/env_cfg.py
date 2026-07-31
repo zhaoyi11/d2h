@@ -848,8 +848,12 @@ class HrlCommandsCfg:
         # The frozen hand policy supplies in-hand rotation; the hand-base orientation stays fixed.
         twist_total_angle=2.0 * math.pi,
         twist_segments=6,
-        thread_pitch=0.015,
+        thread_pitch=0.02,
         extraction_height=0.100,
+        enable_clearance_transition=True,
+        receptive_name="receptive_object",
+        clearance_transition_margin=0.005,
+        clearance_transition_stable_steps=1,
         # Fail recovery: if the leg leaves the hand mid-episode, wait for it to come to rest and
         # regenerate the reach->unscrew trajectory from its new pose so the arm re-grasps it.
         enable_drop_recovery=True,
@@ -925,6 +929,10 @@ class DexsuiteFrankaLeapUnscrewHrlEnvCfg(FrankaLeapMixinCfg, DexsuiteUnscrewEnvC
         # Enable the reorient-style 167-dim low-level observation group.
         self.observations.low_level = ObservationsCfg.LowLevelObsCfg()
         super().__post_init__()  # FrankaLeapMixinCfg -> DexsuiteUnscrewEnvCfg
+        self.terminations.unscrew_success.params.update(
+            require_lift_complete=True,
+            command_name="object_pose",
+        )
         # The flat task's goal is position-only; the scripted HRL stepper must still enforce each
         # 30-degree orientation target.
         self.commands.object_pose.position_only = False

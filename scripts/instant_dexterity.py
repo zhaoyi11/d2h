@@ -63,6 +63,7 @@ from isaaclab.utils.math import (  # noqa: E402
 )
 from src.policy.high_level.gate import LowLevelGateCfg, LowLevelHandGate  # noqa: E402
 from src.policy.low_level import load_low_level_rsl_rl_policy  # noqa: E402
+from src.tasks.common.mdps.rewards import contacts as good_object_contact  # noqa: E402
 
 
 def _as_list(tensor: torch.Tensor) -> list[float]:
@@ -291,6 +292,20 @@ def _print_snapshot(env, step: int) -> None:
     if gate_err is not None:
         print(
             f"[STEP {step:04d}]: hand<->object gate error   {float(gate_err[0]):.5f} m",
+            flush=True,
+        )
+    stepper = getattr(command_term, "_stepper", None)
+    clearance_streak = getattr(command_term, "_clearance_streak", None)
+    if stepper is not None and clearance_streak is not None:
+        stage = stepper.step_to_stage[stepper.step]
+        metrics = command_term.metrics
+        clearance = metrics.get("bolt_clearance")
+        transitioned = metrics.get("clearance_transitioned")
+        grasped = good_object_contact(env, command_term.cfg.grasp_contact_force_threshold)
+        print(
+            f"[STEP {step:04d}]: unscrew transition       stage={int(stage[0])} "
+            f"clearance={float(clearance[0]):.5f} m grasped={bool(grasped[0])} "
+            f"streak={int(clearance_streak[0])} transitioned={bool(transitioned[0])}",
             flush=True,
         )
 
