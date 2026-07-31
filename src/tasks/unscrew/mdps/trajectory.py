@@ -21,18 +21,18 @@ from src.policy.high_level.utils import (
 )
 
 
-DEFAULT_UNSCREW_TWIST_SEGMENTS = 12
-DEFAULT_UNSCREW_TWIST_TOTAL_ANGLE = 6.0 * math.pi
+DEFAULT_UNSCREW_TWIST_SEGMENTS = 6
+DEFAULT_UNSCREW_TWIST_TOTAL_ANGLE = 2.0 * math.pi
 DEFAULT_UNSCREW_THREAD_PITCH = 0.015
-DEFAULT_UNSCREW_EXTRACTION_HEIGHT = 0.030
+DEFAULT_UNSCREW_EXTRACTION_HEIGHT = 0.100
 
-# reach / establish grasp / (quarter-turn x 12) / extract / hold
-DEFAULT_UNSCREW_SEGMENT_STEPS = (0, 1) + (1,) * DEFAULT_UNSCREW_TWIST_SEGMENTS + (1, 1)
+# reach / establish grasp / (30-degree turn x 6) / lift / hold
+DEFAULT_UNSCREW_SEGMENT_STEPS = (0, 1) + (6,) * DEFAULT_UNSCREW_TWIST_SEGMENTS + (1, 1)
 DEFAULT_UNSCREW_STAGE_OBJECT_TOLERANCES = (
     StageObjTol(0.005, 0.20),  # reach while the hand is held open
     StageObjTol(0.005, 0.20),  # establish grasp at the installed pose
-    *(StageObjTol(0.002, 0.35) for _ in range(DEFAULT_UNSCREW_TWIST_SEGMENTS)),
-    StageObjTol(0.005, 0.20),  # vertical extraction
+    *(StageObjTol(0.005, 0.20) for _ in range(DEFAULT_UNSCREW_TWIST_SEGMENTS)),
+    StageObjTol(0.005, 0.20),  # vertical lift
     StageObjTol(0.005, 0.20),  # hold
 )
 
@@ -45,11 +45,11 @@ def build_unscrew_object_pose_sequence(
     thread_pitch: float = DEFAULT_UNSCREW_THREAD_PITCH,
     extraction_height: float = DEFAULT_UNSCREW_EXTRACTION_HEIGHT,
 ) -> torch.Tensor:
-    """Build reach, grasp, positive-yaw helical rise, extraction, and hold waypoints.
+    """Build reach, grasp, positive-yaw rotation, vertical lift, and hold waypoints.
 
     Poses are ``(x, y, z, qw, qx, qy, qz)`` in the robot base frame. The live installed object pose is
-    authoritative: x/y remain fixed, positive world/base ``+Z`` yaw advances the authored thread, and
-    z rises by ``thread_pitch`` per full turn. The final keyframe lifts vertically after the last turn.
+    authoritative: x/y remain fixed, positive world/base ``+Z`` yaw rotates the object, and z changes
+    by ``thread_pitch`` per full turn. The final keyframe lifts vertically after the last turn.
     """
     if twist_segments < 1:
         raise ValueError("twist_segments must be at least 1.")

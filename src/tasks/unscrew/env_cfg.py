@@ -40,10 +40,15 @@ UWLAB_CLOUD_ASSETS_DIR = "https://huggingface.co/datasets/UW-Lab/uwlab-assets/re
 
 ASSET_SCALE = 1.5
 RECEPTIVE_OBJECT_POS = (0.55, 0.0, 0.271)
-INSTALLED_OBJECT_POS = (0.465625, 0.084375, 0.341834)
+# INSTALLED_OBJECT_POS = (0.465625, 0.084375, 0.341834)
+IDENTITY_QUAT = (1.0, 0.0, 0.0, 0.0)
+
+INSTALLED_OBJECT_POS = (0.4659913182258606, 0.08350233733654022, 0.3423238694667816)
+INSTALLED_OBJECT_QUAT = (0.97566819190979, 0.00011654444824671373, -0.0003023587341886014, 0.21925236284732819)
+
 EXTRACTED_OBJECT_POS = (0.465625, 0.084375, 0.416834)
 TABLE_POS = (0.55, 0.0, 0.235)
-IDENTITY_QUAT = (1.0, 0.0, 0.0, 0.0)
+
 
 @configclass
 class SceneCfg(InteractiveSceneCfg):
@@ -57,16 +62,20 @@ class SceneCfg(InteractiveSceneCfg):
         prim_path="{ENV_REGEX_NS}/Object",
         spawn=sim_utils.UsdFileCfg(
             usd_path=f"{UWLAB_CLOUD_ASSETS_DIR}/Props/FurnitureBench/SquareLeg/square_leg.usd",
-            scale=(ASSET_SCALE*0.98, ASSET_SCALE*0.98, ASSET_SCALE*0.98),
-            # scale=(ASSET_SCALE, ASSET_SCALE, ASSET_SCALE),
+            scale=(ASSET_SCALE, ASSET_SCALE, ASSET_SCALE),
             rigid_props=sim_utils.RigidBodyPropertiesCfg(
                 solver_position_iteration_count=16,
                 solver_velocity_iteration_count=2,
                 disable_gravity=False,
                 kinematic_enabled=False,
             ),
+            collision_props=sim_utils.CollisionPropertiesCfg(
+                collision_enabled=True,
+                # contact_offset=1.0555,
+                rest_offset=0.0,
+            ),
         ),
-        init_state=RigidObjectCfg.InitialStateCfg(pos=INSTALLED_OBJECT_POS, rot=IDENTITY_QUAT),
+        init_state=RigidObjectCfg.InitialStateCfg(pos=INSTALLED_OBJECT_POS, rot=INSTALLED_OBJECT_QUAT),
     )
     
     receptive_object = RigidObjectCfg(
@@ -79,6 +88,11 @@ class SceneCfg(InteractiveSceneCfg):
                 solver_velocity_iteration_count=2,
                 disable_gravity=False,
                 kinematic_enabled=True,
+            ),
+            collision_props=sim_utils.CollisionPropertiesCfg(
+                collision_enabled=True,
+                # contact_offset=0.0005,
+                rest_offset=0.0,
             ),
         ),
         init_state=RigidObjectCfg.InitialStateCfg(pos=RECEPTIVE_OBJECT_POS, rot=IDENTITY_QUAT),
@@ -508,7 +522,7 @@ class EventCfg:
         mode="startup",
         params={
             "asset_cfg": SceneEntityCfg("object"),
-            "mass_distribution_params": [0.004, 0.040],
+            "mass_distribution_params": [0.05, 0.2],
             "operation": "abs",
         },
     )
@@ -713,10 +727,28 @@ class DexsuiteUnscrewEnvCfg(ManagerBasedRLEnvCfg):
         # simulation settings
         self.sim.dt = 1 / 120
         self.sim.render_interval = self.decimation
-        self.sim.physx.bounce_threshold_velocity = 0.2
-        self.sim.physx.bounce_threshold_velocity = 0.01
-        self.sim.physx.gpu_max_rigid_patch_count = 4 * 5 * 2**15
-        self.sim.physx.gpu_collision_stack_size = 2**28
+
+        # Contact and solver settings
+        self.sim.physx.solver_type = 1
+        # self.sim.physx.contact_offset = 10
+        self.sim.physx.max_position_iteration_count = 192
+        self.sim.physx.max_velocity_iteration_count = 1
+        self.sim.physx.bounce_threshold_velocity = 0.02
+        self.sim.physx.friction_offset_threshold = 0.01
+        self.sim.physx.friction_correlation_distance = 0.0005
+
+        self.sim.physx.gpu_found_lost_aggregate_pairs_capacity = 2**23
+        self.sim.physx.gpu_total_aggregate_pairs_capacity = 2**23
+        self.sim.physx.gpu_max_rigid_contact_count = 2**23
+        self.sim.physx.gpu_max_rigid_patch_count = 2**23
+        self.sim.physx.gpu_collision_stack_size = 2**31
+
+
+
+        # self.sim.physx.bounce_threshold_velocity = 0.2
+        # self.sim.physx.bounce_threshold_velocity = 0.01
+        # self.sim.physx.gpu_max_rigid_patch_count = 4 * 5 * 2**15
+        # self.sim.physx.gpu_collision_stack_size = 2**28
 
         if self.curriculum is not None:
             self.curriculum.adr.params["pos_tol"] = (
@@ -812,12 +844,12 @@ class HrlCommandsCfg:
         resampling_time_range=(20.0, 20.0),
         debug_vis=False,
         success_vis_asset_name="table",
-        # Three positive-yaw turns rise along the authored 15 mm thread pitch, followed by extraction.
+        # Rotate positive yaw by pi in 30-degree stages while rising 5 mm, then lift 10 cm along +Z.
         # The frozen hand policy supplies in-hand rotation; the hand-base orientation stays fixed.
-        twist_total_angle=6.0 * math.pi,
-        twist_segments=12,
+        twist_total_angle=2.0 * math.pi,
+        twist_segments=6,
         thread_pitch=0.015,
-        extraction_height=0.030,
+        extraction_height=0.100,
         # Fail recovery: if the leg leaves the hand mid-episode, wait for it to come to rest and
         # regenerate the reach->unscrew trajectory from its new pose so the arm re-grasps it.
         enable_drop_recovery=True,
@@ -894,7 +926,7 @@ class DexsuiteFrankaLeapUnscrewHrlEnvCfg(FrankaLeapMixinCfg, DexsuiteUnscrewEnvC
         self.observations.low_level = ObservationsCfg.LowLevelObsCfg()
         super().__post_init__()  # FrankaLeapMixinCfg -> DexsuiteUnscrewEnvCfg
         # The flat task's goal is position-only; the scripted HRL stepper must still enforce each
-        # quarter-turn orientation target.
+        # 30-degree orientation target.
         self.commands.object_pose.position_only = False
 
         # FrameTransformer over the fingertips: tip_contact_* read its target_quat_w to rotate
