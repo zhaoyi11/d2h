@@ -294,6 +294,16 @@ def _print_snapshot(env, step: int) -> None:
             f"[STEP {step:04d}]: hand<->object gate error   {float(gate_err[0]):.5f} m",
             flush=True,
         )
+    if "inside_box" in getattr(command_term, "metrics", {}):
+        metrics = command_term.metrics
+        print(
+            f"[STEP {step:04d}]: clean-table placement     "
+            f"inside={bool(metrics['inside_box'][0])} "
+            f"released={bool(metrics['released'][0])} "
+            f"hand_clear={bool(metrics['hand_clear'][0])} "
+            f"success={bool(metrics['success'][0])}",
+            flush=True,
+        )
     stepper = getattr(command_term, "_stepper", None)
     clearance_streak = getattr(command_term, "_clearance_streak", None)
     if stepper is not None and clearance_streak is not None:

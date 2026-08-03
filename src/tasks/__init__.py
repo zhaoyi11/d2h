@@ -140,6 +140,16 @@ gym.register(
     },
 )
 
+gym.register(
+    id="Clean_Table_HRL-v0",
+    entry_point="isaaclab.envs:ManagerBasedRLEnv",
+    disable_env_checker=True,
+    kwargs={
+        "env_cfg_entry_point": f"{__name__}.clean_table.env_cfg:DexsuiteFrankaLeapCleanTableHrlEnvCfg",
+        "rsl_rl_cfg_entry_point": "src.tasks.clean_table.rsl_rl_ppo_cfg:CleanTableRslRlPpoCfg",
+    },
+)
+
 # Cupcake on Plate Environment
 gym.register(
     id="Cupcake_on_Plate-v0",

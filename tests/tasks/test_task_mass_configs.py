@@ -68,3 +68,7 @@ def test_unscrew_uses_intended_absolute_mass_range() -> None:
 
 def test_pick_insert_uses_intended_absolute_mass_range() -> None:
     _assert_task_mass_config("src/tasks/pick_insert/env_cfg.py", (0.010, 0.100))
+
+
+def test_clean_table_uses_pick_insert_absolute_mass_range() -> None:
+    _assert_task_mass_config("src/tasks/clean_table/env_cfg.py", (0.010, 0.100))
