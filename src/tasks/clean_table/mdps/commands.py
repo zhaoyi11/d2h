@@ -151,8 +151,6 @@ class CleanTableTrajectoryObjectAndHandBasePoseCommand(
             torch.zeros_like(self._grasp_contact_streak),
         )
         confirmed = self._grasp_contact_streak >= self.cfg.grasp_contact_stable_steps
-        if self.cfg.capture_goal_after_settle:
-            confirmed &= self._grasp_goal_captured
         self._trajectory_command_achieved[establishing] = confirmed[establishing]
         timed_out = establishing & ~confirmed & (
             self._grasp_phase_steps >= self.cfg.grasp_timeout_steps
@@ -186,11 +184,8 @@ class CleanTableTrajectoryObjectAndHandBasePoseCommand(
         if correction is None or getattr(self, "_stepper", None) is None:
             return correction
         stage = self._current_stage(env_ids)
-        correction_active = (stage != self._GRASP_STAGE) & (
-            stage < self._RELEASE_STAGE
-        )
         return torch.where(
-            correction_active.unsqueeze(-1),
+            (stage < self._RELEASE_STAGE).unsqueeze(-1),
             correction,
             torch.zeros_like(correction),
         )

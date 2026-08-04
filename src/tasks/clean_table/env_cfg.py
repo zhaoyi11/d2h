@@ -32,6 +32,7 @@ from src.tasks.clean_table.mdps.contact_filters import (
     external_indices,
     object_indices,
 )
+from src.policy.high_level.trajectory_stepper import StageObjTol
 from src.assets.franka_leap_hand.franka_leap import FRANKA_LEAP_HAND_CFG
 
 # UWLAB_CLOUD_ASSETS_DIR = "https://huggingface.co/datasets/UW-Lab/uwlab-assets/resolve/main"
@@ -59,14 +60,21 @@ class SceneCfg(InteractiveSceneCfg):
     """Dexsuite Scene for multi-objects Lifting"""
 
     # robot
-    robot = FRANKA_LEAP_HAND_CFG.replace(prim_path="{ENV_REGEX_NS}/Robot")
+    robot = FRANKA_LEAP_HAND_CFG.replace(
+        prim_path="{ENV_REGEX_NS}/Robot",
+        spawn=FRANKA_LEAP_HAND_CFG.spawn.replace(
+            articulation_props=FRANKA_LEAP_HAND_CFG.spawn.articulation_props.replace(
+                enabled_self_collisions=False,
+            ),
+        ),
+    )
 
     # object
     object = RigidObjectCfg(
         prim_path="{ENV_REGEX_NS}/Object",
         spawn=sim_utils.MultiUsdFileCfg(
             usd_path=_get_visdex_usd_paths(),
-            random_choice=True,
+            random_choice=False,
             articulation_props=sim_utils.ArticulationRootPropertiesCfg(
                 articulation_enabled=False,
             ),
@@ -76,10 +84,11 @@ class SceneCfg(InteractiveSceneCfg):
                 enable_gyroscopic_forces=True,
             ),
             collision_props=sim_utils.CollisionPropertiesCfg(collision_enabled=True),
+            mass_props=sim_utils.MassPropertiesCfg(mass=0.2),
             scale=(0.8, 0.8, 0.8),
         ),
         init_state=RigidObjectCfg.InitialStateCfg(
-            pos=[0.55, 0.25, 0.34],
+            pos=[0.55, 0.10, 0.34],
             rot=[1.0, 0.0, 0.0, 0.0],
         ),
     )
@@ -476,8 +485,8 @@ class EventCfg:
         mode="startup",
         params={
             "asset_cfg": SceneEntityCfg("object"),
-            "mass_distribution_params": [0.010, 0.100],
-            "operation": "abs",
+            "mass_distribution_params": [0.2, 2.0],
+            "operation": "scale",
         },
     )
 
@@ -505,14 +514,7 @@ class EventCfg:
         func=mdp.reset_root_state_uniform,
         mode="reset",
         params={
-            "pose_range": {
-                "x": [-0.05, 0.05],
-                "y": [-0.05, 0.05],
-                "z": [0.0, 0.0],
-                "roll": [-3.14, 3.14],
-                "pitch": [-3.14, 3.14],
-                "yaw": [-3.14, 3.14],
-            },
+            "pose_range": {"x": [-0.03, 0.03], "y": [-0.03, 0.03], "yaw": [0.0, 0.0]},
             "velocity_range": {"x": [-0.0, 0.0], "y": [-0.0, 0.0], "z": [-0.0, 0.0]},
             "asset_cfg": SceneEntityCfg("object"),
         },
@@ -804,7 +806,27 @@ class DexsuiteFrankaLeapCleanTableHrlEnvCfg(
         self.observations.low_level = ObservationsCfg.LowLevelObsCfg()
         super().__post_init__()
         self.commands.object_pose.hand_base_hold_until_stage = 1
+        self.commands.object_pose.drop_object_hand_distance = 0.12
+        self.commands.object_pose.lift_height = 0.10
+        self.commands.object_pose.stage_object_tolerances = (
+            StageObjTol(0.02, 0.3),
+            StageObjTol(0.02, 0.3),
+            StageObjTol(0.02, 0.3),
+            *self.commands.object_pose.stage_object_tolerances[3:],
+        )
         self.decimation = 4  # 30 Hz, matching the frozen hand policy.
+        self.episode_length_s = 30.0
         self.sim.render_interval = self.decimation
+        self.sim.physx.solver_type = 1
+        self.sim.physx.max_position_iteration_count = 192
+        self.sim.physx.max_velocity_iteration_count = 1
+        self.sim.physx.bounce_threshold_velocity = 0.02
+        self.sim.physx.friction_offset_threshold = 0.01
+        self.sim.physx.friction_correlation_distance = 0.0005
+        self.sim.physx.gpu_found_lost_aggregate_pairs_capacity = 2**23
+        self.sim.physx.gpu_total_aggregate_pairs_capacity = 2**23
+        self.sim.physx.gpu_max_rigid_contact_count = 2**23
+        self.sim.physx.gpu_max_rigid_patch_count = 2**23
+        self.sim.physx.gpu_collision_stack_size = 2**31
         self.scene.robot.actuators["joints"].stiffness = 0.0
         self.scene.robot.actuators["joints"].damping = 0.0

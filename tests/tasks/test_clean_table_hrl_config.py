@@ -85,15 +85,25 @@ def test_clean_table_hrl_actions_and_command_match_runner_contract() -> None:
     hrl_source = ast.unparse(_class(tree, "DexsuiteFrankaLeapCleanTableHrlEnvCfg"))
     assert "self.observations.low_level = ObservationsCfg.LowLevelObsCfg()" in hrl_source
     assert "self.commands.object_pose.hand_base_hold_until_stage = 1" in hrl_source
+    assert "self.commands.object_pose.drop_object_hand_distance = 0.12" in hrl_source
+    assert "self.commands.object_pose.lift_height = 0.1" in hrl_source
+    assert hrl_source.count("StageObjTol(0.02, 0.3)") == 3
+    assert "*self.commands.object_pose.stage_object_tolerances[3:]" in hrl_source
     assert "self.decimation = 4" in hrl_source
+    assert "self.episode_length_s = 30.0" in hrl_source
     assert "self.sim.render_interval = self.decimation" in hrl_source
+    assert "self.sim.physx.gpu_found_lost_aggregate_pairs_capacity = 2 ** 23" in hrl_source
+    assert "self.sim.physx.gpu_total_aggregate_pairs_capacity = 2 ** 23" in hrl_source
+    assert "self.sim.physx.gpu_max_rigid_contact_count = 2 ** 23" in hrl_source
+    assert "self.sim.physx.gpu_max_rigid_patch_count = 2 ** 23" in hrl_source
+    assert "self.sim.physx.gpu_collision_stack_size = 2 ** 31" in hrl_source
     assert "self.scene.robot.actuators['joints'].stiffness = 0.0" in hrl_source
     assert "self.scene.robot.actuators['joints'].damping = 0.0" in hrl_source
     base_source = ast.unparse(_class(tree, "DexsuiteReorientEnvCfg"))
     assert "self.decimation = 2" in base_source
 
 
-def test_clean_table_resets_keep_object_and_box_in_separate_regions() -> None:
+def test_clean_table_uses_pick_anyrotate_scene_and_reset_baseline() -> None:
     tree = ast.parse(ENV_CFG_PATH.read_text())
     scene = _assignments(_class(tree, "SceneCfg"))
     events = _assignments(_class(tree, "EventCfg"))
@@ -104,20 +114,31 @@ def test_clean_table_resets_keep_object_and_box_in_separate_regions() -> None:
 
     assert tuple(ast.literal_eval(_dict_value(box_pose, "x"))) == (-0.10, 0.10)
     assert tuple(ast.literal_eval(_dict_value(box_pose, "y"))) == (-0.05, 0.05)
-    assert tuple(ast.literal_eval(_dict_value(object_pose, "x"))) == (-0.05, 0.05)
-    assert tuple(ast.literal_eval(_dict_value(object_pose, "y"))) == (-0.05, 0.05)
-    assert tuple(ast.literal_eval(_dict_value(object_pose, "roll"))) == (-3.14, 3.14)
-    assert tuple(ast.literal_eval(_dict_value(object_pose, "pitch"))) == (-3.14, 3.14)
-    assert tuple(ast.literal_eval(_dict_value(object_pose, "yaw"))) == (-3.14, 3.14)
+    assert ast.literal_eval(object_pose) == {
+        "x": [-0.03, 0.03],
+        "y": [-0.03, 0.03],
+        "yaw": [0.0, 0.0],
+    }
+
+    robot_spawn = _keyword(scene["robot"], "spawn")
+    articulation_props = _keyword(robot_spawn, "articulation_props")
+    assert ast.literal_eval(_keyword(articulation_props, "enabled_self_collisions")) is False
+
+    object_cfg = scene["object"]
     object_spawn = _keyword(scene["object"], "spawn")
-    assert ast.literal_eval(_keyword(object_spawn, "random_choice")) is True
+    assert ast.literal_eval(_keyword(object_spawn, "random_choice")) is False
+    mass_props = _keyword(object_spawn, "mass_props")
+    assert ast.literal_eval(_keyword(mass_props, "mass")) == 0.2
+    object_init = _keyword(object_cfg, "init_state")
+    assert tuple(ast.literal_eval(_keyword(object_init, "pos"))) == (0.55, 0.10, 0.34)
     usd_root = REPO_ROOT / "src/assets/visdex_objects/USD"
-    usd_paths = [path / f"{path.name}.usd" for path in usd_root.iterdir() if path.is_dir()]
+    usd_paths = [path / f"{path.name}.usd" for path in sorted(usd_root.iterdir()) if path.is_dir()]
     assert len([path for path in usd_paths if path.is_file()]) == 152
+    assert usd_paths[0].parts[-2:] == ("104738", "104738.usd")
 
     mass_params = _keyword(events["object_scale_mass"], "params")
-    assert tuple(ast.literal_eval(_dict_value(mass_params, "mass_distribution_params"))) == (0.010, 0.100)
-    assert ast.literal_eval(_dict_value(mass_params, "operation")) == "abs"
+    assert tuple(ast.literal_eval(_dict_value(mass_params, "mass_distribution_params"))) == (0.2, 2.0)
+    assert ast.literal_eval(_dict_value(mass_params, "operation")) == "scale"
     gravity_params = _keyword(events["variable_gravity"], "params")
     assert ast.literal_eval(_dict_value(gravity_params, "gravity_distribution_params")) == (
         [0.0, 0.0, -1.81],

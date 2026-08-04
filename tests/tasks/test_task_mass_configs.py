@@ -70,5 +70,16 @@ def test_pick_insert_uses_intended_absolute_mass_range() -> None:
     _assert_task_mass_config("src/tasks/pick_insert/env_cfg.py", (0.010, 0.100))
 
 
-def test_clean_table_uses_pick_insert_absolute_mass_range() -> None:
-    _assert_task_mass_config("src/tasks/clean_table/env_cfg.py", (0.010, 0.100))
+def test_clean_table_uses_pick_anyrotate_mass_baseline() -> None:
+    tree = ast.parse((REPO_ROOT / "src/tasks/clean_table/env_cfg.py").read_text())
+    event_cfg = _class(tree, "EventCfg")
+    mass_event = _assigned_call(event_cfg, "object_scale_mass")
+    params = _keyword(mass_event, "params")
+    assert tuple(ast.literal_eval(_dict_value(params, "mass_distribution_params"))) == (0.2, 2.0)
+    assert ast.literal_eval(_dict_value(params, "operation")) == "scale"
+
+    scene_cfg = _class(tree, "SceneCfg")
+    object_cfg = _assigned_call(scene_cfg, "object")
+    spawn_cfg = _keyword(object_cfg, "spawn")
+    mass_props = _keyword(spawn_cfg, "mass_props")
+    assert ast.literal_eval(_keyword(mass_props, "mass")) == 0.2

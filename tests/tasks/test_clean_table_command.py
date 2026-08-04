@@ -130,13 +130,38 @@ def test_grasp_release_and_retreat_ignore_anchor_correction() -> None:
     torch.testing.assert_close(command.corrected_env_ids, torch.tensor([0, 2]))
 
 
-def test_grasp_release_and_retreat_do_not_apply_accumulated_anchor_correction() -> None:
+def test_grasp_keeps_applied_correction_while_release_and_retreat_zero_it() -> None:
     command = _command_with_stages(torch.tensor([1, 4, 5, 6]))
 
     correction = command._anchor_correction()
 
-    torch.testing.assert_close(correction[1], torch.ones(6))
-    torch.testing.assert_close(correction[[0, 2, 3]], torch.zeros(3, 6))
+    torch.testing.assert_close(correction[:2], torch.ones(2, 6))
+    torch.testing.assert_close(correction[2:], torch.zeros(2, 6))
+
+
+def test_grasp_confirmation_matches_pick_anyrotate_contact_streak() -> None:
+    command = _command_with_stages(torch.tensor([1]))
+    command.cfg = SimpleNamespace(
+        capture_goal_after_settle=True,
+        grasp_contact_force_threshold=1.0,
+        grasp_contact_stable_steps=3,
+        grasp_timeout_steps=30,
+    )
+    command._env = SimpleNamespace(num_envs=1)
+    command._trajectory_command_achieved = torch.zeros(1, dtype=torch.bool)
+    command._grasp_goal_captured = torch.zeros(1, dtype=torch.bool)
+    command._grasp_phase_steps = torch.zeros(1, dtype=torch.long)
+    command._grasp_contact_streak = torch.tensor([2], dtype=torch.long)
+    command._steps_since_reset = torch.zeros(1, dtype=torch.long)
+    previous_contacts = commands.good_object_contact
+    commands.good_object_contact = lambda env, threshold: torch.ones(1, dtype=torch.bool)
+    try:
+        command._update_grasp_establish()
+    finally:
+        commands.good_object_contact = previous_contacts
+
+    torch.testing.assert_close(command._grasp_contact_streak, torch.tensor([3]))
+    torch.testing.assert_close(command._trajectory_command_achieved, torch.tensor([True]))
 
 
 def test_success_requires_stable_containment_after_retreat_and_hand_clearance() -> None:
