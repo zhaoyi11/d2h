@@ -21,6 +21,7 @@ if str(REPO_ROOT) not in sys.path:
 parser = argparse.ArgumentParser(description="Instant dexterity from coarse demonstrations.")
 parser.add_argument("--task", type=str, default="Pick_Insert_HRL-v0", help="Registered Gym task to launch.")
 parser.add_argument("--num_envs", type=int, default=1, help="Number of environments to run.")
+parser.add_argument("--seed", type=int, default=None, help="Seed used for the environment.")
 parser.add_argument("--steps", type=int, default=1200, help="Number of environment steps to simulate.")
 parser.add_argument("--print_every", type=int, default=30, help="Print pose diagnostics every N steps.")
 parser.add_argument(
@@ -296,6 +297,20 @@ def _print_snapshot(env, step: int) -> None:
         )
     if "inside_box" in getattr(command_term, "metrics", {}):
         metrics = command_term.metrics
+        stepper = command_term._stepper
+        stage = stepper.step_to_stage[stepper.step]
+        contact = good_object_contact(env, command_term.cfg.grasp_contact_force_threshold)
+        print(
+            f"[STEP {step:04d}]: clean-table grasp         "
+            f"stage={int(stage[0])} "
+            f"contact={bool(contact[0])} "
+            f"streak={int(command_term._grasp_contact_streak[0])} "
+            f"phase={int(command_term._grasp_phase_steps[0])} "
+            f"keep_open={bool(metrics['keep_hand_open'][0])} "
+            f"height={float(metrics['object_height_above_table'][0]):.5f} m "
+            f"lifted={bool(command_term.lifted[0])}",
+            flush=True,
+        )
         print(
             f"[STEP {step:04d}]: clean-table placement     "
             f"inside={bool(metrics['inside_box'][0])} "
@@ -329,6 +344,8 @@ def main() -> None:
             num_envs=args_cli.num_envs,
             use_fabric=True,
         )
+        if args_cli.seed is not None:
+            env_cfg.seed = args_cli.seed
 
         env = gym.make(args_cli.task, cfg=env_cfg)
         env_unwrapped = env.unwrapped

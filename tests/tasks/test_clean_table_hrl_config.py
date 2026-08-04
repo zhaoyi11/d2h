@@ -77,18 +77,25 @@ def test_clean_table_hrl_actions_and_command_match_runner_contract() -> None:
     assert ast.literal_eval(_keyword(command, "asset_name")) == "robot"
     assert ast.literal_eval(_keyword(command, "object_name")) == "object"
     assert ast.literal_eval(_keyword(command, "box_name")) == "receptive_object"
+    assert ast.literal_eval(_keyword(command, "hand_base_hold_until_stage")) == -1
     assert set(actions) == {"arm_action", "hand_action"}
     assert ast.unparse(actions["arm_action"].func).endswith("CommandHandBaseCuroboMpcActionCfg")
     assert ast.literal_eval(_keyword(actions["arm_action"], "command_name")) == "object_pose"
     assert ast.unparse(actions["hand_action"].func).endswith("EMAJointPositionToLimitsActionCfg")
     hrl_source = ast.unparse(_class(tree, "DexsuiteFrankaLeapCleanTableHrlEnvCfg"))
     assert "self.observations.low_level = ObservationsCfg.LowLevelObsCfg()" in hrl_source
+    assert "self.commands.object_pose.hand_base_hold_until_stage = 1" in hrl_source
+    assert "self.decimation = 4" in hrl_source
+    assert "self.sim.render_interval = self.decimation" in hrl_source
     assert "self.scene.robot.actuators['joints'].stiffness = 0.0" in hrl_source
     assert "self.scene.robot.actuators['joints'].damping = 0.0" in hrl_source
+    base_source = ast.unparse(_class(tree, "DexsuiteReorientEnvCfg"))
+    assert "self.decimation = 2" in base_source
 
 
 def test_clean_table_resets_keep_object_and_box_in_separate_regions() -> None:
     tree = ast.parse(ENV_CFG_PATH.read_text())
+    scene = _assignments(_class(tree, "SceneCfg"))
     events = _assignments(_class(tree, "EventCfg"))
     box_params = _keyword(events["reset_receptive_object"], "params")
     object_params = _keyword(events["reset_object"], "params")
@@ -99,6 +106,14 @@ def test_clean_table_resets_keep_object_and_box_in_separate_regions() -> None:
     assert tuple(ast.literal_eval(_dict_value(box_pose, "y"))) == (-0.05, 0.05)
     assert tuple(ast.literal_eval(_dict_value(object_pose, "x"))) == (-0.05, 0.05)
     assert tuple(ast.literal_eval(_dict_value(object_pose, "y"))) == (-0.05, 0.05)
+    assert tuple(ast.literal_eval(_dict_value(object_pose, "roll"))) == (-3.14, 3.14)
+    assert tuple(ast.literal_eval(_dict_value(object_pose, "pitch"))) == (-3.14, 3.14)
+    assert tuple(ast.literal_eval(_dict_value(object_pose, "yaw"))) == (-3.14, 3.14)
+    object_spawn = _keyword(scene["object"], "spawn")
+    assert ast.literal_eval(_keyword(object_spawn, "random_choice")) is True
+    usd_root = REPO_ROOT / "src/assets/visdex_objects/USD"
+    usd_paths = [path / f"{path.name}.usd" for path in usd_root.iterdir() if path.is_dir()]
+    assert len([path for path in usd_paths if path.is_file()]) == 152
 
     mass_params = _keyword(events["object_scale_mass"], "params")
     assert tuple(ast.literal_eval(_dict_value(mass_params, "mass_distribution_params"))) == (0.010, 0.100)
@@ -149,3 +164,24 @@ def test_instant_dexterity_reports_clean_table_success_metrics() -> None:
     assert 'if "inside_box" in getattr(command_term, "metrics", {}):' in source
     assert "clean-table placement" in source
     assert "success={bool(metrics['success'][0])}" in source
+
+
+def test_instant_dexterity_supports_deterministic_clean_table_diagnostics() -> None:
+    source = (REPO_ROOT / "scripts/instant_dexterity.py").read_text()
+    tree = ast.parse(source)
+
+    assert 'parser.add_argument("--seed", type=int, default=None' in source
+    assert source.index("env_cfg.seed = args_cli.seed") < source.index("env = gym.make")
+    clean_table_if = next(
+        node
+        for node in ast.walk(tree)
+        if isinstance(node, ast.If)
+        and any(
+            isinstance(child, ast.Constant) and child.value == "inside_box"
+            for child in ast.walk(node.test)
+        )
+    )
+    clean_table_source = ast.unparse(ast.Module(body=clean_table_if.body, type_ignores=[]))
+    assert "clean-table grasp" in clean_table_source
+    for field in ("stage=", "contact=", "streak=", "phase=", "keep_open=", "height=", "lifted="):
+        assert field in clean_table_source

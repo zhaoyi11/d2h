@@ -116,25 +116,27 @@ def _command_with_stages(stages: torch.Tensor):
     return command
 
 
-def test_release_and_retreat_ignore_object_goal_and_force_hand_open() -> None:
-    command = _command_with_stages(torch.tensor([0, 1, 5, 6]))
+def test_grasp_release_and_retreat_ignore_anchor_correction() -> None:
+    command = _command_with_stages(torch.tensor([0, 1, 2, 5, 6]))
 
     achieved = command._object_target_achieved()
     command._update_keep_hand_open_metric()
-    command._apply_objanchor_correction(torch.arange(4))
+    command._apply_objanchor_correction(torch.arange(5))
 
-    torch.testing.assert_close(achieved, torch.tensor([False, False, True, True]))
-    torch.testing.assert_close(command.metrics["keep_hand_open"], torch.tensor([1.0, 0.0, 1.0, 1.0]))
-    torch.testing.assert_close(command.corrected_env_ids, torch.tensor([0, 1]))
+    torch.testing.assert_close(achieved, torch.tensor([False, False, False, True, True]))
+    torch.testing.assert_close(
+        command.metrics["keep_hand_open"], torch.tensor([1.0, 0.0, 0.0, 1.0, 1.0])
+    )
+    torch.testing.assert_close(command.corrected_env_ids, torch.tensor([0, 2]))
 
 
-def test_release_and_retreat_do_not_apply_accumulated_anchor_correction() -> None:
-    command = _command_with_stages(torch.tensor([4, 5, 6]))
+def test_grasp_release_and_retreat_do_not_apply_accumulated_anchor_correction() -> None:
+    command = _command_with_stages(torch.tensor([1, 4, 5, 6]))
 
     correction = command._anchor_correction()
 
-    torch.testing.assert_close(correction[0], torch.ones(6))
-    torch.testing.assert_close(correction[1:], torch.zeros(2, 6))
+    torch.testing.assert_close(correction[1], torch.ones(6))
+    torch.testing.assert_close(correction[[0, 2, 3]], torch.zeros(3, 6))
 
 
 def test_success_requires_stable_containment_after_retreat_and_hand_clearance() -> None:

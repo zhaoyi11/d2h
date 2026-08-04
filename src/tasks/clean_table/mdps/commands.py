@@ -176,15 +176,21 @@ class CleanTableTrajectoryObjectAndHandBasePoseCommand(
 
     def _apply_objanchor_correction(self, env_ids: torch.Tensor) -> None:
         stage = self._current_stage(env_ids)
-        super()._apply_objanchor_correction(env_ids[stage < self._RELEASE_STAGE])
+        correction_active = (stage != self._GRASP_STAGE) & (
+            stage < self._RELEASE_STAGE
+        )
+        super()._apply_objanchor_correction(env_ids[correction_active])
 
     def _anchor_correction(self, env_ids=slice(None)) -> torch.Tensor | None:
         correction = super()._anchor_correction(env_ids)
         if correction is None or getattr(self, "_stepper", None) is None:
             return correction
         stage = self._current_stage(env_ids)
+        correction_active = (stage != self._GRASP_STAGE) & (
+            stage < self._RELEASE_STAGE
+        )
         return torch.where(
-            (stage < self._RELEASE_STAGE).unsqueeze(-1),
+            correction_active.unsqueeze(-1),
             correction,
             torch.zeros_like(correction),
         )

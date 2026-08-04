@@ -803,5 +803,8 @@ class DexsuiteFrankaLeapCleanTableHrlEnvCfg(
     def __post_init__(self):
         self.observations.low_level = ObservationsCfg.LowLevelObsCfg()
         super().__post_init__()
+        self.commands.object_pose.hand_base_hold_until_stage = 1
+        self.decimation = 4  # 30 Hz, matching the frozen hand policy.
+        self.sim.render_interval = self.decimation
         self.scene.robot.actuators["joints"].stiffness = 0.0
         self.scene.robot.actuators["joints"].damping = 0.0
