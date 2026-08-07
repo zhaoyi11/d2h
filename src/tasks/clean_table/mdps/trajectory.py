@@ -3,7 +3,7 @@
 #
 # SPDX-License-Identifier: BSD-3-Clause
 
-"""Clean-table reach, pick, deposit, release, and retreat trajectory."""
+"""Clean-table reach, pick, deposit, and release trajectory."""
 
 from __future__ import annotations
 
@@ -20,12 +20,11 @@ from src.policy.high_level.utils import (
 )
 
 
-# reach / establish grasp / lift / carry / deposit / release / retreat
-DEFAULT_CLEAN_TABLE_SEGMENT_STEPS = (0, 1, 1, 2, 2, 12, 2)
+# reach / establish grasp / lift-and-carry / deposit / release / retreat
+DEFAULT_CLEAN_TABLE_SEGMENT_STEPS = (0, 1, 1, 1, 1, 1)
 DEFAULT_CLEAN_TABLE_STAGE_OBJECT_TOLERANCES = (
     StageObjTol(0.02, 0.30),
     StageObjTol(0.02, 0.30),
-    StageObjTol(0.03, 0.30),
     StageObjTol(0.04, 0.50),
     StageObjTol(0.04, 0.60),
     StageObjTol(0.04, 0.60),
@@ -33,7 +32,7 @@ DEFAULT_CLEAN_TABLE_STAGE_OBJECT_TOLERANCES = (
 )
 
 DEFAULT_BOX_TARGET_OFFSET = (0.0, 0.0, 0.065)
-DEFAULT_BOX_RETREAT_OFFSET = (0.0, 0.0, 0.25)
+DEFAULT_BOX_ABOVE_OFFSET = (0.0, 0.0, 0.25)
 
 
 def _box_local_position_b(box_pose: torch.Tensor, local_offset: Sequence[float]) -> torch.Tensor:
@@ -47,54 +46,45 @@ def build_clean_table_object_pose_sequence(
     current_pose: torch.Tensor | Sequence[float],
     box_pose: torch.Tensor | Sequence[float],
     segment_steps: Sequence[int] = DEFAULT_CLEAN_TABLE_SEGMENT_STEPS,
-    lift_height: float = 0.08,
     box_target_offset: Sequence[float] = DEFAULT_BOX_TARGET_OFFSET,
-    retreat_offset: Sequence[float] = DEFAULT_BOX_RETREAT_OFFSET,
+    above_box_offset: Sequence[float] = DEFAULT_BOX_ABOVE_OFFSET,
 ) -> torch.Tensor:
     """Build the object-goal trajectory in the robot base frame.
 
-    The object keeps its settled orientation. The release keyframe is repeated so
-    the gate can open the hand before the final virtual object target raises the
-    now-empty hand out of the box.
+    The object keeps its settled orientation. Lift and carry are combined into one
+    move to the above-box keyframe. The deposited keyframe is repeated through
+    release and retreat; the command term moves the empty hand to its default pose.
     """
-    if len(segment_steps) != 7:
-        raise ValueError("segment_steps must contain 7 values.")
+    if len(segment_steps) != 6:
+        raise ValueError("segment_steps must contain 6 values.")
     if any(steps < 0 for steps in segment_steps):
         raise ValueError("segment_steps values must be non-negative.")
-    if segment_steps[5] < 1:
+    if segment_steps[4] < 1:
         raise ValueError("the release segment must contain at least one step.")
-    if lift_height < 0.0:
-        raise ValueError("lift_height must be non-negative.")
-
     current = _with_normalized_quat(_as_pose_tensor(current_pose))
     box = _with_normalized_quat(
         _as_pose_tensor(box_pose, dtype=current.dtype, device=current.device)
     )
 
-    lifted = current.clone()
-    lifted[2] += current.new_tensor(lift_height)
-
     deposit_pos = _box_local_position_b(box, box_target_offset)
-    retreat_pos = _box_local_position_b(box, retreat_offset)
-    above_box = torch.cat((retreat_pos, current[3:7]))
+    above_box_pos = _box_local_position_b(box, above_box_offset)
+    above_box = torch.cat((above_box_pos, current[3:7]))
     deposited = torch.cat((deposit_pos, current[3:7]))
-    retreated = torch.cat((retreat_pos, current[3:7]))
 
     keyframes = (
         current,
         current,
         current,
-        lifted,
         above_box,
         deposited,
         deposited,
-        retreated,
+        deposited,
     )
     return build_object_pose_sequence_from_keyframes(keyframes, segment_steps)
 
 
 __all__ = [
-    "DEFAULT_BOX_RETREAT_OFFSET",
+    "DEFAULT_BOX_ABOVE_OFFSET",
     "DEFAULT_BOX_TARGET_OFFSET",
     "DEFAULT_CLEAN_TABLE_SEGMENT_STEPS",
     "DEFAULT_CLEAN_TABLE_STAGE_OBJECT_TOLERANCES",

@@ -335,6 +335,28 @@ def _print_snapshot(env, step: int) -> None:
         )
 
 
+def _print_scene_resets(
+    env,
+    step: int,
+    terminated: torch.Tensor,
+    truncated: torch.Tensor,
+) -> None:
+    reset_env_ids = (terminated | truncated).nonzero().flatten()
+    if reset_env_ids.numel() == 0:
+        return
+    termination_manager = env.termination_manager
+    for env_id in reset_env_ids.tolist():
+        active_terms = [
+            term_name
+            for term_name in termination_manager.active_terms
+            if bool(termination_manager.get_term(term_name)[env_id])
+        ]
+        print(
+            f"[STEP {step:04d}]: scene reset env={env_id} terms={active_terms}",
+            flush=True,
+        )
+
+
 def main() -> None:
     env = None
     try:
@@ -387,7 +409,8 @@ def main() -> None:
                 actions = _low_level_actions(env_unwrapped, low_level_policy)
                 if gate is not None:
                     actions = gate.apply(actions, env_unwrapped)
-                env.step(actions)
+                _, _, terminated, truncated, _ = env.step(actions)
+            _print_scene_resets(env_unwrapped, step, terminated, truncated)
             _update_command_markers(env_unwrapped, target_object_marker, target_anchor_marker, target_base_marker)
             if args_cli.print_every > 0 and (step == 1 or step % args_cli.print_every == 0 or step == args_cli.steps):
                 _print_snapshot(env_unwrapped, step)

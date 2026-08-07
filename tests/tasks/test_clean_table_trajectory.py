@@ -68,24 +68,27 @@ DEFAULT_CLEAN_TABLE_SEGMENT_STEPS = trajectory_module.DEFAULT_CLEAN_TABLE_SEGMEN
 build_clean_table_object_pose_sequence = trajectory_module.build_clean_table_object_pose_sequence
 
 
-def test_clean_table_trajectory_releases_in_box_then_retreats() -> None:
+def test_clean_table_trajectory_combines_lift_and_carry_then_releases_in_box() -> None:
     current = torch.tensor([0.55, 0.25, 0.34, 0.5, 0.5, 0.5, 0.5])
     box = torch.tensor([0.50, -0.20, 0.271, 1.0, 0.0, 0.0, 0.0])
 
     trajectory = build_clean_table_object_pose_sequence(current, box)
 
     assert trajectory.shape == (1 + sum(DEFAULT_CLEAN_TABLE_SEGMENT_STEPS), 7)
+    assert len(DEFAULT_CLEAN_TABLE_SEGMENT_STEPS) == 6
     torch.testing.assert_close(trajectory[0], current)
     torch.testing.assert_close(trajectory[:, 3:7], current[3:7].expand_as(trajectory[:, 3:7]))
 
-    deposit_step = 1 + sum(DEFAULT_CLEAN_TABLE_SEGMENT_STEPS[:5])
-    release_end_step = 1 + sum(DEFAULT_CLEAN_TABLE_SEGMENT_STEPS[:6])
+    above_box_step = sum(DEFAULT_CLEAN_TABLE_SEGMENT_STEPS[:3])
+    deposit_step = sum(DEFAULT_CLEAN_TABLE_SEGMENT_STEPS[:4])
+    release_end_step = 1 + sum(DEFAULT_CLEAN_TABLE_SEGMENT_STEPS[:5])
+    torch.testing.assert_close(trajectory[above_box_step, :3], torch.tensor([0.50, -0.20, 0.521]))
     torch.testing.assert_close(trajectory[deposit_step, :3], torch.tensor([0.50, -0.20, 0.336]))
     torch.testing.assert_close(
         trajectory[deposit_step:release_end_step, :3],
         trajectory[deposit_step, :3].expand(release_end_step - deposit_step, 3),
     )
-    torch.testing.assert_close(trajectory[-1, :3], torch.tensor([0.50, -0.20, 0.521]))
+    torch.testing.assert_close(trajectory[-1, :3], trajectory[deposit_step, :3])
 
 
 def test_clean_table_trajectory_applies_box_rotation_to_local_offsets() -> None:
@@ -97,10 +100,17 @@ def test_clean_table_trajectory_applies_box_rotation_to_local_offsets() -> None:
         current,
         box,
         box_target_offset=(0.02, 0.0, 0.065),
-        retreat_offset=(0.02, 0.0, 0.25),
+        above_box_offset=(0.02, 0.0, 0.25),
     )
 
-    deposit_step = 1 + sum(DEFAULT_CLEAN_TABLE_SEGMENT_STEPS[:5])
+    above_box_step = sum(DEFAULT_CLEAN_TABLE_SEGMENT_STEPS[:3])
+    deposit_step = sum(DEFAULT_CLEAN_TABLE_SEGMENT_STEPS[:4])
+    torch.testing.assert_close(
+        trajectory[above_box_step, :3],
+        torch.tensor([0.42, -0.35, 0.30]),
+        atol=1.0e-6,
+        rtol=1.0e-6,
+    )
     torch.testing.assert_close(
         trajectory[deposit_step, :3],
         torch.tensor([0.42, -0.165, 0.30]),
@@ -109,13 +119,13 @@ def test_clean_table_trajectory_applies_box_rotation_to_local_offsets() -> None:
     )
     torch.testing.assert_close(
         trajectory[-1, :3],
-        torch.tensor([0.42, -0.35, 0.30]),
+        trajectory[deposit_step, :3],
         atol=1.0e-6,
         rtol=1.0e-6,
     )
 
 
-@pytest.mark.parametrize("steps", [(0, 1), (0, 1, 1, 2, 2, 12, -1)])
+@pytest.mark.parametrize("steps", [(0, 1), (0, 1, 3, 2, 12, -1)])
 def test_clean_table_trajectory_rejects_invalid_segment_steps(steps: tuple[int, ...]) -> None:
     pose = (0.0, 0.0, 0.0, 1.0, 0.0, 0.0, 0.0)
     with pytest.raises(ValueError):

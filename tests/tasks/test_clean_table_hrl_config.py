@@ -87,8 +87,8 @@ def test_clean_table_hrl_actions_and_command_match_runner_contract() -> None:
     assert "self.commands.object_pose.hand_base_hold_until_stage = 1" in hrl_source
     assert "self.commands.object_pose.drop_object_hand_distance = 0.12" in hrl_source
     assert "self.commands.object_pose.lift_height = 0.1" in hrl_source
-    assert hrl_source.count("StageObjTol(0.02, 0.3)") == 3
-    assert "*self.commands.object_pose.stage_object_tolerances[3:]" in hrl_source
+    assert hrl_source.count("StageObjTol(0.02, 0.3)") == 2
+    assert "*self.commands.object_pose.stage_object_tolerances[2:]" in hrl_source
     assert "self.decimation = 4" in hrl_source
     assert "self.episode_length_s = 30.0" in hrl_source
     assert "self.sim.render_interval = self.decimation" in hrl_source
@@ -185,6 +185,15 @@ def test_instant_dexterity_reports_clean_table_success_metrics() -> None:
     assert 'if "inside_box" in getattr(command_term, "metrics", {}):' in source
     assert "clean-table placement" in source
     assert "success={bool(metrics['success'][0])}" in source
+
+
+def test_instant_dexterity_reports_the_term_that_reset_the_scene() -> None:
+    source = (REPO_ROOT / "scripts/instant_dexterity.py").read_text()
+
+    assert "_, _, terminated, truncated, _ = env.step(actions)" in source
+    assert "termination_manager.active_terms" in source
+    assert "termination_manager.get_term(term_name)" in source
+    assert "scene reset" in source
 
 
 def test_instant_dexterity_supports_deterministic_clean_table_diagnostics() -> None:

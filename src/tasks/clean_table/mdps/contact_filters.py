@@ -4,7 +4,7 @@ from __future__ import annotations
 # The list order is the ContactSensor force-matrix filter order. Object contact must
 # remain index zero because the frozen policy and shared grasp terms rely on it.
 CONTACT_FILTER_TARGETS: list[tuple[str, str]] = [
-    ("object", "{ENV_REGEX_NS}/Object/.*"),
+    ("object", "{ENV_REGEX_NS}/Object/baseLink*"),
     ("receptive", "{ENV_REGEX_NS}/ReceptiveObject"),
     ("table", "{ENV_REGEX_NS}/Table"),
 ]

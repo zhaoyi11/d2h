@@ -12,7 +12,7 @@ from src.policy.high_level.trajectory_command import (
 from src.policy.high_level.trajectory_stepper import StageObjTol
 from src.tasks.common.mdps.rewards import contacts as good_object_contact
 from src.tasks.clean_table.mdps.trajectory import (
-    DEFAULT_BOX_RETREAT_OFFSET,
+    DEFAULT_BOX_ABOVE_OFFSET,
     DEFAULT_BOX_TARGET_OFFSET,
     DEFAULT_CLEAN_TABLE_SEGMENT_STEPS,
     DEFAULT_CLEAN_TABLE_STAGE_OBJECT_TOLERANCES,
@@ -23,17 +23,17 @@ from src.tasks.clean_table.mdps.trajectory import (
 class CleanTableTrajectoryObjectAndHandBasePoseCommand(
     TrajectoryObjectAndHandBasePoseCommand
 ):
-    """Follow a live-box pick, release, and hand-retreat trajectory."""
+    """Follow a live-box pick and release trajectory, then return the hand home."""
 
     cfg: "CleanTableTrajectoryObjectAndHandBasePoseCommandCfg"
 
     _GRASP_STAGE = 1
-    _RELEASE_STAGE = 5
-    _RETREAT_STAGE = 6
+    _RELEASE_STAGE = 4
+    _RETREAT_STAGE = 5
 
     def __init__(self, cfg, env) -> None:
-        if len(cfg.trajectory_segment_steps) != 7:
-            raise ValueError("trajectory_segment_steps must contain 7 values.")
+        if len(cfg.trajectory_segment_steps) != 6:
+            raise ValueError("trajectory_segment_steps must contain 6 values.")
         if cfg.trajectory_segment_steps[self._RELEASE_STAGE] < 1:
             raise ValueError("the release stage must contain at least one step.")
         if cfg.grasp_contact_stable_steps < 1:
@@ -43,6 +43,11 @@ class CleanTableTrajectoryObjectAndHandBasePoseCommand(
         if cfg.success_stable_steps < 1:
             raise ValueError("success_stable_steps must be at least 1.")
         super().__init__(cfg, env)
+
+        default_pos_b, default_quat_b = self._current_hand_base_pose_b()
+        self._default_hand_base_pose_b = torch.cat(
+            (default_pos_b, default_quat_b), dim=1
+        ).detach().clone()
 
         self.box: RigidObject = env.scene[cfg.box_name]
         self.table: RigidObject = env.scene[cfg.table_name]
@@ -86,13 +91,24 @@ class CleanTableTrajectoryObjectAndHandBasePoseCommand(
                 current_pose_b[index],
                 box_pose_b[index],
                 segment_steps=self.cfg.trajectory_segment_steps,
-                lift_height=self.cfg.lift_height,
                 box_target_offset=self.cfg.box_target_offset,
-                retreat_offset=self.cfg.retreat_offset,
+                above_box_offset=self.cfg.above_box_offset,
             )
             for index in range(env_ids.numel())
         ]
         return torch.stack(trajectories, dim=0)
+
+    def _update_hand_base_pose_command(self, env_ids=slice(None)) -> None:
+        super()._update_hand_base_pose_command(env_ids)
+        default_pose = getattr(self, "_default_hand_base_pose_b", None)
+        if default_pose is None or getattr(self, "_stepper", None) is None:
+            return
+        retreating = self._current_stage(env_ids) >= self._RETREAT_STAGE
+        self.hand_base_pose_command_b[env_ids] = torch.where(
+            retreating.unsqueeze(-1),
+            default_pose[env_ids],
+            self.hand_base_pose_command_b[env_ids],
+        )
 
     def _update_metrics(self) -> None:
         super()._update_metrics()
@@ -116,11 +132,17 @@ class CleanTableTrajectoryObjectAndHandBasePoseCommand(
 
         stage = self._current_stage()
         self.released[:] = stage >= self._RELEASE_STAGE
-        self.hand_clear[:] = self.metrics["hand_base_object_error"] > self.cfg.hand_clear_distance
+        hand_base_pos_b, _ = self._current_hand_base_pose_b()
+        object_pos_b, _ = self._current_object_pose_b()
+        self.hand_clear[:] = (
+            torch.norm(hand_base_pos_b - object_pos_b, dim=1)
+            > self.cfg.hand_clear_distance
+        )
         object_speed = torch.norm(self.object.data.root_lin_vel_w, dim=-1)
         stable_success = (
             self.inside_box
             & (stage >= self._RETREAT_STAGE)
+            & self._trajectory_command_achieved
             & self.hand_clear
             & (object_speed < self.cfg.success_settle_speed)
         )
@@ -237,7 +259,7 @@ class CleanTableTrajectoryObjectAndHandBasePoseCommandCfg(
     )
     lift_height: float = 0.08
     box_target_offset: tuple[float, float, float] = DEFAULT_BOX_TARGET_OFFSET
-    retreat_offset: tuple[float, float, float] = DEFAULT_BOX_RETREAT_OFFSET
+    above_box_offset: tuple[float, float, float] = DEFAULT_BOX_ABOVE_OFFSET
     box_min: tuple[float, float, float] = (-0.09, -0.15, 0.005)
     box_max: tuple[float, float, float] = (0.09, 0.15, 0.105)
     table_half_height: float = 0.02

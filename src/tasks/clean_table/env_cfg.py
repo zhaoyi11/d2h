@@ -107,7 +107,10 @@ class SceneCfg(InteractiveSceneCfg):
                 kinematic_enabled=True,
             ),
         ),
-        init_state=RigidObjectCfg.InitialStateCfg(pos=(0.55, -0.20, 0.271), rot=(1.0, 0.0, 0.0, 0.0)),
+        init_state=RigidObjectCfg.InitialStateCfg(
+            pos=(0.55, -0.35, 0.271),
+            rot=(0.7071068, 0.0, 0.0, 0.7071068),
+        ),
     )
 
     # table
@@ -156,7 +159,7 @@ class CommandsCfg:
         recovery_settle_speed=0.05,
         recovery_settle_steps=5,
         drop_object_hand_distance=0.10,
-        recovery_arm_after_stage=2,
+        recovery_arm_after_stage=1,
         capture_goal_after_settle=True,
         grasp_stall_steps=60,
         hand_open_until_stage=0,
@@ -612,9 +615,9 @@ class RewardsCfg:
         params={"command_name": "object_pose"},
     )
 
-    early_termination = RewTerm(
-        func=mdp.is_terminated_term, weight=-1, params={"term_keys": "abnormal_robot"}
-    )
+    # early_termination = RewTerm(
+    #     func=mdp.is_terminated_term, weight=-1, params={"term_keys": "abnormal_robot"}
+    # )
 
 
 @configclass
@@ -631,7 +634,7 @@ class TerminationsCfg:
         },
     )
 
-    abnormal_robot = DoneTerm(func=mdp.abnormal_robot_state)
+    # abnormal_robot = DoneTerm(func=mdp.abnormal_robot_state)
 
 
 @configclass
@@ -811,8 +814,7 @@ class DexsuiteFrankaLeapCleanTableHrlEnvCfg(
         self.commands.object_pose.stage_object_tolerances = (
             StageObjTol(0.02, 0.3),
             StageObjTol(0.02, 0.3),
-            StageObjTol(0.02, 0.3),
-            *self.commands.object_pose.stage_object_tolerances[3:],
+            *self.commands.object_pose.stage_object_tolerances[2:],
         )
         self.decimation = 4  # 30 Hz, matching the frozen hand policy.
         self.episode_length_s = 30.0
