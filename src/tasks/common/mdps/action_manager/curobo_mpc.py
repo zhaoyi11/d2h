@@ -120,6 +120,7 @@ class CommandHandBaseCuroboMpcAction(ActionTerm):
 
         self._raw_actions = torch.zeros(self.num_envs, 0, device=self.device)
         self._cmd_pos = q0.clone()
+        self._last_joint_position_target = self._cmd_pos.clone()
         self._cmd_vel = None
         self._target_pose_b = torch.zeros(self.num_envs, 7, device=self.device)
         self._target_pose_b[:, 3] = 1.0
@@ -135,6 +136,21 @@ class CommandHandBaseCuroboMpcAction(ActionTerm):
     @property
     def processed_actions(self) -> torch.Tensor:
         return self._raw_actions
+
+    @property
+    def ordered_joint_ids(self) -> tuple[int, ...]:
+        """Robot joint indices in the order used by cuRobo's position target."""
+        return tuple(self._ordered_joint_ids)
+
+    @property
+    def ordered_joint_names(self) -> tuple[str, ...]:
+        """Robot joint names in the order used by cuRobo's position target."""
+        return tuple(self._mpc.joint_names)
+
+    @property
+    def last_joint_position_target(self) -> torch.Tensor:
+        """Most recent arm target applied to the robot, preserved across environment reset."""
+        return self._last_joint_position_target
 
     def _arm_joint_state(self):
         # Feed the real joint position AND velocity so the MPC continues the trajectory with
@@ -192,6 +208,7 @@ class CommandHandBaseCuroboMpcAction(ActionTerm):
             self._cmd_pos = next_action.position.clone()
             if next_action.velocity is not None:
                 self._cmd_vel = next_action.velocity.clone()
+        self._last_joint_position_target[:] = self._cmd_pos
 
     def apply_actions(self):
         self._asset.set_joint_position_target(self._cmd_pos, joint_ids=self._ordered_joint_ids)
