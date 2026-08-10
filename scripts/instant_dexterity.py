@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import argparse
 import sys
+from datetime import datetime
 from pathlib import Path
 
 # Import Warp BEFORE the Isaac app so the site-packages Warp (1.14, required by cuRobo 0.8) is
@@ -42,6 +43,8 @@ parser.add_argument(
     default=0.08,
     help="Max hand-base<->live-object distance (m) to enable the hand policy; above it => stretch.",
 )
+parser.add_argument("--record_data", action="store_true", help="Record BC observations, actions, and reset states.")
+parser.add_argument("--record_dir", type=str, default=None, help="Output directory for recorded episode NPZ files.")
 AppLauncher.add_app_launcher_args(parser)
 args_cli = parser.parse_args()
 
@@ -63,6 +66,12 @@ from isaaclab.utils.math import (  # noqa: E402
     subtract_frame_transforms,
 )
 from src.policy.high_level.gate import LowLevelGateCfg, LowLevelHandGate  # noqa: E402
+from src.policy.instant_dexterity_recording import (  # noqa: E402
+    InstantDexterityEpisodeRecorder,
+    build_bc_action,
+    build_bc_observation,
+    flatten_scene_state,
+)
 from src.policy.low_level import load_low_level_rsl_rl_policy  # noqa: E402
 from src.tasks.common.mdps.rewards import contacts as good_object_contact  # noqa: E402
 
@@ -114,13 +123,59 @@ def _object_pose_in_hand_base_b(env, hand_pos_w: torch.Tensor, hand_quat_w: torc
     return torch.cat((object_pos_b, object_quat_b), dim=1)
 
 
-def _low_level_obs(env) -> torch.Tensor:
-    obs = env.observation_manager.compute_group("low_level")
+def _low_level_obs(env, observations=None) -> torch.Tensor:
+    obs = (
+        env.observation_manager.compute_group("low_level")
+        if observations is None
+        else observations["low_level"]
+    )
     return obs.reshape(env.num_envs, -1)
 
 
-def _low_level_actions(env, policy) -> torch.Tensor:
-    return policy.act(_low_level_obs(env))
+def _record_output_dir() -> Path:
+    if args_cli.record_dir is not None:
+        return Path(args_cli.record_dir).expanduser().resolve()
+    timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+    task_slug = args_cli.task.replace("/", "_")
+    return Path.cwd() / "datasets" / task_slug / f"instant_dexterity_{timestamp}"
+
+
+def _recording_metadata(env, low_level_obs, arm_action, hand_action) -> dict:
+    scene_fields = sorted(flatten_scene_state(env.scene.get_state(is_relative=True)))
+    articulation_joint_names = {
+        name: list(asset.joint_names) for name, asset in env.scene.articulations.items()
+    }
+    return {
+        "schema_version": 1,
+        "created_at": datetime.now().astimezone().isoformat(),
+        "task": args_cli.task,
+        "seed": args_cli.seed,
+        "num_envs": env.num_envs,
+        "step_dt": float(env.step_dt),
+        "low_level_checkpoint": str(Path(args_cli.low_level_checkpoint).expanduser()),
+        "observation": {
+            "low_level_dim": int(low_level_obs.shape[1]),
+            "bc_dim": int(low_level_obs.shape[1] + 21),
+            "bc_order": ["low_level", "arm_joint_pos", "arm_joint_vel", "hand_base_command"],
+        },
+        "action": {
+            "dim": 23,
+            "order": ["arm_delta", "hand_joint_target"],
+            "arm_delta": "target_minus_pre_step_position_radians",
+            "hand_joint_target": "ema_processed_absolute_position_radians",
+            "hand_policy_raw": "normalized_frozen_policy_output_before_gate",
+            "hand_policy_executed": "normalized_action_after_gate_sent_to_teacher_env",
+        },
+        "joint_order": {
+            "arm": list(arm_action.ordered_joint_names),
+            "hand": list(hand_action._joint_names),
+            "articulations": articulation_joint_names,
+        },
+        "scene_state": {
+            "relative_to_env_origin": True,
+            "fields": scene_fields,
+        },
+    }
 
 
 def _make_frame_marker(prim_path: str) -> VisualizationMarkers:
@@ -359,6 +414,7 @@ def _print_scene_resets(
 
 def main() -> None:
     env = None
+    recorder = None
     try:
         env_cfg = parse_env_cfg(
             args_cli.task,
@@ -374,7 +430,7 @@ def main() -> None:
 
         print(f"[INFO]: Gym observation space: {env.observation_space}", flush=True)
         print(f"[INFO]: Gym action space: {env.action_space}", flush=True)
-        env.reset()
+        observations, _ = env.reset()
         _validate_managers(env_unwrapped)
         _print_snapshot(env_unwrapped, 0)
 
@@ -384,7 +440,8 @@ def main() -> None:
         _update_command_markers(env_unwrapped, target_object_marker, target_anchor_marker, target_base_marker)
 
         action_dim = int(env_unwrapped.action_manager.total_action_dim)
-        actual_obs = int(_low_level_obs(env_unwrapped).shape[-1])
+        low_level_obs = _low_level_obs(env_unwrapped, observations)
+        actual_obs = int(low_level_obs.shape[-1])
         low_level_policy = load_low_level_rsl_rl_policy(
             args_cli.low_level_checkpoint,
             device=env_unwrapped.device,
@@ -404,12 +461,73 @@ def main() -> None:
         # live object's grasp anchor; otherwise hold the hand open (stretch).
         gate = LowLevelHandGate(LowLevelGateCfg(hand_at_object_dist=args_cli.gate_dist))
 
+        action_manager = env_unwrapped.action_manager
+        arm_action = action_manager.get_term("arm_action")
+        hand_action = action_manager.get_term("hand_action")
+        if args_cli.record_data:
+            output_dir = _record_output_dir()
+            recorder = InstantDexterityEpisodeRecorder(
+                output_dir=output_dir,
+                num_envs=env_unwrapped.num_envs,
+                metadata=_recording_metadata(env_unwrapped, low_level_obs, arm_action, hand_action),
+            )
+            print(f"[INFO]: Recording BC episodes to {output_dir}", flush=True)
+
         for step in range(1, args_cli.steps + 1):
             with torch.inference_mode():
-                actions = _low_level_actions(env_unwrapped, low_level_policy)
+                low_level_obs = _low_level_obs(env_unwrapped, observations)
+                hand_policy_action = low_level_policy.act(low_level_obs)
+                actions = hand_policy_action
                 if gate is not None:
                     actions = gate.apply(actions, env_unwrapped)
-                _, _, terminated, truncated, _ = env.step(actions)
+
+                if recorder is not None:
+                    robot = env_unwrapped.scene["robot"]
+                    arm_joint_ids = arm_action.ordered_joint_ids
+                    arm_joint_pos = robot.data.joint_pos[:, arm_joint_ids].clone()
+                    arm_joint_vel = robot.data.joint_vel[:, arm_joint_ids].clone()
+                    hand_base_command = env_unwrapped.command_manager.get_command("object_pose")[:, 7:14].clone()
+                    bc_observation = build_bc_observation(
+                        low_level_obs,
+                        arm_joint_pos,
+                        arm_joint_vel,
+                        hand_base_command,
+                    )
+                    step_data = {
+                        "observation.low_level": low_level_obs,
+                        "observation.arm_joint_pos": arm_joint_pos,
+                        "observation.arm_joint_vel": arm_joint_vel,
+                        "observation.hand_base_command": hand_base_command,
+                        "observation.bc": bc_observation,
+                        "action.hand_policy_raw": hand_policy_action,
+                        "action.hand_policy_executed": actions,
+                        **flatten_scene_state(env_unwrapped.scene.get_state(is_relative=True)),
+                    }
+
+                observations, reward, terminated, truncated, _ = env.step(actions)
+
+                if recorder is not None:
+                    arm_joint_target = arm_action.last_joint_position_target.clone()
+                    hand_joint_target = hand_action.processed_actions.clone()
+                    bc_action, arm_delta = build_bc_action(
+                        arm_joint_target,
+                        arm_joint_pos,
+                        hand_joint_target,
+                    )
+                    step_data.update(
+                        {
+                            "action": bc_action,
+                            "action.arm_delta": arm_delta,
+                            "action.arm_joint_target": arm_joint_target,
+                            "action.hand_joint_target": hand_joint_target,
+                        }
+                    )
+                    recorder.add_step(
+                        step_data,
+                        reward=reward,
+                        terminated=terminated,
+                        truncated=truncated,
+                    )
             _print_scene_resets(env_unwrapped, step, terminated, truncated)
             _update_command_markers(env_unwrapped, target_object_marker, target_anchor_marker, target_base_marker)
             if args_cli.print_every > 0 and (step == 1 or step % args_cli.print_every == 0 or step == args_cli.steps):
@@ -422,6 +540,9 @@ def main() -> None:
 
         print("[INFO]: Smoke test completed.", flush=True)
     finally:
+        if recorder is not None:
+            recorder.close()
+            print(f"[INFO]: Saved {recorder.num_saved} recorded episode files.", flush=True)
         if env is not None:
             env.close()
 

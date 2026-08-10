@@ -190,7 +190,7 @@ def test_instant_dexterity_reports_clean_table_success_metrics() -> None:
 def test_instant_dexterity_reports_the_term_that_reset_the_scene() -> None:
     source = (REPO_ROOT / "scripts/instant_dexterity.py").read_text()
 
-    assert "_, _, terminated, truncated, _ = env.step(actions)" in source
+    assert "observations, reward, terminated, truncated, _ = env.step(actions)" in source
     assert "termination_manager.active_terms" in source
     assert "termination_manager.get_term(term_name)" in source
     assert "scene reset" in source
