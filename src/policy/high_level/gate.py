@@ -19,10 +19,10 @@ against the commanded in-hand pose (rather than the object *root* against a fixe
 it invariant to reorientation: a large in-hand flip swings the object origin away from the hand and
 would otherwise spuriously trip the gate.
 
-The stretch pose is the open/flat hand (all finger joints at 0 rad). Because the hand action term
-uses ``rescale_to_limits=True`` (``unscale_transform`` maps ``[-1, 1]`` onto the joint limits), the
-policy's outputs are *normalized*; the open pose is therefore fed as ``scale_transform(open, lo, hi)``
-(the inverse of that mapping), not a zero vector.
+The stretch pose is the zero-action hand pose biased 10% toward the open/flat hand (all finger joints
+at 0 rad). Because the hand action term uses ``rescale_to_limits=True`` (``unscale_transform`` maps
+``[-1, 1]`` onto the joint limits), the open direction is computed with
+``scale_transform(open, lo, hi)`` and then scaled from the zero-action vector.
 """
 
 from __future__ import annotations
@@ -82,8 +82,9 @@ class LowLevelHandGate:
         else:
             open_pos = torch.as_tensor(self.cfg.open_joint_pos, dtype=lo.dtype, device=lo.device)
             open_pos = open_pos.reshape(1, -1).expand(lo.shape[0], -1)
-        # Inverse of the action term's unscale_transform: the normalized action mapping to the open pose.
-        self._stretch = math_utils.scale_transform(open_pos, lo, hi)
+        # Start at zero action and move 10% toward the normalized action for the open pose.
+        open_action = math_utils.scale_transform(open_pos, lo, hi)
+        self._stretch = 0.5 * open_action
         return self._stretch
 
     def use_low_level_mask(self, unwrapped) -> Tensor:
