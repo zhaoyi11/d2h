@@ -314,9 +314,19 @@ def test_frozen_reset_viewer_resets_and_pauses_without_actions() -> None:
         for node in calls
         if isinstance(node.func, ast.Attribute)
     ]
+    parser_arguments = [
+        node.args[0].value
+        for node in calls
+        if isinstance(node.func, ast.Attribute)
+        and node.func.attr == "add_argument"
+        and node.args
+        and isinstance(node.args[0], ast.Constant)
+        and isinstance(node.args[0].value, str)
+    ]
     assert "reset" in attributes
     assert "pause" in attributes
     assert "update" in attributes
     assert "step" not in attributes
+    assert "--disable_fabric" in parser_arguments
     assert "reset_dataset_dir" in source
     assert 'Clean_Table_OmniReset-v0' in source

@@ -10,6 +10,9 @@ from isaaclab.app import AppLauncher
 parser = argparse.ArgumentParser(description="Visualize one frozen clean-table OmniReset state.")
 parser.add_argument("--num_envs", type=int, default=1, help="Number of reset states to visualize.")
 parser.add_argument(
+    "--disable_fabric", action="store_true", default=False, help="Disable fabric and use USD I/O operations."
+)
+parser.add_argument(
     "--reset_dataset_dir",
     type=str,
     default=None,
