@@ -196,7 +196,12 @@ def _fake_env() -> SimpleNamespace:
             root_quat_w=torch.tensor([[1.0, 0.0, 0.0, 0.0]], dtype=torch.float32),
         )
     )
-    table = SimpleNamespace(data=SimpleNamespace(root_pos_w=torch.tensor([[0.55, 0.0, 0.235]])))
+    table = SimpleNamespace(
+        data=SimpleNamespace(
+            root_pos_w=torch.tensor([[0.55, 0.0, 0.235]]),
+            root_quat_w=torch.tensor([[1.0, 0.0, 0.0, 0.0]]),
+        )
+    )
     return SimpleNamespace(scene={"robot": robot, "object": object_asset, "receptive_object": box, "table": table})
 
 
@@ -209,14 +214,18 @@ def _load_task_mdps(monkeypatch):
             self.body_names = body_names
             self.body_ids = [0]
 
+    def subtract_frame_transforms(parent_pos, parent_quat, child_pos, child_quat):
+        offset = child_pos - parent_pos
+        quaternion_xyz = parent_quat[:, 1:]
+        twice_cross = 2.0 * quaternion_xyz.cross(offset, dim=-1)
+        position = offset - parent_quat[:, :1] * twice_cross + quaternion_xyz.cross(twice_cross, dim=-1)
+        return position, child_quat
+
     math_module = SimpleNamespace(
         quat_apply_inverse=lambda quat, value: value,
         quat_inv=lambda quat: quat,
         quat_mul=lambda first, second: second,
-        subtract_frame_transforms=lambda parent_pos, parent_quat, child_pos, child_quat: (
-            child_pos - parent_pos,
-            child_quat,
-        ),
+        subtract_frame_transforms=subtract_frame_transforms,
     )
     monkeypatch.setitem(sys.modules, "isaaclab.assets", assets)
     monkeypatch.setitem(sys.modules, "isaaclab.managers", SimpleNamespace(SceneEntityCfg=SceneEntityCfg))
@@ -260,6 +269,32 @@ def test_geometry_rewards_and_success_are_progress_free(monkeypatch) -> None:
     )
 
 
+def test_object_outside_table_uses_loaded_table_frame(monkeypatch) -> None:
+    mdp = _load_task_mdps(monkeypatch)
+
+    env = _fake_env()
+    object_cfg = SimpleNamespace(name="object")
+    table_cfg = SimpleNamespace(name="table")
+    table_position = env.scene["table"].data.root_pos_w[0]
+
+    env.scene["object"].data.root_pos_w[0] = table_position + torch.tensor([0.39, 0.0, 1.0])
+    assert not bool(mdp.object_outside_table(env, object_cfg=object_cfg, table_cfg=table_cfg)[0])
+
+    env.scene["object"].data.root_pos_w[0] = table_position + torch.tensor([0.401, 0.0, 0.1])
+    assert bool(mdp.object_outside_table(env, object_cfg=object_cfg, table_cfg=table_cfg)[0])
+
+    env.scene["object"].data.root_pos_w[0] = table_position + torch.tensor([0.0, 0.751, 0.1])
+    assert bool(mdp.object_outside_table(env, object_cfg=object_cfg, table_cfg=table_cfg)[0])
+
+    env.scene["object"].data.root_pos_w[0] = table_position + torch.tensor([0.0, 0.0, 0.019])
+    assert bool(mdp.object_outside_table(env, object_cfg=object_cfg, table_cfg=table_cfg)[0])
+
+    half_sqrt_two = 2.0**-0.5
+    env.scene["table"].data.root_quat_w[0] = torch.tensor([half_sqrt_two, 0.0, 0.0, half_sqrt_two])
+    env.scene["object"].data.root_pos_w[0] = table_position + torch.tensor([0.0, 0.401, 0.1])
+    assert bool(mdp.object_outside_table(env, object_cfg=object_cfg, table_cfg=table_cfg)[0])
+
+
 def _class(tree: ast.Module, name: str) -> ast.ClassDef:
     return next(node for node in ast.walk(tree) if isinstance(node, ast.ClassDef) and node.name == name)
 
@@ -293,6 +328,11 @@ def test_env_config_is_independent_rl_only_and_uses_split_controllers() -> None:
 
     rewards = ast.unparse(_class(tree, "RewardsCfg"))
     assert "hand_base_cfg" in rewards
+
+    terminations = ast.unparse(_class(tree, "TerminationsCfg"))
+    assert "object_outside_table" in terminations
+    assert "table_cfg" in terminations
+    assert "out_of_bound" not in terminations
 
     events_source = (
         REPO_ROOT / "src/tasks/clean_table_omnireset/mdps/events.py"

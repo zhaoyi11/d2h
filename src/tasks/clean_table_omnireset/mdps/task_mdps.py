@@ -58,6 +58,27 @@ def object_height_above_table(
     return object_asset.data.root_pos_w[:, 2] - (table.data.root_pos_w[:, 2] + table_half_height)
 
 
+def object_outside_table(
+    env: ManagerBasedRLEnv,
+    table_half_extents: tuple[float, float] = (0.4, 0.75),
+    table_half_height: float = 0.02,
+    object_cfg: SceneEntityCfg = SceneEntityCfg("object"),
+    table_cfg: SceneEntityCfg = SceneEntityCfg("table"),
+) -> torch.Tensor:
+    object_asset: RigidObject = env.scene[object_cfg.name]
+    table: RigidObject = env.scene[table_cfg.name]
+    position, _ = subtract_frame_transforms(
+        table.data.root_pos_w,
+        table.data.root_quat_w,
+        object_asset.data.root_pos_w,
+        None,
+    )
+    half_extents = position.new_tensor(table_half_extents)
+    outside_footprint = (position[:, :2].abs() > half_extents).any(dim=1)
+    below_surface = position[:, 2] < table_half_height
+    return outside_footprint | below_surface
+
+
 def lift_reward(
     env: ManagerBasedRLEnv,
     target_height: float = 0.08,
@@ -144,6 +165,7 @@ __all__ = [
     "inside_box_reward",
     "lift_reward",
     "object_height_above_table",
+    "object_outside_table",
     "object_pos_box",
     "placed_and_released",
     "success_reward",

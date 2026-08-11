@@ -278,11 +278,11 @@ class RewardsCfg:
 @configclass
 class TerminationsCfg:
     time_out = DoneTerm(func=task_mdps.time_out, time_out=True)
-    object_out_of_bound = DoneTerm(
-        func=task_mdps.out_of_bound,
+    object_outside_table = DoneTerm(
+        func=mdp.object_outside_table,
         params={
-            "in_bound_range": {"x": (-0.5, 1.5), "y": (-2.0, 2.0), "z": (0.0, 2.0)},
-            "asset_cfg": SceneEntityCfg("object"),
+            "object_cfg": SceneEntityCfg("object"),
+            "table_cfg": SceneEntityCfg("table"),
         },
     )
     success = DoneTerm(
