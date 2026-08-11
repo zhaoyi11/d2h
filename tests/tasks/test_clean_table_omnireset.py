@@ -154,6 +154,32 @@ def test_reset_pool_rejects_bad_shapes_and_non_finite_values(tmp_path: Path) -> 
         load_reset_state_pool(tmp_path / "missing_complete", ROBOT_JOINT_NAMES, device="cpu")
 
 
+def test_reset_pool_excludes_inside_box_states() -> None:
+    from src.tasks.clean_table_omnireset.mdps.geometry import outside_box_state_indices
+
+    half_sqrt_two = 2.0**-0.5
+    box_pose = torch.tensor(
+        [0.0, 0.0, 0.0, half_sqrt_two, 0.0, 0.0, half_sqrt_two],
+        dtype=torch.float32,
+    ).repeat(2, 1)
+    object_pose = torch.tensor(
+        [
+            [0.0, 0.08, 0.05, 1.0, 0.0, 0.0, 0.0],
+            [0.0, 0.11, 0.05, 1.0, 0.0, 0.0, 0.0],
+        ],
+        dtype=torch.float32,
+    )
+
+    box_min = (-0.09, -0.15, 0.005)
+    box_max = (0.09, 0.15, 0.105)
+    torch.testing.assert_close(
+        outside_box_state_indices(object_pose, box_pose, box_min, box_max),
+        torch.tensor([1]),
+    )
+    with pytest.raises(ValueError, match="outside-box"):
+        outside_box_state_indices(object_pose[:1], box_pose[:1], box_min, box_max)
+
+
 def _fake_env() -> SimpleNamespace:
     robot = SimpleNamespace(
         data=SimpleNamespace(body_pos_w=torch.tensor([[[0.55, 0.0, 0.60]]], dtype=torch.float32))
