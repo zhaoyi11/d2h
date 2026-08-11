@@ -301,3 +301,22 @@ assert spec.kwargs['rsl_rl_cfg_entry_point'].endswith(
     trainer_source = (REPO_ROOT / "src/tasks/clean_table_omnireset/rsl_rl_ppo_cfg.py").read_text()
     assert 'experiment_name = "clean_table_omnireset"' in trainer_source
     assert '"policy": ["policy", "proprio", "perception"]' in trainer_source
+
+
+def test_frozen_reset_viewer_resets_and_pauses_without_actions() -> None:
+    viewer_path = REPO_ROOT / "scripts/visualize_clean_table_omnireset.py"
+    source = viewer_path.read_text()
+    tree = ast.parse(source)
+
+    calls = [node for node in ast.walk(tree) if isinstance(node, ast.Call)]
+    attributes = [
+        node.func.attr
+        for node in calls
+        if isinstance(node.func, ast.Attribute)
+    ]
+    assert "reset" in attributes
+    assert "pause" in attributes
+    assert "update" in attributes
+    assert "step" not in attributes
+    assert "reset_dataset_dir" in source
+    assert 'Clean_Table_OmniReset-v0' in source
