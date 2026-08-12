@@ -108,6 +108,22 @@ gym.register(
     },
 )
 
+gym.register(
+    id="Pick_Insert_OmniReset-v0",
+    entry_point="isaaclab.envs:ManagerBasedRLEnv",
+    disable_env_checker=True,
+    kwargs={
+        "env_cfg_entry_point": (
+            f"{__name__}.pick_insert_omnireset.env_cfg:"
+            "DexsuiteFrankaLeapPickInsertOmniResetEnvCfg"
+        ),
+        "rsl_rl_cfg_entry_point": (
+            "src.tasks.pick_insert_omnireset.rsl_rl_ppo_cfg:"
+            "PickInsertOmniResetRslRlPpoCfg"
+        ),
+    },
+)
+
 # Unscrew Environment
 gym.register(
     id="Unscrew-v0",
