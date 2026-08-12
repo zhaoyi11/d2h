@@ -6,7 +6,7 @@ from typing import TYPE_CHECKING
 
 import torch
 from isaaclab.assets import Articulation, RigidObject
-from isaaclab.managers import SceneEntityCfg
+from isaaclab.managers import ManagerTermBase, ManagerTermBaseCfg, SceneEntityCfg
 from isaaclab.utils.math import (
     quat_apply,
     quat_apply_inverse,
@@ -15,10 +15,12 @@ from isaaclab.utils.math import (
     subtract_frame_transforms,
 )
 
+from src.tasks.pick_insert_omnireset.mdps.asset_geometry import (
+    insertion_geometry_from_assets,
+)
 from src.tasks.pick_insert_omnireset.mdps.geometry import (
-    SUCCESS_AXIS_TOL,
-    SUCCESS_DEPTH,
-    SUCCESS_POS_TOL,
+    INSERTION_SHAPING_TARGET_DEPTH,
+    peg_inside_rectangular_hole,
 )
 
 if TYPE_CHECKING:
@@ -148,7 +150,7 @@ def peg_insertion_depth(
     object_cfg: SceneEntityCfg = SceneEntityCfg("object"),
     hole_cfg: SceneEntityCfg = SceneEntityCfg("receptive_object"),
     table_cfg: SceneEntityCfg = SceneEntityCfg("table"),
-    target_depth: float = SUCCESS_DEPTH,
+    target_depth: float = INSERTION_SHAPING_TARGET_DEPTH,
     approach_height: float = 0.08,
     xy_tolerance: float = 0.04,
     axis_tolerance: float = 0.25,
@@ -180,39 +182,40 @@ def peg_insertion_depth(
     )
 
 
-def peg_inserted_success(
-    env: ManagerBasedRLEnv,
-    object_cfg: SceneEntityCfg = SceneEntityCfg("object"),
-    hole_cfg: SceneEntityCfg = SceneEntityCfg("receptive_object"),
-    pos_tol: float = SUCCESS_POS_TOL,
-    axis_tol: float = SUCCESS_AXIS_TOL,
-    depth: float = SUCCESS_DEPTH,
-) -> torch.Tensor:
-    object_asset: RigidObject = env.scene[object_cfg.name]
-    hole: RigidObject = env.scene[hole_cfg.name]
-    target_position = hole.data.root_pos_w.clone()
-    target_position[:, 2] += depth
-    position_distance = torch.norm(object_asset.data.root_pos_w - target_position, dim=1)
-    axis_error = 1.0 - _peg_hole_axis_dot(env, object_cfg, hole_cfg)
-    return (position_distance < pos_tol) & (axis_error < axis_tol)
+class PegInsideHole(ManagerTermBase):
+    """Shared asset-derived insertion predicate for rewards and terminations."""
 
+    def __init__(self, cfg: ManagerTermBaseCfg, env: ManagerBasedRLEnv):
+        super().__init__(cfg, env)
+        object_cfg: SceneEntityCfg = cfg.params["object_cfg"]
+        hole_cfg: SceneEntityCfg = cfg.params["hole_cfg"]
+        self._geometry = insertion_geometry_from_assets(
+            env.scene[object_cfg.name],
+            env.scene[hole_cfg.name],
+            env.device,
+        )
 
-def success_reward(
-    env: ManagerBasedRLEnv,
-    object_cfg: SceneEntityCfg = SceneEntityCfg("object"),
-    hole_cfg: SceneEntityCfg = SceneEntityCfg("receptive_object"),
-    pos_tol: float = SUCCESS_POS_TOL,
-    axis_tol: float = SUCCESS_AXIS_TOL,
-    depth: float = SUCCESS_DEPTH,
-) -> torch.Tensor:
-    return peg_inserted_success(
-        env,
-        object_cfg=object_cfg,
-        hole_cfg=hole_cfg,
-        pos_tol=pos_tol,
-        axis_tol=axis_tol,
-        depth=depth,
-    ).float()
+    def __call__(
+        self,
+        env: ManagerBasedRLEnv,
+        object_cfg: SceneEntityCfg = SceneEntityCfg("object"),
+        hole_cfg: SceneEntityCfg = SceneEntityCfg("receptive_object"),
+    ) -> torch.Tensor:
+        object_asset: RigidObject = env.scene[object_cfg.name]
+        hole: RigidObject = env.scene[hole_cfg.name]
+        object_root_pose = torch.cat(
+            (object_asset.data.root_pos_w, object_asset.data.root_quat_w),
+            dim=1,
+        )
+        hole_root_pose = torch.cat(
+            (hole.data.root_pos_w, hole.data.root_quat_w),
+            dim=1,
+        )
+        return peg_inside_rectangular_hole(
+            object_root_pose,
+            hole_root_pose,
+            self._geometry,
+        )
 
 
 def _pick_insert_gate(
@@ -268,7 +271,6 @@ __all__ = [
     "object_pose_hole",
     "object_to_hole_xy_tanh",
     "peg_hole_axis_alignment",
-    "peg_inserted_success",
+    "PegInsideHole",
     "peg_insertion_depth",
-    "success_reward",
 ]

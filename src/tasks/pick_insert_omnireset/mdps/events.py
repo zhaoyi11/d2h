@@ -7,6 +7,7 @@ from typing import TYPE_CHECKING
 import torch
 from isaaclab.managers import EventTermCfg, ManagerTermBase
 
+from .asset_geometry import insertion_geometry_from_assets
 from .reset_dataset import load_reset_state_pool
 
 if TYPE_CHECKING:
@@ -29,10 +30,16 @@ class ResetSceneFromInstantDexterity(ManagerTermBase):
 
     def __init__(self, cfg: EventTermCfg, env: ManagerBasedEnv):
         super().__init__(cfg, env)
+        geometry = insertion_geometry_from_assets(
+            env.scene["object"],
+            env.scene["receptive_object"],
+            env.device,
+        )
         self._pool = load_reset_state_pool(
             env.cfg.reset_dataset_path,
             env.scene["robot"].joint_names,
             env.device,
+            geometry,
         )
 
     def __call__(self, env: ManagerBasedEnv, env_ids) -> None:

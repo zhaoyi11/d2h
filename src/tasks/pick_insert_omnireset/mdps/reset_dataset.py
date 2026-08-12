@@ -10,7 +10,10 @@ from pathlib import Path
 import numpy as np
 import torch
 
-from .geometry import unfinished_state_indices
+from .geometry import (
+    RectangularInsertionGeometry,
+    unfinished_state_indices,
+)
 
 
 _EXPECTED_TASK = "Pick_Insert_HRL-v0"
@@ -137,6 +140,7 @@ def load_reset_state_pool(
     dataset_path: str | Path,
     expected_joint_names: Sequence[str],
     device: str | torch.device,
+    geometry: RectangularInsertionGeometry,
 ) -> ResetStatePool:
     archive_path = Path(dataset_path).expanduser().resolve()
     if not archive_path.is_file():
@@ -155,7 +159,11 @@ def load_reset_state_pool(
         static_obstacle_root_pose=tensor("state.rigid_object.static_obstacle.root_pose"),
         table_root_pose=tensor("state.rigid_object.table.root_pose"),
     )
-    indices = unfinished_state_indices(pool.object_root_pose, pool.receptive_object_root_pose)
+    indices = unfinished_state_indices(
+        pool.object_root_pose,
+        pool.receptive_object_root_pose,
+        geometry,
+    )
     return ResetStatePool(
         robot_root_pose=pool.robot_root_pose.index_select(0, indices),
         robot_joint_position=pool.robot_joint_position.index_select(0, indices),

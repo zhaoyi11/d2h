@@ -13,6 +13,8 @@ import numpy as np
 import pytest
 import torch
 
+from src.tasks.pick_insert_omnireset.mdps.geometry import RectangularInsertionGeometry
+
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
 ENV_CFG_PATH = REPO_ROOT / "src/tasks/pick_insert_omnireset/env_cfg.py"
@@ -77,11 +79,38 @@ def _poses(length: int, xyz: tuple[float, float, float]) -> np.ndarray:
     return poses
 
 
+def _insertion_geometry() -> RectangularInsertionGeometry:
+    return RectangularInsertionGeometry(
+        peg_bottom_corners_o=torch.tensor(
+            [
+                [-0.0225, -0.0225, -0.0450],
+                [-0.0225, 0.0225, -0.0450],
+                [0.0225, -0.0225, -0.0450],
+                [0.0225, 0.0225, -0.0450],
+            ]
+        ),
+        peg_opposite_corners_o=torch.tensor(
+            [
+                [-0.0225, -0.0225, 0.0450],
+                [-0.0225, 0.0225, 0.0450],
+                [0.0225, -0.0225, 0.0450],
+                [0.0225, 0.0225, 0.0450],
+            ]
+        ),
+        hole_bottom_position_h=torch.tensor([0.0, 0.0, -0.015163]),
+        hole_bottom_quaternion_h=torch.tensor([1.0, 0.0, 0.0, 0.0]),
+        aperture_min_i=torch.tensor([-0.0320, -0.0320]),
+        aperture_max_i=torch.tensor([0.0320, 0.0320]),
+        cavity_floor_z_i=torch.tensor(0.0),
+        cavity_mouth_z_i=torch.tensor(0.036703),
+    )
+
+
 def _episode() -> dict[str, np.ndarray]:
     length = 2
     object_pose = _poses(length, (0.45, 0.20, 0.30))
-    # Frame one is exactly at the configured insertion target and must be filtered.
-    object_pose[1, :3] = (0.35, 0.0, 0.29)
+    # Frame one has the designated peg end inside the cavity and must be filtered.
+    object_pose[1, :3] = (0.35, 0.0, 0.335)
     return {
         "state.articulation.robot.root_pose": _poses(length, (0.0, 0.0, 0.0)),
         "state.articulation.robot.root_velocity": np.ones((length, 6), dtype=np.float32),
@@ -114,7 +143,7 @@ def test_reset_pool_loads_only_named_archive_filters_success_and_zeros_velocitie
     # An invalid sibling proves the loader does not glob the directory.
     np.savez_compressed(archive.parent / "0000000001.npz", unexpected=np.zeros(1))
 
-    pool = load_reset_state_pool(archive, ROBOT_JOINT_NAMES, device="cpu")
+    pool = load_reset_state_pool(archive, ROBOT_JOINT_NAMES, device="cpu", geometry=_insertion_geometry())
 
     assert pool.num_states == 1
     state = pool.scene_state(torch.tensor([0]))
@@ -135,21 +164,21 @@ def test_reset_pool_rejects_metadata_source_and_invalid_values(tmp_path: Path) -
     wrong_task_path = tmp_path / "wrong_task" / "0000000000.npz"
     _write_dataset(wrong_task_path, _episode(), wrong_task)
     with pytest.raises(ValueError, match="Pick_Insert_HRL-v0"):
-        load_reset_state_pool(wrong_task_path, ROBOT_JOINT_NAMES, device="cpu")
+        load_reset_state_pool(wrong_task_path, ROBOT_JOINT_NAMES, device="cpu", geometry=_insertion_geometry())
 
     wrong_source = _episode()
     wrong_source["source_env_id"] = np.asarray(1, dtype=np.int64)
     wrong_source_path = tmp_path / "wrong_source" / "0000000000.npz"
     _write_dataset(wrong_source_path, wrong_source)
     with pytest.raises(ValueError, match="source_env_id"):
-        load_reset_state_pool(wrong_source_path, ROBOT_JOINT_NAMES, device="cpu")
+        load_reset_state_pool(wrong_source_path, ROBOT_JOINT_NAMES, device="cpu", geometry=_insertion_geometry())
 
     non_finite = _episode()
     non_finite["state.rigid_object.object.root_pose"][0, 0] = np.nan
     non_finite_path = tmp_path / "non_finite" / "0000000000.npz"
     _write_dataset(non_finite_path, non_finite)
     with pytest.raises(ValueError, match="finite"):
-        load_reset_state_pool(non_finite_path, ROBOT_JOINT_NAMES, device="cpu")
+        load_reset_state_pool(non_finite_path, ROBOT_JOINT_NAMES, device="cpu", geometry=_insertion_geometry())
 
 
 def test_reset_pool_rejects_joint_order_and_field_shape(tmp_path: Path) -> None:
@@ -160,14 +189,14 @@ def test_reset_pool_rejects_joint_order_and_field_shape(tmp_path: Path) -> None:
     wrong_order_path = tmp_path / "wrong_order" / "0000000000.npz"
     _write_dataset(wrong_order_path, _episode(), wrong_order)
     with pytest.raises(ValueError, match="joint order"):
-        load_reset_state_pool(wrong_order_path, ROBOT_JOINT_NAMES, device="cpu")
+        load_reset_state_pool(wrong_order_path, ROBOT_JOINT_NAMES, device="cpu", geometry=_insertion_geometry())
 
     bad_shape = _episode()
     bad_shape["state.articulation.robot.joint_position"] = np.zeros((2, 22), dtype=np.float32)
     bad_shape_path = tmp_path / "bad_shape" / "0000000000.npz"
     _write_dataset(bad_shape_path, bad_shape)
     with pytest.raises(ValueError, match="joint_position"):
-        load_reset_state_pool(bad_shape_path, ROBOT_JOINT_NAMES, device="cpu")
+        load_reset_state_pool(bad_shape_path, ROBOT_JOINT_NAMES, device="cpu", geometry=_insertion_geometry())
 
 
 def test_reset_pool_rejects_archive_with_only_inserted_states(tmp_path: Path) -> None:
@@ -181,7 +210,7 @@ def test_reset_pool_rejects_archive_with_only_inserted_states(tmp_path: Path) ->
     _write_dataset(archive, episode)
 
     with pytest.raises(ValueError, match="unfinished"):
-        load_reset_state_pool(archive, ROBOT_JOINT_NAMES, device="cpu")
+        load_reset_state_pool(archive, ROBOT_JOINT_NAMES, device="cpu", geometry=_insertion_geometry())
 
 
 def _load_task_mdps(monkeypatch):
@@ -191,6 +220,11 @@ def _load_task_mdps(monkeypatch):
         def __init__(self, name, body_names=None):
             self.name = name
             self.body_names = body_names
+
+    class ManagerTermBase:
+        def __init__(self, cfg, env):
+            self.cfg = cfg
+            self._env = env
 
     def subtract_frame_transforms(parent_pos, parent_quat, child_pos, child_quat):
         return child_pos - parent_pos, child_quat
@@ -203,7 +237,15 @@ def _load_task_mdps(monkeypatch):
         subtract_frame_transforms=subtract_frame_transforms,
     )
     monkeypatch.setitem(sys.modules, "isaaclab.assets", assets)
-    monkeypatch.setitem(sys.modules, "isaaclab.managers", SimpleNamespace(SceneEntityCfg=SceneEntityCfg))
+    monkeypatch.setitem(
+        sys.modules,
+        "isaaclab.managers",
+        SimpleNamespace(
+            ManagerTermBase=ManagerTermBase,
+            ManagerTermBaseCfg=object,
+            SceneEntityCfg=SceneEntityCfg,
+        ),
+    )
     monkeypatch.setitem(sys.modules, "isaaclab.utils.math", math_module)
 
     path = REPO_ROOT / "src/tasks/pick_insert_omnireset/mdps/task_mdps.py"
@@ -214,11 +256,11 @@ def _load_task_mdps(monkeypatch):
     return module
 
 
-def test_live_hole_geometry_and_success_use_same_thresholds(monkeypatch) -> None:
+def test_live_success_uses_shared_containment_geometry(monkeypatch) -> None:
     mdp = _load_task_mdps(monkeypatch)
     object_asset = SimpleNamespace(
         data=SimpleNamespace(
-            root_pos_w=torch.tensor([[0.35, 0.0, 0.29]]),
+            root_pos_w=torch.tensor([[0.35, 0.0, 0.335]]),
             root_quat_w=torch.tensor([[1.0, 0.0, 0.0, 0.0]]),
         )
     )
@@ -236,6 +278,7 @@ def test_live_hole_geometry_and_success_use_same_thresholds(monkeypatch) -> None
     )
     env = SimpleNamespace(
         num_envs=1,
+        device="cpu",
         scene={"robot": robot, "object": object_asset, "receptive_object": hole_asset},
     )
     object_cfg = SimpleNamespace(name="object")
@@ -244,13 +287,22 @@ def test_live_hole_geometry_and_success_use_same_thresholds(monkeypatch) -> None
 
     torch.testing.assert_close(
         mdp.object_pose_hole(env, object_cfg=object_cfg, hole_cfg=hole_cfg),
-        torch.tensor([[0.0, 0.0, 0.015, 1.0, 0.0, 0.0, 0.0]]),
+        torch.tensor([[0.0, 0.0, 0.060, 1.0, 0.0, 0.0, 0.0]]),
     )
     torch.testing.assert_close(
         mdp.hole_pose_b(env, robot_cfg=robot_cfg, hole_cfg=hole_cfg),
         torch.tensor([[0.35, 0.0, 0.275, 1.0, 0.0, 0.0, 0.0]]),
     )
-    assert bool(mdp.peg_inserted_success(env, object_cfg=object_cfg, hole_cfg=hole_cfg)[0])
+    monkeypatch.setattr(
+        mdp,
+        "insertion_geometry_from_assets",
+        lambda object_asset, hole_asset, device: _insertion_geometry(),
+    )
+    cfg = SimpleNamespace(
+        params={"object_cfg": object_cfg, "hole_cfg": hole_cfg},
+    )
+    term = mdp.PegInsideHole(cfg, env)
+    assert bool(term(env, object_cfg=object_cfg, hole_cfg=hole_cfg)[0])
 
 
 def _class(tree: ast.Module, name: str) -> ast.ClassDef:
@@ -293,7 +345,7 @@ def test_env_config_is_independent_direct_rl_and_uses_split_controllers() -> Non
     assert "reset_from_dataset" in events
     assert "reset_object" not in events
     terminations = ast.unparse(_class(tree, "TerminationsCfg"))
-    assert "peg_inserted_success" in terminations
+    assert "PegInsideHole" in terminations
 
 
 def test_reset_event_samples_pool_and_restores_relative_scene_state() -> None:
@@ -303,6 +355,7 @@ def test_reset_event_samples_pool_and_restores_relative_scene_state() -> None:
     calls = [node for node in ast.walk(tree) if isinstance(node, ast.Call)]
 
     assert "env.cfg.reset_dataset_path" in source
+    assert "insertion_geometry_from_assets" in source
     assert any(
         isinstance(call.func, ast.Attribute)
         and isinstance(call.func.value, ast.Name)

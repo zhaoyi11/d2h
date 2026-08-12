@@ -29,11 +29,6 @@ from src.tasks.pick_insert_omnireset.mdps.contact_filters import (
     object_indices,
 )
 from src.tasks.pick_insert_omnireset.mdps.events import ResetSceneFromInstantDexterity
-from src.tasks.pick_insert_omnireset.mdps.geometry import (
-    SUCCESS_AXIS_TOL,
-    SUCCESS_DEPTH,
-    SUCCESS_POS_TOL,
-)
 
 
 _DEFAULT_RESET_DATASET_PATH = (
@@ -364,7 +359,6 @@ class RewardsCfg:
     #         "object_cfg": SceneEntityCfg("object"),
     #         "hole_cfg": SceneEntityCfg("receptive_object"),
     #         "table_cfg": SceneEntityCfg("table"),
-    #         "target_depth": SUCCESS_DEPTH,
     #         "approach_height": 0.08,
     #         "xy_tolerance": 0.04,
     #         "axis_tolerance": 0.25,
@@ -374,14 +368,11 @@ class RewardsCfg:
     #     },
     # )
     success = RewTerm(
-        func=mdp.success_reward,
+        func=mdp.PegInsideHole,
         weight=250.0,
         params={
             "object_cfg": SceneEntityCfg("object"),
             "hole_cfg": SceneEntityCfg("receptive_object"),
-            "pos_tol": SUCCESS_POS_TOL,
-            "axis_tol": SUCCESS_AXIS_TOL,
-            "depth": SUCCESS_DEPTH,
         },
     )
 
@@ -397,13 +388,10 @@ class TerminationsCfg:
         },
     )
     success = DoneTerm(
-        func=mdp.peg_inserted_success,
+        func=mdp.PegInsideHole,
         params={
             "object_cfg": SceneEntityCfg("object"),
             "hole_cfg": SceneEntityCfg("receptive_object"),
-            "pos_tol": SUCCESS_POS_TOL,
-            "axis_tol": SUCCESS_AXIS_TOL,
-            "depth": SUCCESS_DEPTH,
         },
     )
 
