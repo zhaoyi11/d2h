@@ -148,6 +148,13 @@ class ObservationsCfg:
             func=task_mdps.object_quat_b,
             noise=Unoise(n_min=0.0, n_max=0.0),
         )
+        object_lin_vel_b = ObsTerm(
+            func=mdp.object_lin_vel_robot_b,
+        )
+        object_ang_vel_b = ObsTerm(
+            func=mdp.object_ang_vel_robot_b,
+        )
+
         hole_pose_b = ObsTerm(
             func=mdp.hole_pose_b,
             params={"hole_cfg": SceneEntityCfg("receptive_object")},
@@ -302,7 +309,7 @@ class EventCfg:
 class RewardsCfg:
     action_l2 = RewTerm(
         func=task_mdps.action_l2_clamped,
-        weight=-0.002,
+        weight=-0.005,
     )
     action_rate_l2 = RewTerm(
         func=task_mdps.action_rate_l2_clamped,
@@ -310,65 +317,65 @@ class RewardsCfg:
     )
     fingers_to_object = RewTerm(
         func=task_mdps.object_ee_distance,
-        params={"std": 0.25},
+        params={"std": 0.4},
         weight=1.0,
     )
     good_finger_contact = RewTerm(
         func=task_mdps.contacts,
         params={"threshold": 1.0},
-        weight=1.0,
+        weight=0.5,
     )
-    object_lifted = RewTerm(
-        func=mdp.object_lifted_above_table,
-        weight=2.0,
-        params={
-            "object_cfg": SceneEntityCfg("object"),
-            "table_cfg": SceneEntityCfg("table"),
-            "height": 0.06,
-            "table_half_height": 0.02,
-        },
-    )
-    pre_insert_position = RewTerm(
-        func=mdp.object_to_hole_xy_tanh,
-        weight=4.0,
-        params={
-            "object_cfg": SceneEntityCfg("object"),
-            "hole_cfg": SceneEntityCfg("receptive_object"),
-            "table_cfg": SceneEntityCfg("table"),
-            "std": 0.08,
-            "contact_threshold": 1.0,
-            "lift_height": 0.06,
-            "lift_gate": 0.5,
-        },
-    )
-    insertion_orientation = RewTerm(
-        func=mdp.peg_hole_axis_alignment,
-        weight=3.0,
-        params={
-            "object_cfg": SceneEntityCfg("object"),
-            "hole_cfg": SceneEntityCfg("receptive_object"),
-            "std": 0.35,
-        },
-    )
-    insertion_depth = RewTerm(
-        func=mdp.peg_insertion_depth,
-        weight=8.0,
-        params={
-            "object_cfg": SceneEntityCfg("object"),
-            "hole_cfg": SceneEntityCfg("receptive_object"),
-            "table_cfg": SceneEntityCfg("table"),
-            "target_depth": SUCCESS_DEPTH,
-            "approach_height": 0.08,
-            "xy_tolerance": 0.04,
-            "axis_tolerance": 0.25,
-            "contact_threshold": 1.0,
-            "lift_height": 0.06,
-            "lift_gate": 0.5,
-        },
-    )
+    # object_lifted = RewTerm(
+    #     func=mdp.object_lifted_above_table,
+    #     weight=2.0,
+    #     params={
+    #         "object_cfg": SceneEntityCfg("object"),
+    #         "table_cfg": SceneEntityCfg("table"),
+    #         "height": 0.06,
+    #         "table_half_height": 0.02,
+    #     },
+    # )
+    # pre_insert_position = RewTerm(
+    #     func=mdp.object_to_hole_xy_tanh,
+    #     weight=4.0,
+    #     params={
+    #         "object_cfg": SceneEntityCfg("object"),
+    #         "hole_cfg": SceneEntityCfg("receptive_object"),
+    #         "table_cfg": SceneEntityCfg("table"),
+    #         "std": 0.08,
+    #         "contact_threshold": 1.0,
+    #         "lift_height": 0.06,
+    #         "lift_gate": 0.5,
+    #     },
+    # )
+    # insertion_orientation = RewTerm(
+    #     func=mdp.peg_hole_axis_alignment,
+    #     weight=3.0,
+    #     params={
+    #         "object_cfg": SceneEntityCfg("object"),
+    #         "hole_cfg": SceneEntityCfg("receptive_object"),
+    #         "std": 0.35,
+    #     },
+    # )
+    # insertion_depth = RewTerm(
+    #     func=mdp.peg_insertion_depth,
+    #     weight=8.0,
+    #     params={
+    #         "object_cfg": SceneEntityCfg("object"),
+    #         "hole_cfg": SceneEntityCfg("receptive_object"),
+    #         "table_cfg": SceneEntityCfg("table"),
+    #         "target_depth": SUCCESS_DEPTH,
+    #         "approach_height": 0.08,
+    #         "xy_tolerance": 0.04,
+    #         "axis_tolerance": 0.25,
+    #         "contact_threshold": 1.0,
+    #         "lift_height": 0.06,
+    #         "lift_gate": 0.5,
+    #     },
+    # )
     success = RewTerm(
         func=mdp.success_reward,
-        weight=20.0,
+        weight=250.0,
         params={
             "object_cfg": SceneEntityCfg("object"),
             "hole_cfg": SceneEntityCfg("receptive_object"),
@@ -382,15 +389,11 @@ class RewardsCfg:
 @configclass
 class TerminationsCfg:
     time_out = DoneTerm(func=task_mdps.time_out, time_out=True)
-    object_out_of_bound = DoneTerm(
-        func=task_mdps.out_of_bound,
+    object_outside_table = DoneTerm(
+        func=mdp.object_outside_table,
         params={
-            "in_bound_range": {
-                "x": (-0.5, 1.5),
-                "y": (-2.0, 2.0),
-                "z": (0.0, 2.0),
-            },
-            "asset_cfg": SceneEntityCfg("object"),
+            "object_cfg": SceneEntityCfg("object"),
+            "table_cfg": SceneEntityCfg("table"),
         },
     )
     success = DoneTerm(

@@ -261,9 +261,9 @@ class RewardsCfg:
     good_finger_contact = RewTerm(
         func=task_mdps.contacts, params={"threshold": 1.0}, weight=0.5
     )
-    lift = RewTerm(func=mdp.lift_reward, weight=2.0)
-    transport = RewTerm(func=mdp.transport_reward, weight=3.0)
-    inside_box = RewTerm(func=mdp.inside_box_reward, weight=8.0)
+    # lift = RewTerm(func=mdp.lift_reward, weight=2.0)
+    # transport = RewTerm(func=mdp.transport_reward, weight=3.0)
+    # inside_box = RewTerm(func=mdp.inside_box_reward, weight=8.0)
     success = RewTerm(
         func=mdp.success_reward,
         params={
@@ -271,7 +271,7 @@ class RewardsCfg:
             "box_cfg": SceneEntityCfg("receptive_object"),
             "hand_base_cfg": SceneEntityCfg("robot", body_names="base"),
         },
-        weight=10.0,
+        weight=250.0,
     )
 
 

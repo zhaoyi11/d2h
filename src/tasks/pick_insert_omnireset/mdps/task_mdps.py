@@ -41,6 +41,28 @@ def hole_pose_b(
     return torch.cat((position, orientation), dim=1)
 
 
+def object_lin_vel_robot_b(
+    env: ManagerBasedRLEnv,
+    robot_cfg: SceneEntityCfg = SceneEntityCfg("robot"),
+    object_cfg: SceneEntityCfg = SceneEntityCfg("object"),
+) -> torch.Tensor:
+    robot: Articulation = env.scene[robot_cfg.name]
+    object_asset: RigidObject = env.scene[object_cfg.name]
+    relative_velocity_w = object_asset.data.root_lin_vel_w - robot.data.root_lin_vel_w
+    return quat_apply_inverse(robot.data.root_quat_w, relative_velocity_w)
+
+
+def object_ang_vel_robot_b(
+    env: ManagerBasedRLEnv,
+    robot_cfg: SceneEntityCfg = SceneEntityCfg("robot"),
+    object_cfg: SceneEntityCfg = SceneEntityCfg("object"),
+) -> torch.Tensor:
+    robot: Articulation = env.scene[robot_cfg.name]
+    object_asset: RigidObject = env.scene[object_cfg.name]
+    relative_velocity_w = object_asset.data.root_ang_vel_w - robot.data.root_ang_vel_w
+    return quat_apply_inverse(robot.data.root_quat_w, relative_velocity_w)
+
+
 def object_pose_hole(
     env: ManagerBasedRLEnv,
     object_cfg: SceneEntityCfg = SceneEntityCfg("object"),
@@ -68,6 +90,27 @@ def object_lifted_above_table(
     table: RigidObject = env.scene[table_cfg.name]
     table_top_z = table.data.root_pos_w[:, 2] + table_half_height
     return torch.clamp((object_asset.data.root_pos_w[:, 2] - table_top_z) / height, 0.0, 1.0)
+
+
+def object_outside_table(
+    env: ManagerBasedRLEnv,
+    table_half_extents: tuple[float, float] = (0.4, 0.75),
+    table_half_height: float = 0.02,
+    object_cfg: SceneEntityCfg = SceneEntityCfg("object"),
+    table_cfg: SceneEntityCfg = SceneEntityCfg("table"),
+) -> torch.Tensor:
+    object_asset: RigidObject = env.scene[object_cfg.name]
+    table: RigidObject = env.scene[table_cfg.name]
+    position, _ = subtract_frame_transforms(
+        table.data.root_pos_w,
+        table.data.root_quat_w,
+        object_asset.data.root_pos_w,
+        None,
+    )
+    half_extents = position.new_tensor(table_half_extents)
+    outside_footprint = (position[:, :2].abs() > half_extents).any(dim=1)
+    below_surface = position[:, 2] < table_half_height
+    return outside_footprint | below_surface
 
 
 def object_to_hole_xy_tanh(
@@ -218,7 +261,10 @@ def _peg_hole_axis_dot(
 
 __all__ = [
     "hole_pose_b",
+    "object_ang_vel_robot_b",
+    "object_lin_vel_robot_b",
     "object_lifted_above_table",
+    "object_outside_table",
     "object_pose_hole",
     "object_to_hole_xy_tanh",
     "peg_hole_axis_alignment",
