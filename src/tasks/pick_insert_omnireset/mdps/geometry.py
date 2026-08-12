@@ -32,6 +32,57 @@ class RectangularInsertionGeometry:
         )
 
 
+def peg_assembly_pose_errors(
+    object_root_pose: torch.Tensor,
+    hole_root_pose: torch.Tensor,
+    geometry: RectangularInsertionGeometry,
+    target_depth: float,
+) -> tuple[torch.Tensor, torch.Tensor]:
+    """Return final-position and directed-tilt errors in the hole insertion frame."""
+    bottom_i = _object_points_in_insertion_frame(
+        object_root_pose,
+        hole_root_pose,
+        geometry.peg_bottom_corners_o,
+        geometry,
+    )
+    opposite_i = _object_points_in_insertion_frame(
+        object_root_pose,
+        hole_root_pose,
+        geometry.peg_opposite_corners_o,
+        geometry,
+    )
+
+    aperture_min = geometry.aperture_min_i.to(
+        device=object_root_pose.device,
+        dtype=object_root_pose.dtype,
+    )
+    aperture_max = geometry.aperture_max_i.to(
+        device=object_root_pose.device,
+        dtype=object_root_pose.dtype,
+    )
+    mouth_z = geometry.cavity_mouth_z_i.to(
+        device=object_root_pose.device,
+        dtype=object_root_pose.dtype,
+    )
+    target_position_i = torch.cat(
+        (
+            0.5 * (aperture_min + aperture_max),
+            (mouth_z - target_depth).reshape(1),
+        )
+    )
+
+    bottom_centroid_i = bottom_i.mean(dim=1)
+    position_error = torch.linalg.vector_norm(
+        bottom_centroid_i - target_position_i,
+        dim=1,
+    )
+
+    peg_axis_i = (opposite_i - bottom_i).mean(dim=1)
+    lateral_axis_magnitude = torch.linalg.vector_norm(peg_axis_i[:, :2], dim=1)
+    tilt_error = torch.atan2(lateral_axis_magnitude, peg_axis_i[:, 2])
+    return position_error, tilt_error
+
+
 def peg_inside_rectangular_hole(
     object_root_pose: torch.Tensor,
     hole_root_pose: torch.Tensor,
@@ -180,6 +231,7 @@ def _quat_apply_inverse(quaternion: torch.Tensor, vector: torch.Tensor) -> torch
 __all__ = [
     "INSERTION_SHAPING_TARGET_DEPTH",
     "RectangularInsertionGeometry",
+    "peg_assembly_pose_errors",
     "peg_inside_rectangular_hole",
     "unfinished_state_indices",
 ]

@@ -305,8 +305,86 @@ def test_live_success_uses_shared_containment_geometry(monkeypatch) -> None:
     assert bool(term(env, object_cfg=object_cfg, hole_cfg=hole_cfg)[0])
 
 
+def test_dense_assembly_pose_rewards_directed_final_pose(monkeypatch) -> None:
+    mdp = _load_task_mdps(monkeypatch)
+    geometry = _insertion_geometry()
+    target_depth = 0.015
+    target_root_z = (
+        float(geometry.hole_bottom_position_h[2])
+        + float(geometry.cavity_mouth_z_i)
+        - target_depth
+        + 0.045
+    )
+    object_asset = SimpleNamespace(
+        data=SimpleNamespace(
+            root_pos_w=torch.tensor([[0.0, 0.0, target_root_z]]),
+            root_quat_w=torch.tensor([[1.0, 0.0, 0.0, 0.0]]),
+        )
+    )
+    hole_asset = SimpleNamespace(
+        data=SimpleNamespace(
+            root_pos_w=torch.zeros(1, 3),
+            root_quat_w=torch.tensor([[1.0, 0.0, 0.0, 0.0]]),
+        )
+    )
+    env = SimpleNamespace(
+        num_envs=1,
+        device="cpu",
+        scene={"object": object_asset, "receptive_object": hole_asset},
+    )
+    object_cfg = SimpleNamespace(name="object")
+    hole_cfg = SimpleNamespace(name="receptive_object")
+    monkeypatch.setattr(
+        mdp,
+        "insertion_geometry_from_assets",
+        lambda object_asset, hole_asset, device: geometry,
+    )
+    cfg = SimpleNamespace(params={"object_cfg": object_cfg, "hole_cfg": hole_cfg})
+    term = mdp.DenseAssemblyPose(cfg, env)
+
+    correct_reward = term(
+        env,
+        object_cfg=object_cfg,
+        hole_cfg=hole_cfg,
+        position_std=0.08,
+        orientation_std=0.35,
+        target_depth=target_depth,
+    )
+    torch.testing.assert_close(correct_reward, torch.ones(1), atol=1e-6, rtol=0.0)
+
+    target_bottom_z_h = target_root_z - 0.045
+    object_asset.data.root_pos_w[0, 2] = target_bottom_z_h - 0.045
+    object_asset.data.root_quat_w[0] = torch.tensor([0.0, 1.0, 0.0, 0.0])
+    upside_down_reward = term(
+        env,
+        object_cfg=object_cfg,
+        hole_cfg=hole_cfg,
+        position_std=0.08,
+        orientation_std=0.35,
+        target_depth=target_depth,
+    )
+
+    assert upside_down_reward.shape == (1,)
+    assert torch.isfinite(upside_down_reward).all()
+    assert upside_down_reward.item() < correct_reward.item()
+
+
 def _class(tree: ast.Module, name: str) -> ast.ClassDef:
     return next(node for node in ast.walk(tree) if isinstance(node, ast.ClassDef) and node.name == name)
+
+
+def test_reward_config_uses_one_dense_assembly_pose_term() -> None:
+    rewards = ast.unparse(_class(ast.parse(ENV_CFG_PATH.read_text()), "RewardsCfg"))
+
+    assert "assembly_pose = RewTerm" in rewards
+    assert "func=mdp.DenseAssemblyPose" in rewards
+    assert "weight=4.0" in rewards
+    assert "'position_std': 0.08" in rewards
+    assert "'orientation_std': 0.35" in rewards
+    assert "'target_depth': 0.015" in rewards
+    assert "object_to_hole_xy_tanh" not in rewards
+    assert "peg_hole_axis_alignment" not in rewards
+    assert "peg_insertion_depth" not in rewards
 
 
 def test_env_config_is_independent_direct_rl_and_uses_split_controllers() -> None:

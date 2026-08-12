@@ -8,6 +8,7 @@ from pxr import Usd, UsdGeom
 
 from src.tasks.pick_insert_omnireset.mdps.geometry import (
     RectangularInsertionGeometry,
+    peg_assembly_pose_errors,
     peg_inside_rectangular_hole,
 )
 
@@ -113,6 +114,104 @@ def test_containment_is_invariant_to_hole_world_pose() -> None:
     )
 
     assert bool(peg_inside_rectangular_hole(object_pose, hole_pose, _geometry())[0])
+
+
+def test_assembly_pose_errors_are_zero_at_directed_final_pose() -> None:
+    geometry = _geometry()
+    target_depth = 0.015
+    target_root_z = (
+        float(geometry.hole_bottom_position_h[2])
+        + float(geometry.cavity_mouth_z_i)
+        - target_depth
+        + 0.045
+    )
+
+    position_error, tilt_error = peg_assembly_pose_errors(
+        _pose((0.0, 0.0, target_root_z)),
+        _pose((0.0, 0.0, 0.0)),
+        geometry,
+        target_depth,
+    )
+
+    torch.testing.assert_close(position_error, torch.zeros(1), atol=1e-6, rtol=0.0)
+    torch.testing.assert_close(tilt_error, torch.zeros(1), atol=1e-6, rtol=0.0)
+
+
+def test_assembly_pose_errors_reject_upside_down_designated_end() -> None:
+    geometry = _geometry()
+    target_depth = 0.015
+    target_bottom_z_h = (
+        float(geometry.hole_bottom_position_h[2])
+        + float(geometry.cavity_mouth_z_i)
+        - target_depth
+    )
+    upside_down_root_z = target_bottom_z_h - 0.045
+
+    position_error, tilt_error = peg_assembly_pose_errors(
+        _pose((0.0, 0.0, upside_down_root_z), (0.0, 1.0, 0.0, 0.0)),
+        _pose((0.0, 0.0, 0.0)),
+        geometry,
+        target_depth,
+    )
+
+    torch.testing.assert_close(position_error, torch.zeros(1), atol=1e-6, rtol=0.0)
+    torch.testing.assert_close(tilt_error, torch.tensor([math.pi]), atol=1e-6, rtol=0.0)
+
+
+def test_assembly_pose_errors_are_invariant_to_common_world_transform() -> None:
+    geometry = _geometry()
+    target_depth = 0.015
+    target_root_z = (
+        float(geometry.hole_bottom_position_h[2])
+        + float(geometry.cavity_mouth_z_i)
+        - target_depth
+        + 0.045
+    )
+    half_angle = math.pi / 4.0
+    common_rotation = (math.cos(half_angle), 0.0, 0.0, math.sin(half_angle))
+
+    reference = peg_assembly_pose_errors(
+        _pose((0.01, -0.02, target_root_z + 0.03)),
+        _pose((0.0, 0.0, 0.0)),
+        geometry,
+        target_depth,
+    )
+    transformed = peg_assembly_pose_errors(
+        _pose((0.42, -0.19, target_root_z + 0.33), common_rotation),
+        _pose((0.4, -0.2, 0.3), common_rotation),
+        geometry,
+        target_depth,
+    )
+
+    torch.testing.assert_close(transformed[0], reference[0], atol=1e-6, rtol=0.0)
+    torch.testing.assert_close(transformed[1], reference[1], atol=1e-6, rtol=0.0)
+
+
+def test_assembly_pose_position_error_reaches_zero_at_target_depth() -> None:
+    geometry = _geometry()
+    target_depth = 0.015
+    mouth_root_z = (
+        float(geometry.hole_bottom_position_h[2])
+        + float(geometry.cavity_mouth_z_i)
+        + 0.045
+    )
+    target_root_z = mouth_root_z - target_depth
+
+    mouth_error, _ = peg_assembly_pose_errors(
+        _pose((0.0, 0.0, mouth_root_z)),
+        _pose((0.0, 0.0, 0.0)),
+        geometry,
+        target_depth,
+    )
+    target_error, _ = peg_assembly_pose_errors(
+        _pose((0.0, 0.0, target_root_z)),
+        _pose((0.0, 0.0, 0.0)),
+        geometry,
+        target_depth,
+    )
+
+    torch.testing.assert_close(mouth_error, torch.tensor([target_depth]), atol=1e-6, rtol=0.0)
+    torch.testing.assert_close(target_error, torch.zeros(1), atol=1e-6, rtol=0.0)
 
 
 def _mesh(

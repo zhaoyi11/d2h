@@ -8,7 +8,6 @@ import torch
 from isaaclab.assets import Articulation, RigidObject
 from isaaclab.managers import ManagerTermBase, ManagerTermBaseCfg, SceneEntityCfg
 from isaaclab.utils.math import (
-    quat_apply,
     quat_apply_inverse,
     quat_inv,
     quat_mul,
@@ -20,12 +19,12 @@ from src.tasks.pick_insert_omnireset.mdps.asset_geometry import (
 )
 from src.tasks.pick_insert_omnireset.mdps.geometry import (
     INSERTION_SHAPING_TARGET_DEPTH,
+    peg_assembly_pose_errors,
     peg_inside_rectangular_hole,
 )
 
 if TYPE_CHECKING:
     from isaaclab.envs import ManagerBasedRLEnv
-    from isaaclab.sensors import ContactSensor
 
 
 def hole_pose_b(
@@ -115,71 +114,47 @@ def object_outside_table(
     return outside_footprint | below_surface
 
 
-def object_to_hole_xy_tanh(
-    env: ManagerBasedRLEnv,
-    object_cfg: SceneEntityCfg = SceneEntityCfg("object"),
-    hole_cfg: SceneEntityCfg = SceneEntityCfg("receptive_object"),
-    table_cfg: SceneEntityCfg = SceneEntityCfg("table"),
-    std: float = 0.08,
-    contact_threshold: float = 1.0,
-    lift_height: float = 0.06,
-    lift_gate: float = 0.5,
-) -> torch.Tensor:
-    object_asset: RigidObject = env.scene[object_cfg.name]
-    hole: RigidObject = env.scene[hole_cfg.name]
-    xy_distance = torch.norm(
-        object_asset.data.root_pos_w[:, :2] - hole.data.root_pos_w[:, :2],
-        dim=1,
-    )
-    reward = 1.0 - torch.tanh(xy_distance / std)
-    return reward * _pick_insert_gate(env, table_cfg, contact_threshold, lift_height, lift_gate)
+class DenseAssemblyPose(ManagerTermBase):
+    """Dense final-pose reward derived from the insertion assets."""
 
+    def __init__(self, cfg: ManagerTermBaseCfg, env: ManagerBasedRLEnv):
+        super().__init__(cfg, env)
+        object_cfg: SceneEntityCfg = cfg.params["object_cfg"]
+        hole_cfg: SceneEntityCfg = cfg.params["hole_cfg"]
+        self._geometry = insertion_geometry_from_assets(
+            env.scene[object_cfg.name],
+            env.scene[hole_cfg.name],
+            env.device,
+        )
 
-def peg_hole_axis_alignment(
-    env: ManagerBasedRLEnv,
-    object_cfg: SceneEntityCfg = SceneEntityCfg("object"),
-    hole_cfg: SceneEntityCfg = SceneEntityCfg("receptive_object"),
-    std: float = 0.35,
-) -> torch.Tensor:
-    axis_error = 1.0 - _peg_hole_axis_dot(env, object_cfg, hole_cfg)
-    return 1.0 - torch.tanh(axis_error / std)
-
-
-def peg_insertion_depth(
-    env: ManagerBasedRLEnv,
-    object_cfg: SceneEntityCfg = SceneEntityCfg("object"),
-    hole_cfg: SceneEntityCfg = SceneEntityCfg("receptive_object"),
-    table_cfg: SceneEntityCfg = SceneEntityCfg("table"),
-    target_depth: float = INSERTION_SHAPING_TARGET_DEPTH,
-    approach_height: float = 0.08,
-    xy_tolerance: float = 0.04,
-    axis_tolerance: float = 0.25,
-    contact_threshold: float = 1.0,
-    lift_height: float = 0.06,
-    lift_gate: float = 0.5,
-) -> torch.Tensor:
-    object_asset: RigidObject = env.scene[object_cfg.name]
-    hole: RigidObject = env.scene[hole_cfg.name]
-    target_z = hole.data.root_pos_w[:, 2] + target_depth
-    approach_z = target_z + approach_height
-    progress = torch.clamp(
-        (approach_z - object_asset.data.root_pos_w[:, 2]) / approach_height,
-        0.0,
-        1.0,
-    )
-    xy_distance = torch.norm(
-        object_asset.data.root_pos_w[:, :2] - hole.data.root_pos_w[:, :2],
-        dim=1,
-    )
-    axis_error = 1.0 - _peg_hole_axis_dot(env, object_cfg, hole_cfg)
-    insertion_gate = ((xy_distance < xy_tolerance) & (axis_error < axis_tolerance)).float()
-    return progress * insertion_gate * _pick_insert_gate(
-        env,
-        table_cfg,
-        contact_threshold,
-        lift_height,
-        lift_gate,
-    )
+    def __call__(
+        self,
+        env: ManagerBasedRLEnv,
+        object_cfg: SceneEntityCfg = SceneEntityCfg("object"),
+        hole_cfg: SceneEntityCfg = SceneEntityCfg("receptive_object"),
+        position_std: float = 0.08,
+        orientation_std: float = 0.35,
+        target_depth: float = INSERTION_SHAPING_TARGET_DEPTH,
+    ) -> torch.Tensor:
+        object_asset: RigidObject = env.scene[object_cfg.name]
+        hole: RigidObject = env.scene[hole_cfg.name]
+        object_root_pose = torch.cat(
+            (object_asset.data.root_pos_w, object_asset.data.root_quat_w),
+            dim=1,
+        )
+        hole_root_pose = torch.cat(
+            (hole.data.root_pos_w, hole.data.root_quat_w),
+            dim=1,
+        )
+        position_error, tilt_error = peg_assembly_pose_errors(
+            object_root_pose,
+            hole_root_pose,
+            self._geometry,
+            target_depth,
+        )
+        position_score = torch.exp(-position_error / position_std)
+        orientation_score = torch.exp(-tilt_error / orientation_std)
+        return 0.5 * (position_score + orientation_score)
 
 
 class PegInsideHole(ManagerTermBase):
@@ -218,59 +193,13 @@ class PegInsideHole(ManagerTermBase):
         )
 
 
-def _pick_insert_gate(
-    env: ManagerBasedRLEnv,
-    table_cfg: SceneEntityCfg,
-    contact_threshold: float,
-    lift_height: float,
-    lift_gate: float,
-) -> torch.Tensor:
-    contact = _good_finger_contact(env, contact_threshold).float()
-    lifted = object_lifted_above_table(env, table_cfg=table_cfg, height=lift_height)
-    return contact * (lifted >= lift_gate).float()
-
-
-def _good_finger_contact(env: ManagerBasedRLEnv, threshold: float) -> torch.Tensor:
-    thumb_contact = _contact_magnitude(env.scene.sensors["thumb_fingertip_object_s"])
-    index_contact = _contact_magnitude(env.scene.sensors["fingertip_object_s"])
-    middle_contact = _contact_magnitude(env.scene.sensors["fingertip_2_object_s"])
-    ring_contact = _contact_magnitude(env.scene.sensors["fingertip_3_object_s"])
-    return (thumb_contact > threshold) & (
-        (index_contact > threshold)
-        | (middle_contact > threshold)
-        | (ring_contact > threshold)
-    )
-
-
-def _contact_magnitude(sensor: ContactSensor) -> torch.Tensor:
-    force_w = torch.nan_to_num(sensor.data.force_matrix_w, nan=0.0)
-    force_w = force_w.reshape(force_w.shape[0], -1, 3)
-    return torch.norm(force_w.sum(dim=1), dim=-1)
-
-
-def _peg_hole_axis_dot(
-    env: ManagerBasedRLEnv,
-    object_cfg: SceneEntityCfg,
-    hole_cfg: SceneEntityCfg,
-) -> torch.Tensor:
-    object_asset: RigidObject = env.scene[object_cfg.name]
-    hole: RigidObject = env.scene[hole_cfg.name]
-    local_z = torch.zeros(env.num_envs, 3, device=object_asset.data.root_quat_w.device)
-    local_z[:, 2] = 1.0
-    object_axis = quat_apply(object_asset.data.root_quat_w, local_z)
-    hole_axis = quat_apply(hole.data.root_quat_w, local_z)
-    return torch.sum(object_axis * hole_axis, dim=1).abs().clamp(0.0, 1.0)
-
-
 __all__ = [
+    "DenseAssemblyPose",
     "hole_pose_b",
     "object_ang_vel_robot_b",
     "object_lin_vel_robot_b",
     "object_lifted_above_table",
     "object_outside_table",
     "object_pose_hole",
-    "object_to_hole_xy_tanh",
-    "peg_hole_axis_alignment",
     "PegInsideHole",
-    "peg_insertion_depth",
 ]

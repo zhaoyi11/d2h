@@ -330,43 +330,17 @@ class RewardsCfg:
     #         "table_half_height": 0.02,
     #     },
     # )
-    # pre_insert_position = RewTerm(
-    #     func=mdp.object_to_hole_xy_tanh,
-    #     weight=4.0,
-    #     params={
-    #         "object_cfg": SceneEntityCfg("object"),
-    #         "hole_cfg": SceneEntityCfg("receptive_object"),
-    #         "table_cfg": SceneEntityCfg("table"),
-    #         "std": 0.08,
-    #         "contact_threshold": 1.0,
-    #         "lift_height": 0.06,
-    #         "lift_gate": 0.5,
-    #     },
-    # )
-    # insertion_orientation = RewTerm(
-    #     func=mdp.peg_hole_axis_alignment,
-    #     weight=3.0,
-    #     params={
-    #         "object_cfg": SceneEntityCfg("object"),
-    #         "hole_cfg": SceneEntityCfg("receptive_object"),
-    #         "std": 0.35,
-    #     },
-    # )
-    # insertion_depth = RewTerm(
-    #     func=mdp.peg_insertion_depth,
-    #     weight=8.0,
-    #     params={
-    #         "object_cfg": SceneEntityCfg("object"),
-    #         "hole_cfg": SceneEntityCfg("receptive_object"),
-    #         "table_cfg": SceneEntityCfg("table"),
-    #         "approach_height": 0.08,
-    #         "xy_tolerance": 0.04,
-    #         "axis_tolerance": 0.25,
-    #         "contact_threshold": 1.0,
-    #         "lift_height": 0.06,
-    #         "lift_gate": 0.5,
-    #     },
-    # )
+    assembly_pose = RewTerm(
+        func=mdp.DenseAssemblyPose,
+        weight=4.0,
+        params={
+            "object_cfg": SceneEntityCfg("object"),
+            "hole_cfg": SceneEntityCfg("receptive_object"),
+            "position_std": 0.08,
+            "orientation_std": 0.35,
+            "target_depth": 0.015,
+        },
+    )
     success = RewTerm(
         func=mdp.PegInsideHole,
         weight=250.0,
