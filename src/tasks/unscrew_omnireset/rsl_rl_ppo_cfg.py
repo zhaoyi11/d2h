@@ -8,8 +8,8 @@ from src.tasks.common.rsl_rl_ppo_cfg_base import RslRlPpoCfgBase
 class UnscrewOmniResetRslRlPpoCfg(RslRlPpoCfgBase):
     experiment_name = "unscrew_omnireset"
     obs_groups = {
-        "policy": ["policy", "proprio"],
-        "critic": ["policy", "proprio"],
+        "policy": ["low_level", "residual"],
+        "critic": ["low_level", "residual"],
     }
     max_iterations = 15000
     save_interval = 250

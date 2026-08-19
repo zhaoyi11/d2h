@@ -21,4 +21,10 @@ def object_indices() -> list[int]:
     return [CONTACT_TARGET_INDEX["object"]]
 
 
-__all__ = ["contact_filter_prim_paths", "object_indices"]
+def external_indices() -> list[int]:
+    return [
+        index for name, index in CONTACT_TARGET_INDEX.items() if name != "object"
+    ]
+
+
+__all__ = ["contact_filter_prim_paths", "external_indices", "object_indices"]
