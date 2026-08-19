@@ -145,6 +145,22 @@ gym.register(
     },
 )
 
+gym.register(
+    id="Unscrew_OmniReset-v0",
+    entry_point="isaaclab.envs:ManagerBasedRLEnv",
+    disable_env_checker=True,
+    kwargs={
+        "env_cfg_entry_point": (
+            f"{__name__}.unscrew_omnireset.env_cfg:"
+            "DexsuiteFrankaLeapUnscrewOmniResetEnvCfg"
+        ),
+        "rsl_rl_cfg_entry_point": (
+            "src.tasks.unscrew_omnireset.rsl_rl_ppo_cfg:"
+            "UnscrewOmniResetRslRlPpoCfg"
+        ),
+    },
+)
+
 # Clean Table Environment
 gym.register(
     id="Clean_Table-v0",

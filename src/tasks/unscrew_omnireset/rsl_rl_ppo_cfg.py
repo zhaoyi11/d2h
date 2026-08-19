@@ -1,12 +1,12 @@
 from isaaclab.utils import configclass
+from isaaclab_rl.rsl_rl import RslRlPpoAlgorithmCfg
 
 from src.tasks.common.rsl_rl_ppo_cfg_base import RslRlPpoCfgBase
-from isaaclab_rl.rsl_rl import RslRlPpoAlgorithmCfg
 
 
 @configclass
-class PickInsertOmniResetRslRlPpoCfg(RslRlPpoCfgBase):
-    experiment_name = "pick_insert_omnireset"
+class UnscrewOmniResetRslRlPpoCfg(RslRlPpoCfgBase):
+    experiment_name = "unscrew_omnireset"
     obs_groups = {
         "policy": ["policy", "proprio"],
         "critic": ["policy", "proprio"],
@@ -27,5 +27,3 @@ class PickInsertOmniResetRslRlPpoCfg(RslRlPpoCfgBase):
         desired_kl=0.01,
         max_grad_norm=1.0,
     )
-
-

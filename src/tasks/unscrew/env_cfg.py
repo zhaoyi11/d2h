@@ -77,7 +77,7 @@ class SceneCfg(InteractiveSceneCfg):
         ),
         init_state=RigidObjectCfg.InitialStateCfg(pos=INSTALLED_OBJECT_POS, rot=INSTALLED_OBJECT_QUAT),
     )
-    
+
     receptive_object = RigidObjectCfg(
         prim_path="{ENV_REGEX_NS}/ReceptiveObject",
         spawn=sim_utils.UsdFileCfg(
@@ -147,8 +147,8 @@ class SceneCfg(InteractiveSceneCfg):
     #         pos=[0.55, 0.1, 0.34],
     #         rot=[1.0, 0.0, 0.0, 0.0],
     #     ),
-    # )    
-    
+    # )
+
     # table
     table: RigidObjectCfg = RigidObjectCfg(
         prim_path="{ENV_REGEX_NS}/Table",
@@ -471,7 +471,7 @@ class EventCfg:
     #     mode="prestartup",
     #     params={"scale_range": (0.75, 1.5), "asset_cfg": SceneEntityCfg("object")},
     # )
-     
+
     robot_physics_material = EventTerm(
         func=mdp.randomize_rigid_body_material,
         mode="startup",
@@ -672,7 +672,6 @@ class TerminationsCfg:
             "receptive_cfg": SceneEntityCfg("receptive_object"),
             "clearance_margin": 0.030,
             "force_threshold": 1.0,
-            "stable_steps": 5,
         },
     )
 
@@ -756,6 +755,7 @@ class DexsuiteUnscrewEnvCfg(ManagerBasedRLEnvCfg):
             )
 
             self.curriculum.adr.params["rot_tol"] = None
+
 
 
 class DexsuiteUnscrewEnvCfg_PLAY(DexsuiteUnscrewEnvCfg):
@@ -929,10 +929,6 @@ class DexsuiteFrankaLeapUnscrewHrlEnvCfg(FrankaLeapMixinCfg, DexsuiteUnscrewEnvC
         # Enable the reorient-style 167-dim low-level observation group.
         self.observations.low_level = ObservationsCfg.LowLevelObsCfg()
         super().__post_init__()  # FrankaLeapMixinCfg -> DexsuiteUnscrewEnvCfg
-        self.terminations.unscrew_success.params.update(
-            require_lift_complete=True,
-            command_name="object_pose",
-        )
         # The flat task's goal is position-only; the scripted HRL stepper must still enforce each
         # 30-degree orientation target.
         self.commands.object_pose.position_only = False

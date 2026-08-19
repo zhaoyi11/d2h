@@ -169,6 +169,16 @@ class PegInsideHole(ManagerTermBase):
             env.scene[hole_cfg.name],
             env.device,
         )
+        self.episode_succeeded = torch.zeros(
+            env.num_envs,
+            dtype=torch.bool,
+            device=env.device,
+        )
+
+    def reset(self, env_ids=None) -> None:
+        if env_ids is None:
+            env_ids = slice(None)
+        self.episode_succeeded[env_ids] = False
 
     def __call__(
         self,
@@ -186,11 +196,13 @@ class PegInsideHole(ManagerTermBase):
             (hole.data.root_pos_w, hole.data.root_quat_w),
             dim=1,
         )
-        return peg_inside_rectangular_hole(
+        current_success = peg_inside_rectangular_hole(
             object_root_pose,
             hole_root_pose,
             self._geometry,
         )
+        self.episode_succeeded |= current_success
+        return current_success
 
 
 __all__ = [

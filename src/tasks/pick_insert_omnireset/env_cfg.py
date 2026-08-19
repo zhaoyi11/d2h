@@ -4,7 +4,6 @@
 # SPDX-License-Identifier: BSD-3-Clause
 
 from dataclasses import MISSING
-from pathlib import Path
 
 import isaaclab.sim as sim_utils
 from isaaclab.assets import ArticulationCfg, AssetBaseCfg, RigidObjectCfg
@@ -23,17 +22,14 @@ from isaaclab.utils.noise import AdditiveUniformNoiseCfg as Unoise
 
 from src.assets.franka_leap_hand.franka_leap import FRANKA_LEAP_HAND_CFG
 import src.tasks.common.mdps as task_mdps
+from src.tasks.common.mdps.terminations import abnormal_robot_state
 from src.tasks.pick_insert_omnireset.mdps import task_mdps as mdp
 from src.tasks.pick_insert_omnireset.mdps.contact_filters import (
     contact_filter_prim_paths,
     object_indices,
 )
-from src.tasks.pick_insert_omnireset.mdps.events import ResetSceneFromInstantDexterity
+from src.tasks.pick_insert_omnireset.mdps.curriculums import CurriculumCfg
 
-
-_DEFAULT_RESET_DATASET_PATH = (
-    Path(__file__).resolve().parents[3] / "dataets/pick_insert_bc/0000000000.npz"
-)
 _UWLAB_CLOUD_ASSETS_DIR = (
     "https://huggingface.co/datasets/UW-Lab/uwlab-assets/resolve/main"
 )
@@ -287,14 +283,14 @@ class EventCfg:
         mode="reset",
         params={
             "gravity_distribution_params": (
-                [0.0, 0.0, -1.81],
-                [0.0, 0.0, -1.81],
+                [0.0, 0.0, -9.81],
+                [0.0, 0.0, -9.81],
             ),
             "operation": "abs",
         },
     )
-    reset_from_dataset = EventTerm(
-        func=ResetSceneFromInstantDexterity,
+    reset_scene_to_default = EventTerm(
+        func=task_mdps.reset_scene_to_default,
         mode="reset",
         params={},
     )
@@ -304,11 +300,11 @@ class EventCfg:
 class RewardsCfg:
     action_l2 = RewTerm(
         func=task_mdps.action_l2_clamped,
-        weight=-0.005,
+        weight=-0.001,
     )
     action_rate_l2 = RewTerm(
         func=task_mdps.action_rate_l2_clamped,
-        weight=-0.005,
+        weight=-0.001,
     )
     fingers_to_object = RewTerm(
         func=task_mdps.object_ee_distance,
@@ -320,19 +316,9 @@ class RewardsCfg:
         params={"threshold": 1.0},
         weight=0.5,
     )
-    # object_lifted = RewTerm(
-    #     func=mdp.object_lifted_above_table,
-    #     weight=2.0,
-    #     params={
-    #         "object_cfg": SceneEntityCfg("object"),
-    #         "table_cfg": SceneEntityCfg("table"),
-    #         "height": 0.06,
-    #         "table_half_height": 0.02,
-    #     },
-    # )
     assembly_pose = RewTerm(
         func=mdp.DenseAssemblyPose,
-        weight=4.0,
+        weight=1.0,
         params={
             "object_cfg": SceneEntityCfg("object"),
             "hole_cfg": SceneEntityCfg("receptive_object"),
@@ -350,6 +336,11 @@ class RewardsCfg:
         },
     )
 
+    abnormal_robot = RewTerm(
+        func=task_mdps.abnormal_robot_state,
+        weight=-100.0,
+        params={"asset_cfg": SceneEntityCfg("robot")},
+    )
 
 @configclass
 class TerminationsCfg:
@@ -360,6 +351,10 @@ class TerminationsCfg:
             "object_cfg": SceneEntityCfg("object"),
             "table_cfg": SceneEntityCfg("table"),
         },
+    )
+    abnormal_robot = DoneTerm(
+        func=task_mdps.abnormal_robot_state,
+        params={"asset_cfg": SceneEntityCfg("robot")},
     )
     success = DoneTerm(
         func=mdp.PegInsideHole,
@@ -389,8 +384,7 @@ class DexsuiteFrankaLeapPickInsertOmniResetEnvCfg(ManagerBasedRLEnvCfg):
     rewards: RewardsCfg = RewardsCfg()
     terminations: TerminationsCfg = TerminationsCfg()
     events: EventCfg = EventCfg()
-    curriculum = None
-    reset_dataset_path: str = str(_DEFAULT_RESET_DATASET_PATH)
+    curriculum: CurriculumCfg | None = CurriculumCfg()
 
     def __post_init__(self):
         finger_tip_body_list = [
@@ -464,8 +458,8 @@ class DexsuiteFrankaLeapPickInsertOmniResetEnvCfg(ManagerBasedRLEnvCfg):
             body_names=[".*fingertip.*"],
         )
 
-        self.decimation = 4
-        self.episode_length_s = 20.0
+        self.decimation = 2
+        self.episode_length_s = 16.0
         self.is_finite_horizon = True
         self.sim.dt = 1 / 120
         self.sim.physx.solver_type = 1
@@ -474,11 +468,11 @@ class DexsuiteFrankaLeapPickInsertOmniResetEnvCfg(ManagerBasedRLEnvCfg):
         self.sim.physx.bounce_threshold_velocity = 0.02
         self.sim.physx.friction_offset_threshold = 0.01
         self.sim.physx.friction_correlation_distance = 0.0005
-        self.sim.physx.gpu_found_lost_aggregate_pairs_capacity = 2**23
+        self.sim.physx.gpu_found_lost_aggregate_pairs_capacity = 2**22
         self.sim.physx.gpu_total_aggregate_pairs_capacity = 2**23
         self.sim.physx.gpu_max_rigid_contact_count = 2**23
         self.sim.physx.gpu_max_rigid_patch_count = 2**23
-        self.sim.physx.gpu_collision_stack_size = 2**31
+        self.sim.physx.gpu_collision_stack_size = 2**30
 
 
 __all__ = ["DexsuiteFrankaLeapPickInsertOmniResetEnvCfg"]
