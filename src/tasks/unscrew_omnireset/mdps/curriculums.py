@@ -79,8 +79,8 @@ class CurriculumCfg:
             "initial_stage": 0,
             "num_stages": 10,
             "evaluation_batch_size": 4096,
-            "promote_threshold": 0.7,
-            "demote_threshold": 0.3,
+            "promote_threshold": 0.8,
+            "demote_threshold": 0.6,
         },
     )
 

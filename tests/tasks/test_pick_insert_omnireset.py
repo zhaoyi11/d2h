@@ -303,6 +303,186 @@ def test_live_success_uses_shared_containment_geometry(monkeypatch) -> None:
     )
     term = mdp.PegInsideHole(cfg, env)
     assert bool(term(env, object_cfg=object_cfg, hole_cfg=hole_cfg)[0])
+    assert bool(term.episode_succeeded[0])
+    object_asset.data.root_pos_w[0] = torch.tensor([0.45, 0.20, 0.30])
+    assert not bool(term(env, object_cfg=object_cfg, hole_cfg=hole_cfg)[0])
+    assert bool(term.episode_succeeded[0])
+
+    term.episode_succeeded = torch.tensor([True, True])
+    term.reset(torch.tensor([1]))
+    torch.testing.assert_close(term.episode_succeeded, torch.tensor([True, False]))
+
+
+def _load_reset_curriculums(monkeypatch):
+    class ManagerTermBase:
+        def __init__(self, cfg, env):
+            self.cfg = cfg
+            self._env = env
+
+    class CurriculumTermCfg:
+        def __init__(self, func, params):
+            self.func = func
+            self.params = params
+
+    monkeypatch.setitem(
+        sys.modules,
+        "isaaclab.managers",
+        SimpleNamespace(
+            CurriculumTermCfg=CurriculumTermCfg,
+            ManagerTermBase=ManagerTermBase,
+        ),
+    )
+    monkeypatch.setitem(
+        sys.modules,
+        "isaaclab.utils",
+        SimpleNamespace(configclass=lambda cls: cls),
+    )
+    path = REPO_ROOT / "src/tasks/pick_insert_omnireset/mdps/curriculums.py"
+    spec = importlib.util.spec_from_file_location(
+        "pick_insert_omnireset_curriculums",
+        path,
+    )
+    assert spec is not None and spec.loader is not None
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    return module
+
+
+def test_reset_curriculum_config_uses_balanced_ten_stage_schedule(monkeypatch) -> None:
+    curriculums = _load_reset_curriculums(monkeypatch)
+
+    assert curriculums.CurriculumCfg.reset_state.params == {
+        "initial_stage": 0,
+        "num_stages": 10,
+        "evaluation_batch_size": 4096,
+        "promote_threshold": 0.7,
+        "demote_threshold": 0.3,
+    }
+
+
+def _reset_state_curriculum(
+    monkeypatch,
+    *,
+    success: list[bool],
+    episode_lengths: list[int],
+    initial_stage: int = 0,
+):
+    curriculums = _load_reset_curriculums(monkeypatch)
+
+    success_term = SimpleNamespace(
+        episode_succeeded=torch.tensor(success, dtype=torch.bool)
+    )
+    env = SimpleNamespace(
+        num_envs=len(success),
+        device="cpu",
+        episode_length_buf=torch.tensor(episode_lengths, dtype=torch.long),
+        reward_manager=SimpleNamespace(
+            get_term_cfg=lambda name: SimpleNamespace(func=success_term)
+        ),
+    )
+    cfg = SimpleNamespace(params={"initial_stage": initial_stage})
+    return curriculums.ResetStateCurriculum(cfg, env), env, success_term
+
+
+def test_reset_state_curriculum_ignores_initial_resets(monkeypatch) -> None:
+    curriculum, env, _ = _reset_state_curriculum(
+        monkeypatch,
+        success=[True, True, True, True],
+        episode_lengths=[0, 0, 0, 0],
+    )
+
+    state = curriculum(env, torch.arange(4), evaluation_batch_size=4)
+
+    assert curriculum.current_stage == 0
+    assert state["batch_progress"] == 0.0
+    assert state["success_rate"] == 0.0
+
+
+@pytest.mark.parametrize(
+    ("success_count", "initial_stage", "expected_stage"),
+    [(7, 0, 1), (3, 1, 0), (5, 1, 1)],
+)
+def test_reset_state_curriculum_uses_hysteresis_thresholds(
+    success_count: int,
+    initial_stage: int,
+    expected_stage: int,
+    monkeypatch,
+) -> None:
+    success = [True] * success_count + [False] * (10 - success_count)
+    curriculum, env, _ = _reset_state_curriculum(
+        monkeypatch,
+        success=success,
+        episode_lengths=[1] * 10,
+        initial_stage=initial_stage,
+    )
+
+    state = curriculum(
+        env,
+        torch.arange(10),
+        evaluation_batch_size=10,
+        promote_threshold=0.7,
+        demote_threshold=0.3,
+    )
+
+    assert curriculum.current_stage == expected_stage
+    assert state["success_rate"] == pytest.approx(success_count / 10)
+    assert state["batch_progress"] == 0.0
+
+
+def test_reset_state_curriculum_moves_one_stage_per_fresh_batch_and_clamps(monkeypatch) -> None:
+    curriculum, env, success_term = _reset_state_curriculum(
+        monkeypatch,
+        success=[True] * 8,
+        episode_lengths=[1] * 8,
+        initial_stage=8,
+    )
+
+    curriculum(env, torch.arange(8), evaluation_batch_size=4)
+    assert curriculum.current_stage == 9
+    curriculum(env, torch.arange(8), evaluation_batch_size=4)
+    assert curriculum.current_stage == 9
+
+    success_term.episode_succeeded[:] = False
+    curriculum(env, torch.arange(8), evaluation_batch_size=4)
+    assert curriculum.current_stage == 8
+
+
+def test_curriculum_sampler_uses_weighted_active_suffix(monkeypatch) -> None:
+    from src.tasks.pick_insert_omnireset.mdps.reset_dataset import (
+        _sample_curriculum_state_indices,
+    )
+
+    captured = {}
+
+    def fake_multinomial(weights, count, replacement):
+        captured["weights"] = weights.clone()
+        captured["replacement"] = replacement
+        return torch.tensor([0, weights.numel() - 1, 1])
+
+    monkeypatch.setattr(torch, "multinomial", fake_multinomial)
+
+    stage_zero = _sample_curriculum_state_indices(
+        num_states=23,
+        count=3,
+        stage=0,
+        num_stages=10,
+        device=torch.device("cpu"),
+    )
+    torch.testing.assert_close(stage_zero, torch.tensor([20, 22, 21]))
+    torch.testing.assert_close(
+        captured["weights"],
+        torch.linspace(1.0, 4.0, 3),
+    )
+    assert captured["replacement"] is True
+
+    stage_nine = _sample_curriculum_state_indices(
+        num_states=23,
+        count=3,
+        stage=9,
+        num_stages=10,
+        device=torch.device("cpu"),
+    )
+    torch.testing.assert_close(stage_nine, torch.tensor([0, 22, 1]))
 
 
 def test_dense_assembly_pose_rewards_directed_final_pose(monkeypatch) -> None:
@@ -369,6 +549,62 @@ def test_dense_assembly_pose_rewards_directed_final_pose(monkeypatch) -> None:
     assert upside_down_reward.item() < correct_reward.item()
 
 
+def test_object_velocity_is_relative_to_robot_and_expressed_in_robot_frame(monkeypatch) -> None:
+    mdp = _load_task_mdps(monkeypatch)
+    robot = SimpleNamespace(
+        data=SimpleNamespace(
+            root_quat_w=torch.tensor([[1.0, 0.0, 0.0, 0.0]]),
+            root_lin_vel_w=torch.tensor([[1.0, 2.0, 3.0]]),
+            root_ang_vel_w=torch.tensor([[0.0, 1.0, 2.0]]),
+        )
+    )
+    object_asset = SimpleNamespace(
+        data=SimpleNamespace(
+            root_lin_vel_w=torch.tensor([[1.5, 3.0, 4.5]]),
+            root_ang_vel_w=torch.tensor([[2.0, 4.0, 6.0]]),
+        )
+    )
+    env = SimpleNamespace(scene={"robot": robot, "object": object_asset})
+    robot_cfg = SimpleNamespace(name="robot")
+    object_cfg = SimpleNamespace(name="object")
+
+    torch.testing.assert_close(
+        mdp.object_lin_vel_robot_b(env, robot_cfg=robot_cfg, object_cfg=object_cfg),
+        torch.tensor([[0.5, 1.0, 1.5]]),
+    )
+    torch.testing.assert_close(
+        mdp.object_ang_vel_robot_b(env, robot_cfg=robot_cfg, object_cfg=object_cfg),
+        torch.tensor([[2.0, 3.0, 4.0]]),
+    )
+
+
+def test_object_outside_table_uses_loaded_table_frame(monkeypatch) -> None:
+    mdp = _load_task_mdps(monkeypatch)
+    object_asset = SimpleNamespace(
+        data=SimpleNamespace(root_pos_w=torch.tensor([[1.39, 2.0, 1.1]]))
+    )
+    table = SimpleNamespace(
+        data=SimpleNamespace(
+            root_pos_w=torch.tensor([[1.0, 2.0, 1.0]]),
+            root_quat_w=torch.tensor([[1.0, 0.0, 0.0, 0.0]]),
+        )
+    )
+    env = SimpleNamespace(scene={"object": object_asset, "table": table})
+    object_cfg = SimpleNamespace(name="object")
+    table_cfg = SimpleNamespace(name="table")
+
+    assert not bool(mdp.object_outside_table(env, object_cfg=object_cfg, table_cfg=table_cfg)[0])
+
+    object_asset.data.root_pos_w[0] = torch.tensor([1.401, 2.0, 1.1])
+    assert bool(mdp.object_outside_table(env, object_cfg=object_cfg, table_cfg=table_cfg)[0])
+
+    object_asset.data.root_pos_w[0] = torch.tensor([1.0, 2.751, 1.1])
+    assert bool(mdp.object_outside_table(env, object_cfg=object_cfg, table_cfg=table_cfg)[0])
+
+    object_asset.data.root_pos_w[0] = torch.tensor([1.0, 2.0, 1.019])
+    assert bool(mdp.object_outside_table(env, object_cfg=object_cfg, table_cfg=table_cfg)[0])
+
+
 def _class(tree: ast.Module, name: str) -> ast.ClassDef:
     return next(node for node in ast.walk(tree) if isinstance(node, ast.ClassDef) and node.name == name)
 
@@ -385,6 +621,15 @@ def test_reward_config_uses_one_dense_assembly_pose_term() -> None:
     assert "object_to_hole_xy_tanh" not in rewards
     assert "peg_hole_axis_alignment" not in rewards
     assert "peg_insertion_depth" not in rewards
+
+
+def test_reward_config_penalizes_abnormal_robot_state() -> None:
+    rewards = ast.unparse(_class(ast.parse(ENV_CFG_PATH.read_text()), "RewardsCfg"))
+
+    assert "abnormal_robot = RewTerm" in rewards
+    assert "func=task_mdps.abnormal_robot_state" in rewards
+    assert "weight=-100.0" in rewards
+    assert "'asset_cfg': SceneEntityCfg('robot')" in rewards
 
 
 def test_env_config_is_independent_direct_rl_and_uses_split_controllers() -> None:
@@ -412,18 +657,36 @@ def test_env_config_is_independent_direct_rl_and_uses_split_controllers() -> Non
     policy = ast.unparse(_class(tree, "PolicyCfg"))
     assert "hole_pose_b" in policy
     assert "object_pose_hole" in policy
+    assert "object_lin_vel_robot_b" in policy
+    assert "object_ang_vel_robot_b" in policy
     env_cfg = ast.unparse(_class(tree, "DexsuiteFrankaLeapPickInsertOmniResetEnvCfg"))
     assert "commands = None" in env_cfg
-    assert "curriculum = None" in env_cfg
-    assert "reset_dataset_path" in env_cfg
-    assert "0000000000.npz" in source
+    assert "curriculum: CurriculumCfg | None = CurriculumCfg()" in env_cfg
     assert "self.decimation = 4" in env_cfg
 
     events = ast.unparse(_class(tree, "EventCfg"))
-    assert "reset_from_dataset" in events
     assert "reset_object" not in events
     terminations = ast.unparse(_class(tree, "TerminationsCfg"))
     assert "PegInsideHole" in terminations
+    assert "object_outside_table" in terminations
+    assert "table_cfg" in terminations
+    assert "out_of_bound" not in terminations
+
+
+def test_env_config_uses_fixed_default_scene_reset() -> None:
+    source = ENV_CFG_PATH.read_text()
+    tree = ast.parse(source)
+    env_cfg = ast.unparse(
+        _class(tree, "DexsuiteFrankaLeapPickInsertOmniResetEnvCfg")
+    )
+    events = ast.unparse(_class(tree, "EventCfg"))
+
+    assert "reset_dataset_path" not in env_cfg
+    assert "0000000000.npz" not in source
+    assert "reset_scene_to_default" in events
+    assert "func=task_mdps.reset_scene_to_default" in events
+    assert "reset_from_dataset" not in events
+    assert "ResetSceneFromInstantDexterity" not in source
 
 
 def test_reset_event_samples_pool_and_restores_relative_scene_state() -> None:
@@ -434,13 +697,9 @@ def test_reset_event_samples_pool_and_restores_relative_scene_state() -> None:
 
     assert "env.cfg.reset_dataset_path" in source
     assert "insertion_geometry_from_assets" in source
-    assert any(
-        isinstance(call.func, ast.Attribute)
-        and isinstance(call.func.value, ast.Name)
-        and call.func.value.id == "torch"
-        and call.func.attr == "randint"
-        for call in calls
-    )
+    assert "_sample_curriculum_state_indices" in source
+    assert "curriculum.current_stage" in source
+    assert "torch.randint" not in source
     reset_to = next(
         call
         for call in calls

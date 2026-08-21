@@ -323,7 +323,7 @@ def test_env_config_is_independent_rl_only_and_uses_split_controllers() -> None:
 
     env_cfg = ast.unparse(_class(tree, "DexsuiteFrankaLeapCleanTableOmniResetEnvCfg"))
     assert "commands = None" in env_cfg
-    assert "reset_dataset_dir" in env_cfg
+    assert "reset_dataset_dir" not in env_cfg
     assert "self.decimation = 2" in env_cfg
 
     rewards = ast.unparse(_class(tree, "RewardsCfg"))
@@ -333,6 +333,12 @@ def test_env_config_is_independent_rl_only_and_uses_split_controllers() -> None:
     assert "object_outside_table" in terminations
     assert "table_cfg" in terminations
     assert "out_of_bound" not in terminations
+
+    events = ast.unparse(_class(tree, "EventCfg"))
+    assert "reset_scene_to_default" in events
+    assert "func=task_mdps.reset_scene_to_default" in events
+    assert "reset_from_dataset" not in events
+    assert "ResetSceneFromInstantDexterity" not in source
 
     events_source = (
         REPO_ROOT / "src/tasks/clean_table_omnireset/mdps/events.py"

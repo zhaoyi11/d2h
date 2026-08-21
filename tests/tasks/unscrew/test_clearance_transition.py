@@ -222,7 +222,7 @@ def test_bolt_clearance_uses_rotated_bounds() -> None:
     assert clearance[1] > clearance[0]
 
 
-def test_success_waits_for_vertical_lift_completion_when_required() -> None:
+def test_success_is_immediate_when_clear_and_grasped() -> None:
     module = _load_task_mdps_module()
     object_data = SimpleNamespace(
         root_pos_w=torch.tensor([[0.0, 0.0, 0.2]]),
@@ -232,7 +232,6 @@ def test_success_waits_for_vertical_lift_completion_when_required() -> None:
         root_pos_w=torch.zeros(1, 3),
         root_quat_w=torch.tensor([[1.0, 0.0, 0.0, 0.0]]),
     )
-    command = SimpleNamespace(metrics={"vertical_lift_complete": torch.zeros(1)})
     env = SimpleNamespace(
         num_envs=1,
         device="cpu",
@@ -241,7 +240,6 @@ def test_success_waits_for_vertical_lift_completion_when_required() -> None:
             "receptive_object": SimpleNamespace(data=receptive_data),
         },
         good_contact=torch.ones(1, dtype=torch.bool),
-        command_manager=SimpleNamespace(get_term=lambda name: command),
     )
     cfg = SimpleNamespace(
         params={
@@ -251,10 +249,7 @@ def test_success_waits_for_vertical_lift_completion_when_required() -> None:
     )
     term = module.StableUnscrewSuccess(cfg, env)
 
-    assert not bool(term(env, stable_steps=2, require_lift_complete=True)[0])
-    command.metrics["vertical_lift_complete"][:] = 1.0
-    assert not bool(term(env, stable_steps=2, require_lift_complete=True)[0])
-    assert bool(term(env, stable_steps=2, require_lift_complete=True)[0])
+    assert bool(term(env)[0])
 
 
 def test_clearance_streak_requires_twist_clearance_and_grasp() -> None:
@@ -389,10 +384,10 @@ def test_resample_clears_only_selected_transition_state() -> None:
     assert command.metrics["vertical_lift_complete"].tolist() == [1.0, 0.0]
 
 
-def test_hrl_config_enables_transition_and_full_lift_success() -> None:
+def test_hrl_config_enables_transition_and_immediate_clearance_success() -> None:
     source = (REPO_ROOT / "src/tasks/unscrew/env_cfg.py").read_text()
 
     assert "enable_clearance_transition=True" in source
     assert "clearance_transition_margin=0.005" in source
     assert "clearance_transition_stable_steps=1" in source
-    assert "require_lift_complete=True" in source
+    assert "require_lift_complete=True" not in source

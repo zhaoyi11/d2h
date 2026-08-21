@@ -246,7 +246,7 @@ def test_env_wires_command_rewards_and_210_dim_training_groups() -> None:
     assert "class CommandsCfg" in source
     assert "commands: CommandsCfg = CommandsCfg()" in source
     assert 'command_name": "object_pose"' in source
-    assert '"std": 0.20' in source
+    assert '"std": 0.10' in source
     assert '"std": 0.50' in source
 
     trainer_source = (
@@ -254,3 +254,31 @@ def test_env_wires_command_rewards_and_210_dim_training_groups() -> None:
     ).read_text()
     assert '"policy": ["low_level", "residual"]' in trainer_source
     assert '"critic": ["low_level", "residual"]' in trainer_source
+
+
+def test_training_uses_saved_trajectory_reset_curriculum() -> None:
+    source = ENV_CFG.read_text()
+
+    assert "reset_dataset_dir: str" in source
+    assert '"dataets" / "unscrew_bc"' in source
+    assert "reset_from_dataset: EventTerm | None = EventTerm(" in source
+    assert "func=event_mdp.ResetSceneFromInstantDexterity" in source
+    assert "curriculum: CurriculumCfg | None = CurriculumCfg()" in source
+
+
+def test_play_environment_id_uses_hardest_reset_for_unscrew_omnireset() -> None:
+    play_source = (REPO_ROOT / "scripts/rsl_rl/play.py").read_text()
+    env_source = ENV_CFG.read_text()
+    registrations = (REPO_ROOT / "src/tasks/__init__.py").read_text()
+
+    assert 'id="Unscrew_OmniReset_Play-v0"' in registrations
+    assert "DexsuiteFrankaLeapUnscrewOmniResetEnvCfg_PLAY" in registrations
+    assert (
+        "@configclass\nclass "
+        "DexsuiteFrankaLeapUnscrewOmniResetEnvCfg_PLAY("
+    ) in env_source
+    assert "self.events.reset_from_dataset = None" in env_source
+    assert "func=task_mdps.reset_scene_to_default" in env_source
+    assert "self.curriculum = None" in env_source
+    assert "Unscrew_OmniReset-v0" not in play_source
+    assert "configure_hardest_reset" not in play_source
