@@ -3,6 +3,8 @@
 #
 # SPDX-License-Identifier: BSD-3-Clause
 
+from pathlib import Path
+
 import isaaclab.sim as sim_utils
 from isaaclab.assets import ArticulationCfg, AssetBaseCfg, RigidObjectCfg
 from isaaclab.envs import ManagerBasedRLEnvCfg, ViewerCfg
@@ -22,6 +24,7 @@ from src.assets.franka_leap_hand.franka_leap import FRANKA_LEAP_HAND_CFG
 import src.tasks.common.mdps as task_mdps
 import src.tasks.reorient.mdps as reorient_mdp
 from src.tasks.unscrew_omnireset.mdps import commands as command_mdp
+from src.tasks.unscrew_omnireset.mdps import events as event_mdp
 from src.tasks.unscrew_omnireset.mdps import task_mdps as mdp
 from src.tasks.unscrew_omnireset.mdps.contact_filters import (
     contact_filter_prim_paths,
@@ -29,6 +32,8 @@ from src.tasks.unscrew_omnireset.mdps.contact_filters import (
     object_indices,
 )
 from src.tasks.unscrew_omnireset.mdps.curriculums import CurriculumCfg
+
+_REPO_ROOT = Path(__file__).resolve().parents[3]
 
 _UWLAB_CLOUD_ASSETS_DIR = (
     "https://huggingface.co/datasets/UW-Lab/uwlab-assets/resolve/main"
@@ -416,11 +421,12 @@ class EventCfg:
             "operation": "abs",
         },
     )
-    reset_scene_to_default = EventTerm(
-        func=task_mdps.reset_scene_to_default,
+    reset_from_dataset: EventTerm | None = EventTerm(
+        func=event_mdp.ResetSceneFromInstantDexterity,
         mode="reset",
         params={},
     )
+    reset_scene_to_default: EventTerm | None = None
 
 
 @configclass
@@ -443,7 +449,7 @@ class RewardsCfg:
     trajectory_position = RewTerm(
         func=task_mdps.position_command_error_tanh,
         params={
-            "std": 0.20,
+            "std": 0.10,
             "command_name": "object_pose",
             "asset_cfg": SceneEntityCfg("robot"),
             "align_asset_cfg": SceneEntityCfg("object"),
@@ -460,16 +466,16 @@ class RewardsCfg:
         },
         weight=1.0,
     )
-    clearance_progress = RewTerm(
-        func=mdp.DenseUnscrewClearance,
-        params={
-            "object_cfg": SceneEntityCfg("object"),
-            "receptive_cfg": SceneEntityCfg("receptive_object"),
-            "start_clearance": -0.040,
-            "target_clearance": 0.030,
-        },
-        weight=1.0,
-    )
+    # clearance_progress = RewTerm(
+    #     func=mdp.DenseUnscrewClearance,
+    #     params={
+    #         "object_cfg": SceneEntityCfg("object"),
+    #         "receptive_cfg": SceneEntityCfg("receptive_object"),
+    #         "start_clearance": -0.040,
+    #         "target_clearance": 0.030,
+    #     },
+    #     weight=1.0,
+    # )
     success = RewTerm(
         func=mdp.UnscrewSuccess,
         params={
@@ -514,6 +520,7 @@ class TerminationsCfg:
 
 @configclass
 class DexsuiteFrankaLeapUnscrewOmniResetEnvCfg(ManagerBasedRLEnvCfg):
+    reset_dataset_dir: str = str(_REPO_ROOT / "dataets" / "unscrew_bc")
     viewer: ViewerCfg = ViewerCfg(
         eye=(2.25, 0.0, 0.75),
         lookat=(0.0, 0.0, 0.45),
@@ -611,5 +618,25 @@ class DexsuiteFrankaLeapUnscrewOmniResetEnvCfg(ManagerBasedRLEnvCfg):
         self.sim.physx.gpu_max_rigid_patch_count = 2**23
         self.sim.physx.gpu_collision_stack_size = 2**31
 
-    
-__all__ = ["DexsuiteFrankaLeapUnscrewOmniResetEnvCfg"]
+
+@configclass
+class DexsuiteFrankaLeapUnscrewOmniResetEnvCfg_PLAY(
+    DexsuiteFrankaLeapUnscrewOmniResetEnvCfg
+):
+    """Unscrew OmniReset evaluation environment using the hardest reset."""
+
+    def __post_init__(self):
+        super().__post_init__()
+        self.events.reset_from_dataset = None
+        self.events.reset_scene_to_default = EventTerm(
+            func=task_mdps.reset_scene_to_default,
+            mode="reset",
+            params={},
+        )
+        self.curriculum = None
+
+
+__all__ = [
+    "DexsuiteFrankaLeapUnscrewOmniResetEnvCfg",
+    "DexsuiteFrankaLeapUnscrewOmniResetEnvCfg_PLAY",
+]
