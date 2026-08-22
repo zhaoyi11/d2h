@@ -30,6 +30,13 @@ class CupcakeOnPlateTrajectoryObjectAndHandBasePoseCommand(TrajectoryObjectAndHa
 
     cfg: CupcakeOnPlateTrajectoryObjectAndHandBasePoseCommandCfg
 
+    def __init__(self, cfg, env):
+        runtime_cfg = cfg.replace(
+            stage_object_tolerances=tuple(StageObjTol(*values) for values in cfg.stage_object_tolerances)
+        )
+        super().__init__(runtime_cfg, env)
+        self.metrics["yaw_target_active"] = torch.zeros(self.num_envs, device=self.device)
+
     def _build_object_trajectories(self, env_ids: torch.Tensor, current_pose_b: torch.Tensor) -> torch.Tensor:
         yaw_deltas = sample_signed_yaw_deltas(
             env_ids.numel(),
@@ -72,6 +79,7 @@ class CupcakeOnPlateTrajectoryObjectAndHandBasePoseCommand(TrajectoryObjectAndHa
         if active_env_ids.numel() > 0:
             self._apply_objanchor_correction(active_env_ids)
             self._update_hand_base_pose_command(active_env_ids)
+        self.metrics["yaw_target_active"] = (self._stepper.step > 0).float()
 
 
 @configclass
@@ -86,7 +94,7 @@ class CupcakeOnPlateTrajectoryObjectAndHandBasePoseCommandCfg(TrajectoryObjectAn
     trajectory_segment_steps: tuple[int, ...] = DEFAULT_CUPCAKE_Z_AXIS_SEGMENT_STEPS
     """Reach and yaw-target interpolation samples."""
 
-    stage_object_tolerances: tuple[StageObjTol, ...] = DEFAULT_CUPCAKE_Z_AXIS_STAGE_OBJECT_TOLERANCES
+    stage_object_tolerances: tuple[tuple[float, float], ...] = DEFAULT_CUPCAKE_Z_AXIS_STAGE_OBJECT_TOLERANCES
     """Object pose tolerances for the reach and yaw-target stages."""
 
 

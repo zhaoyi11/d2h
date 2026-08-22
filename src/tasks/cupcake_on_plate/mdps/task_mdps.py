@@ -2,10 +2,25 @@
 
 from __future__ import annotations
 
+import torch
 from pxr import Gf, Sdf, UsdGeom, UsdPhysics
 
 import isaaclab.sim as sim_utils
 from isaaclab.sim.utils.stage import get_current_stage
+from isaaclab.utils import math as math_utils
+
+
+def trajectory_yaw_tracking(
+    env,
+    command_name: str = "object_pose",
+    std: float = 0.5,
+) -> torch.Tensor:
+    """Reward the active yaw target without rewarding the initial reach stage."""
+    command = env.command_manager.get_term(command_name)
+    goal_quat_w = math_utils.quat_mul(command.robot.data.root_quat_w, command.pose_command_b[:, 3:7])
+    yaw_error = math_utils.quat_error_magnitude(command.object.data.root_quat_w, goal_quat_w)
+    tracking = 1.0 - torch.tanh(yaw_error / std)
+    return tracking * command.metrics["yaw_target_active"]
 
 
 def anchor_cake_z_axis_joint(
@@ -55,4 +70,4 @@ def anchor_cake_z_axis_joint(
         joint.CreateLocalRot1Attr().Set(Gf.Quatf(1.0))
 
 
-__all__ = ["anchor_cake_z_axis_joint"]
+__all__ = ["anchor_cake_z_axis_joint", "trajectory_yaw_tracking"]

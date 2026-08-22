@@ -11,8 +11,6 @@ import math
 from collections.abc import Sequence
 
 import torch
-
-from src.policy.high_level.trajectory_stepper import StageObjTol
 from src.policy.high_level.utils import (
     _as_pose_tensor,
     _with_normalized_quat,
@@ -25,8 +23,8 @@ DEFAULT_CUPCAKE_Z_AXIS_SEGMENT_STEPS = (0, 1)
 """Reach the fixed cupcake, then activate one yaw target."""
 
 DEFAULT_CUPCAKE_Z_AXIS_STAGE_OBJECT_TOLERANCES = (
-    StageObjTol(0.01, 0.2),  # reach
-    StageObjTol(0.01, 0.2),  # yaw target
+    (0.01, 0.2),  # reach
+    (0.01, 0.2),  # yaw target
 )
 
 DEFAULT_CUPCAKE_Z_AXIS_YAW_DELTA_RANGE = (math.pi / 3.0, math.pi / 2.0)

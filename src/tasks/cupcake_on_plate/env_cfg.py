@@ -556,9 +556,8 @@ class HrlActionsCfg:
 class RewardsCfg:
     """Reward terms for the MDP.
 
-    Scripted-rollout task: the trajectory command + frozen hand policy drive the motion, so the
-    rewards are asset-based only (no dependence on the 14-D trajectory command shape) and exist mainly
-    so the base ``-v0`` env has a well-formed, non-crashing reward manager.
+    The yaw term reads the trajectory command term's current object goal directly rather than the
+    14-D public hand-relative command representation.
     """
 
     action_l2 = RewTerm(func=mdp.action_l2_clamped, weight=-0.002)
@@ -569,6 +568,12 @@ class RewardsCfg:
 
     # bool award if >=2 finger tips (one being the thumb) contact the object.
     good_finger_contact = RewTerm(func=mdp.contacts, weight=1.0, params={"threshold": 1.0})
+
+    yaw_tracking = RewTerm(
+        func=mdp.trajectory_yaw_tracking,
+        weight=4.0,
+        params={"command_name": "object_pose", "std": 0.5},
+    )
 
 
 @configclass
