@@ -3,14 +3,7 @@
 #
 # SPDX-License-Identifier: BSD-3-Clause
 
-"""Cupcake-on-plate scripted-trajectory command term.
-
-Thin task layer over the generic
-:class:`~src.policy.high_level.trajectory_command.TrajectoryObjectAndHandBasePoseCommand`: it overrides
-:meth:`_build_object_trajectories` with the cupcake reach->lift->move->reorient->place->hold trajectory
-(built by :func:`build_cupcake_on_plate_object_pose_sequence`). All the shared machinery (stepper,
-PI(D) anchor correction, hand-base targeting, advance logic) is inherited.
-"""
+"""Continuous yaw-goal command for the Z-axis-constrained cupcake task."""
 
 from __future__ import annotations
 
@@ -18,85 +11,89 @@ import torch
 
 from isaaclab.utils import configclass
 
-from src.policy.high_level.trajectory_stepper import StageObjTol
 from src.policy.high_level.trajectory_command import (
     TrajectoryObjectAndHandBasePoseCommand,
     TrajectoryObjectAndHandBasePoseCommandCfg,
 )
+from src.policy.high_level.trajectory_stepper import StageObjTol
 from src.tasks.cupcake_on_plate.mdps.trajectory import (
-    build_cupcake_on_plate_object_pose_sequence,
-    DEFAULT_CUPCAKE_ON_PLATE_PLATE_POSE,
-    DEFAULT_CUPCAKE_UPRIGHT_QUAT,
-    DEFAULT_CUPCAKE_ON_PLATE_SEGMENT_STEPS,
-    DEFAULT_CUPCAKE_ON_PLATE_STAGE_OBJECT_TOLERANCES,
+    DEFAULT_CUPCAKE_Z_AXIS_SEGMENT_STEPS,
+    DEFAULT_CUPCAKE_Z_AXIS_STAGE_OBJECT_TOLERANCES,
+    DEFAULT_CUPCAKE_Z_AXIS_YAW_DELTA_RANGE,
+    build_cupcake_z_axis_object_pose_sequence,
+    sample_signed_yaw_deltas,
 )
 
 
 class CupcakeOnPlateTrajectoryObjectAndHandBasePoseCommand(TrajectoryObjectAndHandBasePoseCommand):
-    """Object and hand-base command that follows the cupcake pick->reorient->place trajectory."""
+    """Reach the fixed cupcake, then continuously issue yaw-only object goals."""
 
     cfg: CupcakeOnPlateTrajectoryObjectAndHandBasePoseCommandCfg
 
     def _build_object_trajectories(self, env_ids: torch.Tensor, current_pose_b: torch.Tensor) -> torch.Tensor:
-        plate_pose = torch.tensor(self.cfg.plate_pose, dtype=current_pose_b.dtype, device=self.device)
-        upright_quat = torch.tensor(self.cfg.upright_quat, dtype=current_pose_b.dtype, device=self.device)
+        yaw_deltas = sample_signed_yaw_deltas(
+            env_ids.numel(),
+            self.cfg.yaw_delta_range,
+            dtype=current_pose_b.dtype,
+            device=self.device,
+        )
         trajectories = [
-            build_cupcake_on_plate_object_pose_sequence(
+            build_cupcake_z_axis_object_pose_sequence(
                 current_pose_b[env_idx],
-                plate_pose=plate_pose,
-                upright_quat=upright_quat,
+                yaw_delta=yaw_deltas[env_idx],
                 segment_steps=self.cfg.trajectory_segment_steps,
-                lift_height=self.cfg.lift_height,
-                above_offset=self.cfg.above_offset,
-                place_height=self.cfg.place_height,
             )
             for env_idx in range(env_ids.numel())
         ]
         return torch.stack(trajectories, dim=0)
 
+    def _activate_sampled_yaw_target(self, env_ids: torch.Tensor) -> None:
+        if env_ids.numel() == 0:
+            return
+        self._stepper.advance(env_ids)
+        self.pose_command_b[env_ids] = self._stepper.current_object_pose(env_ids)
+        self._corr.clear_stall(env_ids)
+        self._trajectory_command_achieved[env_ids] = False
+        self.metrics["trajectory_command_achieved"][env_ids] = 0.0
+
+    def _update_command(self) -> None:
+        achieved_env_ids = self._trajectory_command_achieved.nonzero().flatten()
+        if achieved_env_ids.numel() > 0:
+            at_final_target = self._stepper.step[achieved_env_ids] == self._stepper.length - 1
+            reach_env_ids = achieved_env_ids[~at_final_target]
+            completed_env_ids = achieved_env_ids[at_final_target]
+
+            self._activate_sampled_yaw_target(reach_env_ids)
+            if completed_env_ids.numel() > 0:
+                super()._resample_command(completed_env_ids)
+                self._activate_sampled_yaw_target(completed_env_ids)
+
+        active_env_ids = (self._stepper.step > 0).nonzero().flatten()
+        if active_env_ids.numel() > 0:
+            self._apply_objanchor_correction(active_env_ids)
+            self._update_hand_base_pose_command(active_env_ids)
+
 
 @configclass
 class CupcakeOnPlateTrajectoryObjectAndHandBasePoseCommandCfg(TrajectoryObjectAndHandBasePoseCommandCfg):
-    """Configuration for the cupcake-on-plate trajectory command."""
+    """Configuration for continuous fixed-position cupcake yaw goals."""
 
     class_type: type = CupcakeOnPlateTrajectoryObjectAndHandBasePoseCommand
 
-    plate_pose: tuple[float, float, float, float, float, float, float] = DEFAULT_CUPCAKE_ON_PLATE_PLATE_POSE
-    """Target plate pose used by the cupcake-on-plate object trajectory (only x/y and z are used)."""
+    yaw_delta_range: tuple[float, float] = DEFAULT_CUPCAKE_Z_AXIS_YAW_DELTA_RANGE
+    """Uniform absolute yaw delta range in radians; direction is sampled independently."""
 
-    upright_quat: tuple[float, float, float, float] = DEFAULT_CUPCAKE_UPRIGHT_QUAT
-    """Canonical upright orientation the reorient segment flips the cupcake goal to."""
+    trajectory_segment_steps: tuple[int, ...] = DEFAULT_CUPCAKE_Z_AXIS_SEGMENT_STEPS
+    """Reach and yaw-target interpolation samples."""
 
-    trajectory_segment_steps: tuple[int, ...] = DEFAULT_CUPCAKE_ON_PLATE_SEGMENT_STEPS
-    """Interpolation samples for the reach, lift, move, reorient, place, and hold segments."""
-
-    lift_height: float = 0.02
-    """Height (m) the lift-stage goal sits above the cupcake's settled (reach) pose, so the grip must
-    lift the cupcake this far to advance out of the lift stage (an implicit grip-secured check). Kept
-    small -- just enough to break the cupcake free of the table before it is carried across to the
-    plate; the in-hand flip happens later, above the plate (see ``above_offset``)."""
-
-    above_offset: float = 0.10
-    """Height above the plate at which the cupcake is carried (move, still upside-down) and then
-    flipped upright (reorient). Must clear the plate so the 180 deg in-hand flip does not collide."""
-
-    place_height: float = 0.03
-    """Height above the plate pose at which the cupcake is placed. Plate pose z is the plate bottom
-    (on the table); at scale 0.8 the plate is ~0.03 m thick, so ~0.03 puts the upright cupcake's
-    bottom on the plate top."""
-
-    stage_object_tolerances: tuple[StageObjTol, ...] = DEFAULT_CUPCAKE_ON_PLATE_STAGE_OBJECT_TOLERANCES
-    """Per-stage object position and orientation tolerances for advancing the command trajectory.
-
-    One entry is required for each trajectory segment: reach, lift, move, reorient, place, and hold.
-    """
+    stage_object_tolerances: tuple[StageObjTol, ...] = DEFAULT_CUPCAKE_Z_AXIS_STAGE_OBJECT_TOLERANCES
+    """Object pose tolerances for the reach and yaw-target stages."""
 
 
 __all__ = [
-    "DEFAULT_CUPCAKE_ON_PLATE_PLATE_POSE",
-    "DEFAULT_CUPCAKE_UPRIGHT_QUAT",
-    "DEFAULT_CUPCAKE_ON_PLATE_SEGMENT_STEPS",
-    "DEFAULT_CUPCAKE_ON_PLATE_STAGE_OBJECT_TOLERANCES",
+    "DEFAULT_CUPCAKE_Z_AXIS_SEGMENT_STEPS",
+    "DEFAULT_CUPCAKE_Z_AXIS_STAGE_OBJECT_TOLERANCES",
+    "DEFAULT_CUPCAKE_Z_AXIS_YAW_DELTA_RANGE",
     "CupcakeOnPlateTrajectoryObjectAndHandBasePoseCommand",
     "CupcakeOnPlateTrajectoryObjectAndHandBasePoseCommandCfg",
 ]

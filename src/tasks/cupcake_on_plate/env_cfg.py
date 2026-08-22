@@ -3,7 +3,7 @@
 #
 # SPDX-License-Identifier: BSD-3-Clause
 
-"""Cupcake-on-plate task: pick an upside-down cupcake, flip it upright in-hand, place it on the plate.
+"""Cupcake-on-plate task: rotate an upright cupcake about its fixed world-Z axis.
 
 Mirrors the ``pick_insert`` HRL stack: a scripted object-pose trajectory command drives a cuRobo-MPC
 arm (hand ``base``) and a frozen ``dex_reorient`` low-level LEAP-hand policy. The base ``-v0`` env is
@@ -43,17 +43,17 @@ ASSETS_DIR = Path(__file__).resolve().parents[2] / "assets"
 
 @configclass
 class SceneCfg(InteractiveSceneCfg):
-    """Dexsuite scene: Franka+LEAP, an upside-down cupcake, a plate, and a table."""
+    """Dexsuite scene: Franka+LEAP, a Z-axis-constrained cupcake, a plate, and a table."""
 
     # robot
     robot = FRANKA_LEAP_HAND_CFG.replace(prim_path="{ENV_REGEX_NS}/Robot")
 
-    # object: the cupcake, spawned UPSIDE-DOWN (rot=(0,1,0,0) is a 180 deg flip about X, frosting
-    # down) so the task can flip it upright in-hand before placing it. Dynamic (grasped/reoriented).
+    # The referenced cupcake is connected to the world by an unbounded revolute Z joint. A
+    # prestartup event anchors its world-side joint frame at this cloned spawn pose.
     object = RigidObjectCfg(
         prim_path="{ENV_REGEX_NS}/Object",
         spawn=sim_utils.UsdFileCfg(
-            usd_path=str(ASSETS_DIR / "uwlab/cupcake.usd"),
+            usd_path=str(ASSETS_DIR / "uwlab/cake_z_axix.usd"),
             scale=(0.9, 0.9, 0.9),
             rigid_props=sim_utils.RigidBodyPropertiesCfg(
                 solver_position_iteration_count=16,
@@ -65,7 +65,7 @@ class SceneCfg(InteractiveSceneCfg):
             collision_props=sim_utils.CollisionPropertiesCfg(collision_enabled=True),
             mass_props=sim_utils.MassPropertiesCfg(mass=0.05),
         ),
-        init_state=RigidObjectCfg.InitialStateCfg(pos=(0.55, 0.20, 0.335), rot=(0.0, 1.0, 0.0, 0.0)),
+        init_state=RigidObjectCfg.InitialStateCfg(pos=(0.55, 0.20, 0.335), rot=(1.0, 0.0, 0.0, 0.0)),
     )
 
     # receptive_object: the plate (placement target). Kinematic (fixed placement surface).
@@ -141,24 +141,14 @@ class CommandsCfg:
     object_pose = mdp.CupcakeOnPlateTrajectoryObjectAndHandBasePoseCommandCfg(
         asset_name="robot",
         object_name="object",
-        resampling_time_range=(10.0, 10.0),
+        resampling_time_range=(1.0e6, 1.0e6),
         debug_vis=False,
         success_vis_asset_name="table",
-        # Fail recovery: if the cupcake leaves the hand mid-episode, wait for it to come to rest and
-        # regenerate the whole reach->place trajectory from its new pose so the arm re-grasps it.
-        enable_drop_recovery=True,
-        recovery_settle_speed=0.05,
-        recovery_settle_steps=5,
-        drop_object_hand_distance=0.12,
-        # Arm recovery only after reach(0)+lift(1); a hand<->object gap while the grip is still
-        # forming is not a drop. Capture the reach goal from the cupcake's settled pose.
-        recovery_arm_after_stage=1,
-        capture_goal_after_settle=True,
-        grasp_stall_steps=60,
-        # Grasp sequencing: keep the hand open through the reach stage (0), then close at lift.
+        enable_drop_recovery=False,
+        # Keep the hand open for the initial reach, then close while following yaw goals.
         hand_open_until_stage=0,
-        # Hand-base follows the object goal (see the pick_insert note): command[:, :7] stays a constant
-        # grasp offset for a stable grip while the arm (MPC) executes the lift/flip/move/place.
+        # Hand-base follows each object goal so command[:, :7] stays a stable grasp offset while the
+        # arm and hand execute the requested yaw.
         hand_base_hold_until_stage=-1,
         correction=mdp.AnchorCorrectionCfg(
             enable=True,
@@ -423,6 +413,12 @@ class ObservationsCfg:
 class EventCfg:
     """Configuration for randomization."""
 
+    anchor_cake_z_axis_joint = EventTerm(
+        func=mdp.anchor_cake_z_axis_joint,
+        mode="prestartup",
+        params={"asset_name": "object", "joint_name": "z_axis_joint"},
+    )
+
     robot_physics_material = EventTerm(
         func=mdp.randomize_rigid_body_material,
         mode="startup",
@@ -488,16 +484,12 @@ class EventCfg:
         },
     )
 
-    # Rest the cupcake upside-down on the table each reset. Small x/y jitter keeps it on the table;
-    # velocity zeroed so it settles gently under the reduced-gravity curriculum. Orientation is fixed
-    # (no roll/pitch/yaw jitter): the reach-to-grasp command derives a grasp pose with a fixed anchor
-    # orientation, so the cupcake must spawn at a consistent (upside-down) orientation for the grasp
-    # to align, and the reorient segment flips a known start orientation to upright.
+    # Keep the cupcake at its joint anchor with a deterministic upright pose on every reset.
     reset_object: EventTerm | None = EventTerm(
         func=mdp.reset_root_state_uniform,
         mode="reset",
         params={
-            "pose_range": {"x": [-0.03, 0.03], "y": [-0.03, 0.03], "yaw": [0.0, 0.0]},
+            "pose_range": {"x": [0.0, 0.0], "y": [0.0, 0.0], "yaw": [0.0, 0.0]},
             "velocity_range": {"x": [0.0, 0.0], "y": [0.0, 0.0], "z": [0.0, 0.0]},
             "asset_cfg": SceneEntityCfg("object"),
         },
@@ -621,8 +613,8 @@ class DexsuiteCupcakeOnPlateEnvCfg(ManagerBasedRLEnvCfg):
         # general settings
         self.decimation = 2  # 60 Hz control
 
-        # single-goal setup + success/failure coloring on the table visualizer
-        self.commands.object_pose.resampling_time_range = (10.0, 10.0)
+        # Goal-driven resampling; the command term replaces each achieved yaw target immediately.
+        self.commands.object_pose.resampling_time_range = (1.0e6, 1.0e6)
         self.commands.object_pose.position_only = False
         self.commands.object_pose.success_visualizer_cfg.markers["failure"] = (
             self.scene.table.spawn.replace(
@@ -754,14 +746,7 @@ class DexsuiteFrankaLeapCupcakeOnPlateEnvCfg_PLAY(
 
 @configclass
 class DexsuiteFrankaLeapCupcakeOnPlateHrlEnvCfg(FrankaLeapMixinCfg, DexsuiteCupcakeOnPlateEnvCfg):
-    """Cupcake-on-plate HRL env driven by the frozen external-force-sensing low-level hand policy.
-
-    cuRobo-MPC arm + frozen low-level LEAP-hand policy. The cupcake spawns upside-down on the table;
-    the reach-to-grasp command drives the pick, the reorient segment flips it upright in-hand, and the
-    trajectory then places it on the plate. The ``low_level`` observation group is the 167-dim reorient
-    layout (object + external fingertip-contact sensing), matching the dex_reorient ``reorient``
-    checkpoint. The 7-DOF arm is purely MPC-driven (0 external action dims).
-    """
+    """HRL variant that reaches the fixed cupcake and follows successive world-Z yaw goals."""
 
     actions: HrlActionsCfg = HrlActionsCfg()
 
