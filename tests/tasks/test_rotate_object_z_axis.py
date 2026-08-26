@@ -12,12 +12,16 @@ import torch
 
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
-ENV_CFG_PATH = REPO_ROOT / "src/tasks/cupcake_on_plate/env_cfg.py"
-TRAJECTORY_PATH = REPO_ROOT / "src/tasks/cupcake_on_plate/mdps/trajectory.py"
-COMMANDS_PATH = REPO_ROOT / "src/tasks/cupcake_on_plate/mdps/commands.py"
-TASK_MDPS_PATH = REPO_ROOT / "src/tasks/cupcake_on_plate/mdps/task_mdps.py"
-ASSET_PATH = REPO_ROOT / "src/assets/uwlab/cake_z_axix.usd"
-TRAIN_SCRIPT_PATH = REPO_ROOT / "scripts/train_cupcake_z_axis.sh"
+ENV_CFG_PATH = REPO_ROOT / "src/tasks/rotate_object/env_cfg.py"
+TRAJECTORY_PATH = REPO_ROOT / "src/tasks/rotate_object/mdps/trajectory.py"
+COMMANDS_PATH = REPO_ROOT / "src/tasks/rotate_object/mdps/commands.py"
+TASK_MDPS_PATH = REPO_ROOT / "src/tasks/rotate_object/mdps/task_mdps.py"
+CONTACT_FILTERS_PATH = REPO_ROOT / "src/tasks/rotate_object/mdps/contact_filters.py"
+PPO_CFG_PATH = REPO_ROOT / "src/tasks/rotate_object/rsl_rl_ppo_cfg.py"
+TASKS_INIT_PATH = REPO_ROOT / "src/tasks/__init__.py"
+VISDEX_USD_ROOT = REPO_ROOT / "src/assets/visdex_objects/USD"
+SAMPLE_ASSET_PATH = VISDEX_USD_ROOT / "104738/104738.usd"
+TRAIN_SCRIPT_PATH = REPO_ROOT / "scripts/train_rotate_object_z_axis.sh"
 
 
 def _class(tree: ast.Module, name: str) -> ast.ClassDef:
@@ -61,7 +65,7 @@ def _load_trajectory_module():
             "isaaclab.utils.math": isaaclab_math,
         }
     )
-    spec = importlib.util.spec_from_file_location("cupcake_z_axis_trajectory_under_test", TRAJECTORY_PATH)
+    spec = importlib.util.spec_from_file_location("rotate_object_z_axis_trajectory_under_test", TRAJECTORY_PATH)
     module = importlib.util.module_from_spec(spec)
     assert spec.loader is not None
     try:
@@ -84,7 +88,7 @@ def _load_commands_module():
         "isaaclab",
         "isaaclab.utils",
         "src.policy.high_level.trajectory_command",
-        "src.tasks.cupcake_on_plate.mdps.trajectory",
+        "src.tasks.rotate_object.mdps.trajectory",
     )
     previous = {name: sys.modules.get(name) for name in module_names}
     isaaclab = types.ModuleType("isaaclab")
@@ -124,10 +128,10 @@ def _load_commands_module():
             "isaaclab": isaaclab,
             "isaaclab.utils": isaaclab_utils,
             "src.policy.high_level.trajectory_command": trajectory_command,
-            "src.tasks.cupcake_on_plate.mdps.trajectory": trajectory,
+            "src.tasks.rotate_object.mdps.trajectory": trajectory,
         }
     )
-    spec = importlib.util.spec_from_file_location("cupcake_z_axis_commands_under_test", COMMANDS_PATH)
+    spec = importlib.util.spec_from_file_location("rotate_object_z_axis_commands_under_test", COMMANDS_PATH)
     module = importlib.util.module_from_spec(spec)
     assert spec.loader is not None
     try:
@@ -187,7 +191,7 @@ def _load_task_mdps_module(stage=None, root_paths=()):
             "isaaclab.utils.math": isaaclab_math,
         }
     )
-    spec = importlib.util.spec_from_file_location("cupcake_z_axis_task_mdps_under_test", TASK_MDPS_PATH)
+    spec = importlib.util.spec_from_file_location("rotate_object_z_axis_task_mdps_under_test", TASK_MDPS_PATH)
     module = importlib.util.module_from_spec(spec)
     assert spec.loader is not None
     try:
@@ -206,9 +210,9 @@ def test_yaw_trajectory_holds_position_and_rotates_only_about_z(yaw_delta: float
     module = _load_trajectory_module()
     current = torch.tensor([0.55, 0.20, 0.335, 1.0, 0.0, 0.0, 0.0], dtype=torch.float64)
 
-    trajectory = module.build_cupcake_z_axis_object_pose_sequence(current, yaw_delta=yaw_delta)
+    trajectory = module.build_rotate_object_z_axis_object_pose_sequence(current, yaw_delta=yaw_delta)
 
-    assert module.DEFAULT_CUPCAKE_Z_AXIS_SEGMENT_STEPS == (0, 1)
+    assert module.DEFAULT_ROTATE_OBJECT_Z_AXIS_SEGMENT_STEPS == (0, 1)
     assert trajectory.shape == (2, 7)
     torch.testing.assert_close(trajectory[:, :3], current[:3].expand(2, -1))
     torch.testing.assert_close(trajectory[0], current)
@@ -225,7 +229,7 @@ def test_signed_yaw_sampler_stays_between_sixty_and_ninety_degrees() -> None:
 
     deltas = module.sample_signed_yaw_deltas(
         1024,
-        module.DEFAULT_CUPCAKE_Z_AXIS_YAW_DELTA_RANGE,
+        module.DEFAULT_ROTATE_OBJECT_Z_AXIS_YAW_DELTA_RANGE,
         dtype=torch.float64,
         device="cpu",
         generator=generator,
@@ -243,7 +247,7 @@ def test_yaw_trajectory_rejects_invalid_parameters() -> None:
     pose = (0.0, 0.0, 0.0, 1.0, 0.0, 0.0, 0.0)
 
     with pytest.raises(ValueError, match="segment_steps must contain 2 values"):
-        module.build_cupcake_z_axis_object_pose_sequence(pose, yaw_delta=math.pi / 3.0, segment_steps=(1,))
+        module.build_rotate_object_z_axis_object_pose_sequence(pose, yaw_delta=math.pi / 3.0, segment_steps=(1,))
     with pytest.raises(ValueError, match="yaw_delta_range"):
         module.sample_signed_yaw_deltas(1, (math.pi / 2.0, math.pi / 3.0), dtype=torch.float32, device="cpu")
 
@@ -253,47 +257,40 @@ def test_stage_tolerances_are_hydra_serializable_and_runtime_typed() -> None:
 
     trajectory = _load_trajectory_module()
     serialized = OmegaConf.to_container(
-        OmegaConf.create({"stage_object_tolerances": trajectory.DEFAULT_CUPCAKE_Z_AXIS_STAGE_OBJECT_TOLERANCES})
+        OmegaConf.create({"stage_object_tolerances": trajectory.DEFAULT_ROTATE_OBJECT_Z_AXIS_STAGE_OBJECT_TOLERANCES})
     )
     assert serialized == {"stage_object_tolerances": [[0.01, 0.2], [0.01, 0.2]]}
 
     commands = _load_commands_module()
-    cfg = commands.CupcakeOnPlateTrajectoryObjectAndHandBasePoseCommandCfg()
-    cfg.stage_object_tolerances = trajectory.DEFAULT_CUPCAKE_Z_AXIS_STAGE_OBJECT_TOLERANCES
-    command = commands.CupcakeOnPlateTrajectoryObjectAndHandBasePoseCommand(
+    cfg = commands.RotateObjectTrajectoryObjectAndHandBasePoseCommandCfg()
+    cfg.stage_object_tolerances = trajectory.DEFAULT_ROTATE_OBJECT_Z_AXIS_STAGE_OBJECT_TOLERANCES
+    command = commands.RotateObjectTrajectoryObjectAndHandBasePoseCommand(
         cfg, types.SimpleNamespace(num_envs=2, device="cpu")
     )
     assert all(isinstance(value, commands.StageObjTol) for value in command.cfg.stage_object_tolerances)
     assert cfg.stage_object_tolerances == ((0.01, 0.2), (0.01, 0.2))
 
 
-def test_cake_z_axix_asset_has_one_unlimited_z_revolute_joint() -> None:
-    from pxr import Usd, UsdPhysics
-
-    stage = Usd.Stage.Open(str(ASSET_PATH))
-    assert stage is not None
-    root = stage.GetDefaultPrim()
-    assert root.GetName() == "cake_z_axix"
-    rigid_bodies = [prim for prim in stage.Traverse() if prim.HasAPI(UsdPhysics.RigidBodyAPI)]
-    assert [prim.GetPath() for prim in rigid_bodies] == [root.GetPath()]
-
-    joint = UsdPhysics.RevoluteJoint.Get(stage, root.GetPath().AppendChild("z_axis_joint"))
-    assert joint
-    assert joint.GetAxisAttr().Get() == "Z"
-    assert joint.GetBody0Rel().GetTargets() == []
-    assert joint.GetBody1Rel().GetTargets() == [root.GetPath()]
-    assert math.isinf(joint.GetLowerLimitAttr().Get())
-    assert math.isinf(joint.GetUpperLimitAttr().Get())
-
-
-def test_cupcake_scene_uses_fixed_upright_z_axis_asset() -> None:
+def test_rotate_object_scene_uses_fixed_visdex_asset_index() -> None:
     tree = ast.parse(ENV_CFG_PATH.read_text())
+    module = _assignments(tree)
     scene = _assignments(_class(tree, "SceneCfg"))
     events = _assignments(_class(tree, "EventCfg"))
 
     object_cfg = scene["object"]
     object_spawn = _keyword(object_cfg, "spawn")
-    assert "cake_z_axix.usd" in ast.unparse(_keyword(object_spawn, "usd_path"))
+    assert ast.literal_eval(module["VISDEX_OBJECT_INDEX"]) == 0
+    assert ast.unparse(object_spawn.func) == "sim_utils.UsdFileCfg"
+    assert ast.unparse(_keyword(object_spawn, "usd_path")) == "_get_visdex_usd_paths()[VISDEX_OBJECT_INDEX]"
+    assert all(keyword.arg != "random_choice" for keyword in object_spawn.keywords)
+    assert ast.literal_eval(_keyword(object_spawn, "scale")) == (0.8, 0.8, 0.8)
+    mass_props = _keyword(object_spawn, "mass_props")
+    assert ast.literal_eval(_keyword(mass_props, "mass")) == 0.2
+
+    usd_paths = [path / f"{path.name}.usd" for path in sorted(VISDEX_USD_ROOT.iterdir()) if path.is_dir()]
+    assert len([path for path in usd_paths if path.is_file()]) == 152
+    selected_index = ast.literal_eval(module["VISDEX_OBJECT_INDEX"])
+    assert usd_paths[selected_index].parts[-2:] == ("104738", "104738.usd")
     object_init = _keyword(object_cfg, "init_state")
     assert ast.literal_eval(_keyword(object_init, "pos")) == (0.55, 0.20, 0.335)
     assert ast.literal_eval(_keyword(object_init, "rot")) == (1.0, 0.0, 0.0, 0.0)
@@ -301,7 +298,7 @@ def test_cupcake_scene_uses_fixed_upright_z_axis_asset() -> None:
     reset_params = _keyword(events["reset_object"], "params")
     pose_range = ast.literal_eval(_dict_value(reset_params, "pose_range"))
     assert pose_range == {"x": [0.0, 0.0], "y": [0.0, 0.0], "yaw": [0.0, 0.0]}
-    assert ast.literal_eval(_keyword(events["anchor_cake_z_axis_joint"], "mode")) == "prestartup"
+    assert ast.literal_eval(_keyword(events["anchor_object_z_axis_joint"], "mode")) == "prestartup"
 
     rewards = _assignments(_class(tree, "RewardsCfg"))
     yaw_tracking = rewards["yaw_tracking"]
@@ -337,7 +334,7 @@ def test_achieved_yaw_goal_is_immediately_resampled() -> None:
         def clear_stall(self, env_ids):
             self.cleared.append(env_ids.clone())
 
-    command = object.__new__(module.CupcakeOnPlateTrajectoryObjectAndHandBasePoseCommand)
+    command = object.__new__(module.RotateObjectTrajectoryObjectAndHandBasePoseCommand)
     command._stepper = Stepper()
     command._corr = Correction()
     command.pose_command_b = torch.zeros(3, 7)
@@ -392,7 +389,7 @@ def test_yaw_tracking_reward_is_command_conditioned_and_reach_gated() -> None:
 
 
 def test_prestartup_joint_anchor_uses_each_cloned_world_pose() -> None:
-    from pxr import Sdf, Usd, UsdGeom, UsdPhysics
+    from pxr import Gf, Sdf, Usd, UsdGeom, UsdPhysics
 
     stage = Usd.Stage.CreateInMemory()
     root_paths = []
@@ -400,28 +397,36 @@ def test_prestartup_joint_anchor_uses_each_cloned_world_pose() -> None:
     for env_index, position in enumerate(expected_positions):
         root_path = f"/World/envs/env_{env_index}/Object"
         root = stage.DefinePrim(root_path, "Xform")
-        root.GetReferences().AddReference(str(ASSET_PATH))
-        UsdGeom.XformCommonAPI(root).SetTranslate(position)
+        root.GetReferences().AddReference(str(SAMPLE_ASSET_PATH))
+        root_xform = UsdGeom.Xformable(root)
+        root_xform.ClearXformOpOrder()
+        root_xform.AddTranslateOp().Set(Gf.Vec3d(*position))
         root_paths.append(root_path)
 
     module = _load_task_mdps_module(stage, root_paths)
     asset = types.SimpleNamespace(cfg=types.SimpleNamespace(prim_path="/World/envs/env_.*/Object"))
     scene = {"object": asset}
     env = types.SimpleNamespace(scene=scene, num_envs=2)
-    module.anchor_cake_z_axis_joint(env, None)
+    module.anchor_object_z_axis_joint(env, None)
 
     for root_path, expected in zip(root_paths, expected_positions, strict=True):
         joint = UsdPhysics.RevoluteJoint.Get(stage, Sdf.Path(root_path).AppendChild("z_axis_joint"))
+        assert joint
+        assert joint.GetAxisAttr().Get() == UsdGeom.Tokens.z
+        assert joint.GetBody0Rel().GetTargets() == []
+        assert joint.GetBody1Rel().GetTargets() == [Sdf.Path(root_path).AppendChild("baseLink")]
+        assert math.isinf(joint.GetLowerLimitAttr().Get()) and joint.GetLowerLimitAttr().Get() < 0.0
+        assert math.isinf(joint.GetUpperLimitAttr().Get()) and joint.GetUpperLimitAttr().Get() > 0.0
         assert tuple(joint.GetLocalPos0Attr().Get()) == pytest.approx(expected)
         assert tuple(joint.GetLocalPos1Attr().Get()) == pytest.approx((0.0, 0.0, 0.0))
 
 
-def test_training_launcher_targets_trainable_cupcake_task() -> None:
+def test_training_launcher_targets_trainable_rotate_object_task() -> None:
     source = TRAIN_SCRIPT_PATH.read_text()
 
     assert "conda activate env_isaaclab" in source
     assert "scripts/rsl_rl/train.py" in source
-    assert "--task Cupcake_on_Plate-v0" in source
+    assert "--task Rotate_Object-v0" in source
     assert "--num_envs 4096" in source
     assert "--max_iterations 15000" in source
     assert "--headless" in source
@@ -430,3 +435,91 @@ def test_training_launcher_targets_trainable_cupcake_task() -> None:
     assert "conda info --base" in source
     assert source.index("conda activate env_isaaclab") < source.index("set -u")
     assert 'export PYTHONPATH="$TRAIN_REPO_ROOT${PYTHONPATH:+:$PYTHONPATH}"' in source
+
+
+def test_rotate_object_tasks_are_registered_with_renamed_entry_points() -> None:
+    source = TASKS_INIT_PATH.read_text()
+
+    assert 'id="Rotate_Object-v0"' in source
+    assert 'id="Rotate_Object_HRL-v0"' in source
+    assert "rotate_object.env_cfg:DexsuiteFrankaLeapRotateObjectEnvCfg" in source
+    assert "rotate_object.env_cfg:DexsuiteFrankaLeapRotateObjectHrlEnvCfg" in source
+    assert "rotate_object.rsl_rl_ppo_cfg:RotateObjectRslRlPpoCfg" in source
+    assert 'id="Cupcake_on_Plate-v0"' not in source
+    assert 'id="Cupcake_on_Plate_HRL-v0"' not in source
+
+
+def test_rotate_object_hrl_matches_pick_insert_low_level_contract() -> None:
+    tree = ast.parse(ENV_CFG_PATH.read_text())
+    low_level = next(
+        node
+        for node in _class(tree, "ObservationsCfg").body
+        if isinstance(node, ast.ClassDef) and node.name == "LowLevelObsCfg"
+    )
+    term_names = [
+        node.targets[0].id
+        for node in low_level.body
+        if isinstance(node, ast.Assign)
+        and isinstance(node.targets[0], ast.Name)
+        and isinstance(node.value, ast.Call)
+    ]
+    term_widths = {
+        "joint_pos": 16,
+        "joint_vel": 16,
+        "fingertip_pose": 52,
+        "contact_mask": 4,
+        "contact_force_mag": 4,
+        "contact_pose": 8,
+        "external_contact_mask": 4,
+        "external_contact_force_mag": 4,
+        "external_contact_pose": 8,
+        "object_pos": 3,
+        "object_quat": 4,
+        "object_lin_vel": 3,
+        "object_ang_vel": 3,
+        "gravity_dir": 3,
+        "goal_pos_diff": 3,
+        "goal_quat_diff": 4,
+        "last_action": 16,
+    }
+    assert term_names == list(term_widths)
+    assert sum(term_widths.values()) == 155
+
+    assignments = _assignments(low_level)
+    object_contact_params = _keyword(assignments["contact_pose"], "params")
+    external_contact_params = _keyword(assignments["external_contact_pose"], "params")
+    assert ast.literal_eval(_dict_value(object_contact_params, "contact_pose_range_deg")) == 90.0
+    assert ast.literal_eval(_dict_value(external_contact_params, "contact_pose_range_deg")) == 45.0
+
+    actions = _assignments(_class(tree, "HrlActionsCfg"))
+    assert list(actions) == ["arm_action", "hand_action"]
+    assert ast.unparse(actions["arm_action"].func) == "mdp.CommandHandBaseCuroboMpcActionCfg"
+    assert ast.literal_eval(_keyword(actions["arm_action"], "command_name")) == "object_pose"
+    assert ast.unparse(actions["hand_action"].func) == "mdp.EMAJointPositionToLimitsActionCfg"
+
+    hrl_class = _class(tree, "DexsuiteFrankaLeapRotateObjectHrlEnvCfg")
+    hrl_source = ast.unparse(hrl_class)
+    assert "self.observations.low_level = ObservationsCfg.LowLevelObsCfg()" in hrl_source
+    assert ".stiffness = 0.0" in hrl_source
+    assert ".damping = 0.0" in hrl_source
+
+
+def test_rotate_object_trainer_uses_renamed_experiment() -> None:
+    tree = ast.parse(PPO_CFG_PATH.read_text())
+    trainer = _assignments(_class(tree, "RotateObjectRslRlPpoCfg"))
+    assert ast.literal_eval(trainer["experiment_name"]) == "rotate_object"
+
+
+def test_rotate_object_contact_filter_roles_are_stable() -> None:
+    spec = importlib.util.spec_from_file_location("rotate_object_contact_filters_under_test", CONTACT_FILTERS_PATH)
+    assert spec is not None and spec.loader is not None
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+
+    assert module.CONTACT_FILTER_TARGETS == [
+        ("object", "{ENV_REGEX_NS}/Object/baseLink"),
+        ("receptive", "{ENV_REGEX_NS}/ReceptiveObject"),
+        ("table", "{ENV_REGEX_NS}/Table"),
+    ]
+    assert module.object_indices() == [0]
+    assert module.external_indices() == [1, 2]

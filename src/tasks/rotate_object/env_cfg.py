@@ -3,7 +3,7 @@
 #
 # SPDX-License-Identifier: BSD-3-Clause
 
-"""Cupcake-on-plate task: rotate an upright cupcake about its fixed world-Z axis.
+"""Rotate-object task: rotate an upright object about its fixed world-Z axis.
 
 Mirrors the ``pick_insert`` HRL stack: a scripted object-pose trajectory command drives a cuRobo-MPC
 arm (hand ``base``) and a frozen ``dex_reorient`` low-level LEAP-hand policy. The base ``-v0`` env is
@@ -29,9 +29,9 @@ from isaaclab.utils.noise import AdditiveGaussianNoiseCfg as Gnoise
 from isaaclab.utils.noise import AdditiveUniformNoiseCfg as Unoise
 from isaaclab.sensors import ContactSensorCfg, FrameTransformerCfg, OffsetCfg
 
-import src.tasks.cupcake_on_plate.mdps as mdp
+import src.tasks.rotate_object.mdps as mdp
 import src.tasks.reorient.mdps as task_mdps
-from src.tasks.cupcake_on_plate.mdps.contact_filters import (
+from src.tasks.rotate_object.mdps.contact_filters import (
     contact_filter_prim_paths,
     external_indices,
     object_indices,
@@ -40,30 +40,53 @@ from src.assets.franka_leap_hand.franka_leap import FRANKA_LEAP_HAND_CFG
 
 ASSETS_DIR = Path(__file__).resolve().parents[2] / "assets"
 
+# Change this index to select a different asset from _get_visdex_usd_paths().
+VISDEX_OBJECT_INDEX = 2
+
+
+def _get_visdex_usd_paths() -> list[str]:
+    """Return sorted VisDex USD asset paths bundled with this repo."""
+    usd_root = ASSETS_DIR / "visdex_objects" / "USD"
+    if not usd_root.is_dir():
+        raise FileNotFoundError(f"VisDex USD asset directory does not exist: {usd_root}")
+
+    usd_paths: list[str] = []
+    for object_dir in sorted(path for path in usd_root.iterdir() if path.is_dir()):
+        usd_path = object_dir / f"{object_dir.name}.usd"
+        if usd_path.is_file():
+            usd_paths.append(str(usd_path))
+
+    if not usd_paths:
+        raise ValueError(f"No VisDex USD assets found in: {usd_root}")
+    return usd_paths
+
 
 @configclass
 class SceneCfg(InteractiveSceneCfg):
-    """Dexsuite scene: Franka+LEAP, a Z-axis-constrained cupcake, a plate, and a table."""
+    """Dexsuite scene: Franka+LEAP, a Z-axis-constrained object, a plate, and a table."""
 
     # robot
     robot = FRANKA_LEAP_HAND_CFG.replace(prim_path="{ENV_REGEX_NS}/Robot")
 
-    # The referenced cupcake is connected to the world by an unbounded revolute Z joint. A
-    # prestartup event anchors its world-side joint frame at this cloned spawn pose.
+    # The selected object is connected to the world by an unbounded revolute Z joint. A prestartup
+    # event creates the joint and anchors its world-side frame at this cloned spawn pose.
     object = RigidObjectCfg(
         prim_path="{ENV_REGEX_NS}/Object",
         spawn=sim_utils.UsdFileCfg(
-            usd_path=str(ASSETS_DIR / "uwlab/cake_z_axix.usd"),
-            scale=(0.9, 0.9, 0.9),
+            usd_path=_get_visdex_usd_paths()[VISDEX_OBJECT_INDEX],
+            articulation_props=sim_utils.ArticulationRootPropertiesCfg(
+                articulation_enabled=False,
+            ),
             rigid_props=sim_utils.RigidBodyPropertiesCfg(
                 solver_position_iteration_count=16,
                 solver_velocity_iteration_count=1,
                 disable_gravity=False,
                 kinematic_enabled=False,
-                # max_depenetration_velocity=0.1,
+                enable_gyroscopic_forces=True,
             ),
             collision_props=sim_utils.CollisionPropertiesCfg(collision_enabled=True),
-            mass_props=sim_utils.MassPropertiesCfg(mass=0.05),
+            mass_props=sim_utils.MassPropertiesCfg(mass=0.2),
+            scale=(0.8, 0.8, 0.8),
         ),
         init_state=RigidObjectCfg.InitialStateCfg(pos=(0.55, 0.20, 0.335), rot=(1.0, 0.0, 0.0, 0.0)),
     )
@@ -105,7 +128,7 @@ class SceneCfg(InteractiveSceneCfg):
     )
 
     # static obstacle: a fixed pillar the MPC must route around, off to the side (clear of the
-    # cupcake/plate/arm path). Visual-only (no collision_props): it exists physically only in the
+    # object/plate/arm path). Visual-only (no collision_props): it exists physically only in the
     # cuRobo planning world. Mirrored as a static "static_obstacle" cuboid in the arm action.
     # static_obstacle: RigidObjectCfg = RigidObjectCfg(
     #     prim_path="{ENV_REGEX_NS}/StaticObstacle",
@@ -138,7 +161,7 @@ class SceneCfg(InteractiveSceneCfg):
 class CommandsCfg:
     """Command terms for the MDP."""
 
-    object_pose = mdp.CupcakeOnPlateTrajectoryObjectAndHandBasePoseCommandCfg(
+    object_pose = mdp.RotateObjectTrajectoryObjectAndHandBasePoseCommandCfg(
         asset_name="robot",
         object_name="object",
         resampling_time_range=(1.0e6, 1.0e6),
@@ -225,7 +248,7 @@ class ObservationsCfg:
 
     @configclass
     class LowLevelObsCfg(ObsGroup):
-        """Reorient-style current-step state used by the frozen low-level VAE (167-dim layout)."""
+        """Reorient-style current-step state used by the frozen low-level VAE (155-dim layout)."""
 
         joint_pos = ObsTerm(
             func=mdp.joint_pos_limit_normalized,
@@ -245,20 +268,6 @@ class ObservationsCfg:
                 "base_body_asset_cfg": SceneEntityCfg("robot", body_names="base"),
             },
         )
-        # # -- object contact: raw 3D force in hand-base frame (object filter only)
-        # fingertip_contact_force_b = ObsTerm(
-        #     func=mdp.fingers_contact_force_body_b,
-        #     params={
-        #         "contact_sensor_names": [
-        #             "thumb_fingertip_object_s",
-        #             "fingertip_object_s",
-        #             "fingertip_2_object_s",
-        #             "fingertip_3_object_s",
-        #         ],
-        #         "base_body_asset_cfg": SceneEntityCfg("robot", body_names="base"),
-        #         "filter_indices": object_indices(),
-        #     },
-        # )
         contact_mask = ObsTerm(
             func=task_mdps.tip_contact_mask_obs,
             params={
@@ -295,11 +304,11 @@ class ObservationsCfg:
                     "fingertip_3_object_s",
                 ],
                 "force_threshold": 0.25,
-                "contact_pose_range_deg": 45.0,
+                "contact_pose_range_deg": 90.0,
                 "filter_indices": object_indices(),
             },
         )
-        # -- external contact: plate + table, vector-summed per fingertip (16 dims) -> 167-dim layout.
+        # -- external contact: plate + table, vector-summed per fingertip (16 dims) -> 155-dim layout.
         external_contact_mask = ObsTerm(
             func=task_mdps.tip_contact_mask_obs,
             params={
@@ -413,8 +422,8 @@ class ObservationsCfg:
 class EventCfg:
     """Configuration for randomization."""
 
-    anchor_cake_z_axis_joint = EventTerm(
-        func=mdp.anchor_cake_z_axis_joint,
+    anchor_object_z_axis_joint = EventTerm(
+        func=mdp.anchor_object_z_axis_joint,
         mode="prestartup",
         params={"asset_name": "object", "joint_name": "z_axis_joint"},
     )
@@ -484,7 +493,7 @@ class EventCfg:
         },
     )
 
-    # Keep the cupcake at its joint anchor with a deterministic upright pose on every reset.
+    # Keep the object at its joint anchor with a deterministic upright pose on every reset.
     reset_object: EventTerm | None = EventTerm(
         func=mdp.reset_root_state_uniform,
         mode="reset",
@@ -531,7 +540,7 @@ class HrlActionsCfg:
 
     # cuRobo reactive MPC: drives the hand `base` to the command anchor. The full Franka+LEAP collision
     # model plans around the static_obstacle pillar (the table/plate are NOT obstacles so the hand can
-    # reach down to grasp the cupcake and lower it onto the plate).
+    # reach down to grasp the object and lower it onto the plate).
     arm_action = mdp.CommandHandBaseCuroboMpcActionCfg(
         asset_name="robot",
         joint_names=["panda_joint.*"],
@@ -592,8 +601,8 @@ class TerminationsCfg:
 
 
 @configclass
-class DexsuiteCupcakeOnPlateEnvCfg(ManagerBasedRLEnvCfg):
-    """Base cupcake-on-plate env: scripted trajectory command + joint-control actions."""
+class DexsuiteRotateObjectEnvCfg(ManagerBasedRLEnvCfg):
+    """Base rotate-object env: scripted trajectory command + joint-control actions."""
 
     # Scene settings
     viewer: ViewerCfg = ViewerCfg(
@@ -659,8 +668,8 @@ class DexsuiteCupcakeOnPlateEnvCfg(ManagerBasedRLEnvCfg):
         self.sim.physx.gpu_collision_stack_size = 2**30
 
 
-class DexsuiteCupcakeOnPlateEnvCfg_PLAY(DexsuiteCupcakeOnPlateEnvCfg):
-    """Cupcake-on-plate evaluation environment definition."""
+class DexsuiteRotateObjectEnvCfg_PLAY(DexsuiteRotateObjectEnvCfg):
+    """Rotate-object evaluation environment definition."""
 
     def __post_init__(self):
         super().__post_init__()
@@ -675,7 +684,7 @@ class DexsuiteCupcakeOnPlateEnvCfg_PLAY(DexsuiteCupcakeOnPlateEnvCfg):
 @configclass
 class FrankaLeapMixinCfg:
 
-    def __post_init__(self: DexsuiteCupcakeOnPlateEnvCfg):
+    def __post_init__(self: DexsuiteRotateObjectEnvCfg):
         super().__post_init__()
         self.commands.object_pose.body_name = "base"
         finger_tip_body_list = [
@@ -738,20 +747,20 @@ class FrankaLeapMixinCfg:
 
 
 @configclass
-class DexsuiteFrankaLeapCupcakeOnPlateEnvCfg(FrankaLeapMixinCfg, DexsuiteCupcakeOnPlateEnvCfg):
+class DexsuiteFrankaLeapRotateObjectEnvCfg(FrankaLeapMixinCfg, DexsuiteRotateObjectEnvCfg):
     pass
 
 
 @configclass
-class DexsuiteFrankaLeapCupcakeOnPlateEnvCfg_PLAY(
-    FrankaLeapMixinCfg, DexsuiteCupcakeOnPlateEnvCfg_PLAY
+class DexsuiteFrankaLeapRotateObjectEnvCfg_PLAY(
+    FrankaLeapMixinCfg, DexsuiteRotateObjectEnvCfg_PLAY
 ):
     pass
 
 
 @configclass
-class DexsuiteFrankaLeapCupcakeOnPlateHrlEnvCfg(FrankaLeapMixinCfg, DexsuiteCupcakeOnPlateEnvCfg):
-    """HRL variant that reaches the fixed cupcake and follows successive world-Z yaw goals."""
+class DexsuiteFrankaLeapRotateObjectHrlEnvCfg(FrankaLeapMixinCfg, DexsuiteRotateObjectEnvCfg):
+    """HRL variant that reaches the fixed object and follows successive world-Z yaw goals."""
 
     actions: HrlActionsCfg = HrlActionsCfg()
 

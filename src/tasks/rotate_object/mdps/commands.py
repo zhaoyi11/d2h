@@ -3,7 +3,7 @@
 #
 # SPDX-License-Identifier: BSD-3-Clause
 
-"""Continuous yaw-goal command for the Z-axis-constrained cupcake task."""
+"""Continuous yaw-goal command for the Z-axis-constrained object task."""
 
 from __future__ import annotations
 
@@ -16,19 +16,19 @@ from src.policy.high_level.trajectory_command import (
     TrajectoryObjectAndHandBasePoseCommandCfg,
 )
 from src.policy.high_level.trajectory_stepper import StageObjTol
-from src.tasks.cupcake_on_plate.mdps.trajectory import (
-    DEFAULT_CUPCAKE_Z_AXIS_SEGMENT_STEPS,
-    DEFAULT_CUPCAKE_Z_AXIS_STAGE_OBJECT_TOLERANCES,
-    DEFAULT_CUPCAKE_Z_AXIS_YAW_DELTA_RANGE,
-    build_cupcake_z_axis_object_pose_sequence,
+from src.tasks.rotate_object.mdps.trajectory import (
+    DEFAULT_ROTATE_OBJECT_Z_AXIS_SEGMENT_STEPS,
+    DEFAULT_ROTATE_OBJECT_Z_AXIS_STAGE_OBJECT_TOLERANCES,
+    DEFAULT_ROTATE_OBJECT_Z_AXIS_YAW_DELTA_RANGE,
+    build_rotate_object_z_axis_object_pose_sequence,
     sample_signed_yaw_deltas,
 )
 
 
-class CupcakeOnPlateTrajectoryObjectAndHandBasePoseCommand(TrajectoryObjectAndHandBasePoseCommand):
-    """Reach the fixed cupcake, then continuously issue yaw-only object goals."""
+class RotateObjectTrajectoryObjectAndHandBasePoseCommand(TrajectoryObjectAndHandBasePoseCommand):
+    """Reach the fixed object, then continuously issue yaw-only object goals."""
 
-    cfg: CupcakeOnPlateTrajectoryObjectAndHandBasePoseCommandCfg
+    cfg: RotateObjectTrajectoryObjectAndHandBasePoseCommandCfg
 
     def __init__(self, cfg, env):
         runtime_cfg = cfg.replace(
@@ -45,7 +45,7 @@ class CupcakeOnPlateTrajectoryObjectAndHandBasePoseCommand(TrajectoryObjectAndHa
             device=self.device,
         )
         trajectories = [
-            build_cupcake_z_axis_object_pose_sequence(
+            build_rotate_object_z_axis_object_pose_sequence(
                 current_pose_b[env_idx],
                 yaw_delta=yaw_deltas[env_idx],
                 segment_steps=self.cfg.trajectory_segment_steps,
@@ -83,25 +83,25 @@ class CupcakeOnPlateTrajectoryObjectAndHandBasePoseCommand(TrajectoryObjectAndHa
 
 
 @configclass
-class CupcakeOnPlateTrajectoryObjectAndHandBasePoseCommandCfg(TrajectoryObjectAndHandBasePoseCommandCfg):
-    """Configuration for continuous fixed-position cupcake yaw goals."""
+class RotateObjectTrajectoryObjectAndHandBasePoseCommandCfg(TrajectoryObjectAndHandBasePoseCommandCfg):
+    """Configuration for continuous fixed-position object yaw goals."""
 
-    class_type: type = CupcakeOnPlateTrajectoryObjectAndHandBasePoseCommand
+    class_type: type = RotateObjectTrajectoryObjectAndHandBasePoseCommand
 
-    yaw_delta_range: tuple[float, float] = DEFAULT_CUPCAKE_Z_AXIS_YAW_DELTA_RANGE
+    yaw_delta_range: tuple[float, float] = DEFAULT_ROTATE_OBJECT_Z_AXIS_YAW_DELTA_RANGE
     """Uniform absolute yaw delta range in radians; direction is sampled independently."""
 
-    trajectory_segment_steps: tuple[int, ...] = DEFAULT_CUPCAKE_Z_AXIS_SEGMENT_STEPS
+    trajectory_segment_steps: tuple[int, ...] = DEFAULT_ROTATE_OBJECT_Z_AXIS_SEGMENT_STEPS
     """Reach and yaw-target interpolation samples."""
 
-    stage_object_tolerances: tuple[tuple[float, float], ...] = DEFAULT_CUPCAKE_Z_AXIS_STAGE_OBJECT_TOLERANCES
+    stage_object_tolerances: tuple[tuple[float, float], ...] = DEFAULT_ROTATE_OBJECT_Z_AXIS_STAGE_OBJECT_TOLERANCES
     """Object pose tolerances for the reach and yaw-target stages."""
 
 
 __all__ = [
-    "DEFAULT_CUPCAKE_Z_AXIS_SEGMENT_STEPS",
-    "DEFAULT_CUPCAKE_Z_AXIS_STAGE_OBJECT_TOLERANCES",
-    "DEFAULT_CUPCAKE_Z_AXIS_YAW_DELTA_RANGE",
-    "CupcakeOnPlateTrajectoryObjectAndHandBasePoseCommand",
-    "CupcakeOnPlateTrajectoryObjectAndHandBasePoseCommandCfg",
+    "DEFAULT_ROTATE_OBJECT_Z_AXIS_SEGMENT_STEPS",
+    "DEFAULT_ROTATE_OBJECT_Z_AXIS_STAGE_OBJECT_TOLERANCES",
+    "DEFAULT_ROTATE_OBJECT_Z_AXIS_YAW_DELTA_RANGE",
+    "RotateObjectTrajectoryObjectAndHandBasePoseCommand",
+    "RotateObjectTrajectoryObjectAndHandBasePoseCommandCfg",
 ]

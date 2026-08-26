@@ -446,36 +446,37 @@ class RewardsCfg:
         params={"threshold": 1.0},
         weight=0.5,
     )
-    trajectory_position = RewTerm(
-        func=task_mdps.position_command_error_tanh,
-        params={
-            "std": 0.10,
-            "command_name": "object_pose",
-            "asset_cfg": SceneEntityCfg("robot"),
-            "align_asset_cfg": SceneEntityCfg("object"),
-        },
-        weight=1.0,
-    )
-    trajectory_orientation = RewTerm(
-        func=task_mdps.orientation_command_error_tanh,
-        params={
-            "std": 0.50,
-            "command_name": "object_pose",
-            "asset_cfg": SceneEntityCfg("robot"),
-            "align_asset_cfg": SceneEntityCfg("object"),
-        },
-        weight=1.0,
-    )
-    # clearance_progress = RewTerm(
-    #     func=mdp.DenseUnscrewClearance,
+    # trajectory_position = RewTerm(
+    #     func=task_mdps.position_command_error_tanh,
     #     params={
-    #         "object_cfg": SceneEntityCfg("object"),
-    #         "receptive_cfg": SceneEntityCfg("receptive_object"),
-    #         "start_clearance": -0.040,
-    #         "target_clearance": 0.030,
+    #         "std": 0.10,
+    #         "command_name": "object_pose",
+    #         "asset_cfg": SceneEntityCfg("robot"),
+    #         "align_asset_cfg": SceneEntityCfg("object"),
     #     },
     #     weight=1.0,
     # )
+    # trajectory_orientation = RewTerm(
+    #     func=task_mdps.orientation_command_error_tanh,
+    #     params={
+    #         "std": 0.50,
+    #         "command_name": "object_pose",
+    #         "asset_cfg": SceneEntityCfg("robot"),
+    #         "align_asset_cfg": SceneEntityCfg("object"),
+    #     },
+    #     weight=1.0,
+    # )
+    
+    clearance_progress = RewTerm(
+        func=mdp.DenseUnscrewClearance,
+        params={
+            "object_cfg": SceneEntityCfg("object"),
+            "receptive_cfg": SceneEntityCfg("receptive_object"),
+            "start_clearance": -0.040,
+            "target_clearance": 0.030,
+        },
+        weight=1.0,
+    )
     success = RewTerm(
         func=mdp.UnscrewSuccess,
         params={

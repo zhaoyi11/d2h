@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 # ---------------------------------------------------------------------------
-# Contact-sensing target registry (cupcake_on_plate)
+# Contact-sensing target registry (rotate_object)
 # ---------------------------------------------------------------------------
 # Ordered list of prim-path expressions that the fingertip contact sensors filter
 # against. The list *position* equals the filter index in
@@ -13,11 +13,11 @@ from __future__ import annotations
 #
 # IMPORTANT: "object" must stay first (index 0) so the object-grasp contact terms
 # keep reading object contact only. The external targets are the surfaces the hand
-# can brace/pivot against while flipping and placing the cupcake: the plate
+# can brace against while rotating the object: the plate
 # (receptacle) and the table slab. Adding another external target is a one-line
 # edit here plus a matching scene asset.
 CONTACT_FILTER_TARGETS: list[tuple[str, str]] = [
-    ("object",    "{ENV_REGEX_NS}/Object"),
+    ("object",    "{ENV_REGEX_NS}/Object/baseLink"),
     ("receptive", "{ENV_REGEX_NS}/ReceptiveObject"),
     ("table",     "{ENV_REGEX_NS}/Table"),
 ]

@@ -15,7 +15,7 @@ conda activate env_isaaclab
 set -u
 
 python3 scripts/rsl_rl/train.py \
-  --task Cupcake_on_Plate-v0 \
+  --task Rotate_Object-v0 \
   --num_envs 4096 \
   --max_iterations 15000 \
   --headless \

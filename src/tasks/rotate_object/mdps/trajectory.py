@@ -3,7 +3,7 @@
 #
 # SPDX-License-Identifier: BSD-3-Clause
 
-"""Pure-Torch reference generation for the Z-axis-constrained cupcake task."""
+"""Pure-Torch reference generation for the Z-axis-constrained object task."""
 
 from __future__ import annotations
 
@@ -19,21 +19,21 @@ from src.policy.high_level.utils import (
 )
 
 
-DEFAULT_CUPCAKE_Z_AXIS_SEGMENT_STEPS = (0, 1)
-"""Reach the fixed cupcake, then activate one yaw target."""
+DEFAULT_ROTATE_OBJECT_Z_AXIS_SEGMENT_STEPS = (0, 1)
+"""Reach the fixed object, then activate one yaw target."""
 
-DEFAULT_CUPCAKE_Z_AXIS_STAGE_OBJECT_TOLERANCES = (
+DEFAULT_ROTATE_OBJECT_Z_AXIS_STAGE_OBJECT_TOLERANCES = (
     (0.01, 0.2),  # reach
     (0.01, 0.2),  # yaw target
 )
 
-DEFAULT_CUPCAKE_Z_AXIS_YAW_DELTA_RANGE = (math.pi / 3.0, math.pi / 2.0)
+DEFAULT_ROTATE_OBJECT_Z_AXIS_YAW_DELTA_RANGE = (math.pi / 3.0, math.pi / 2.0)
 """Absolute yaw-goal range: 60 to 90 degrees."""
 
 
 def sample_signed_yaw_deltas(
     count: int,
-    yaw_delta_range: tuple[float, float] = DEFAULT_CUPCAKE_Z_AXIS_YAW_DELTA_RANGE,
+    yaw_delta_range: tuple[float, float] = DEFAULT_ROTATE_OBJECT_Z_AXIS_YAW_DELTA_RANGE,
     *,
     dtype: torch.dtype,
     device: torch.device | str,
@@ -54,10 +54,10 @@ def sample_signed_yaw_deltas(
     return magnitude * sign
 
 
-def build_cupcake_z_axis_object_pose_sequence(
+def build_rotate_object_z_axis_object_pose_sequence(
     current_pose: torch.Tensor | Sequence[float],
     yaw_delta: float | torch.Tensor,
-    segment_steps: Sequence[int] = DEFAULT_CUPCAKE_Z_AXIS_SEGMENT_STEPS,
+    segment_steps: Sequence[int] = DEFAULT_ROTATE_OBJECT_Z_AXIS_SEGMENT_STEPS,
 ) -> torch.Tensor:
     """Build reach and fixed-position yaw-target poses in the robot-base frame.
 
@@ -76,9 +76,9 @@ def build_cupcake_z_axis_object_pose_sequence(
 
 
 __all__ = [
-    "DEFAULT_CUPCAKE_Z_AXIS_SEGMENT_STEPS",
-    "DEFAULT_CUPCAKE_Z_AXIS_STAGE_OBJECT_TOLERANCES",
-    "DEFAULT_CUPCAKE_Z_AXIS_YAW_DELTA_RANGE",
-    "build_cupcake_z_axis_object_pose_sequence",
+    "DEFAULT_ROTATE_OBJECT_Z_AXIS_SEGMENT_STEPS",
+    "DEFAULT_ROTATE_OBJECT_Z_AXIS_STAGE_OBJECT_TOLERANCES",
+    "DEFAULT_ROTATE_OBJECT_Z_AXIS_YAW_DELTA_RANGE",
+    "build_rotate_object_z_axis_object_pose_sequence",
     "sample_signed_yaw_deltas",
 ]

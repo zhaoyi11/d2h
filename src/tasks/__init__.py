@@ -214,24 +214,24 @@ gym.register(
     },
 )
 
-# Cupcake on Plate Environment
+# Rotate Object Environment
 gym.register(
-    id="Cupcake_on_Plate-v0",
+    id="Rotate_Object-v0",
     entry_point="isaaclab.envs:ManagerBasedRLEnv",
     disable_env_checker=True,
     kwargs={
-        "env_cfg_entry_point": f"{__name__}.cupcake_on_plate.env_cfg:DexsuiteFrankaLeapCupcakeOnPlateEnvCfg",
-        "rsl_rl_cfg_entry_point": "src.tasks.cupcake_on_plate.rsl_rl_ppo_cfg:CupcakeOnPlateRslRlPpoCfg",
+        "env_cfg_entry_point": f"{__name__}.rotate_object.env_cfg:DexsuiteFrankaLeapRotateObjectEnvCfg",
+        "rsl_rl_cfg_entry_point": "src.tasks.rotate_object.rsl_rl_ppo_cfg:RotateObjectRslRlPpoCfg",
     },
 )
 
 gym.register(
-    id="Cupcake_on_Plate_HRL-v0",
+    id="Rotate_Object_HRL-v0",
     entry_point="isaaclab.envs:ManagerBasedRLEnv",
     disable_env_checker=True,
     kwargs={
-        "env_cfg_entry_point": f"{__name__}.cupcake_on_plate.env_cfg:DexsuiteFrankaLeapCupcakeOnPlateHrlEnvCfg",
-        "rsl_rl_cfg_entry_point": "src.tasks.cupcake_on_plate.rsl_rl_ppo_cfg:CupcakeOnPlateRslRlPpoCfg",
+        "env_cfg_entry_point": f"{__name__}.rotate_object.env_cfg:DexsuiteFrankaLeapRotateObjectHrlEnvCfg",
+        "rsl_rl_cfg_entry_point": "src.tasks.rotate_object.rsl_rl_ppo_cfg:RotateObjectRslRlPpoCfg",
     },
 )
 
