@@ -3,6 +3,7 @@ from __future__ import annotations
 import ast
 import json
 from pathlib import Path
+from types import SimpleNamespace
 
 import numpy as np
 import pytest
@@ -17,6 +18,24 @@ from src.policy.instant_dexterity_recording import (
 
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
+INSTANT_DEXTERITY_PATH = REPO_ROOT / "scripts/instant_dexterity.py"
+
+
+def _load_script_functions(*names: str, globals_dict: dict | None = None) -> dict[str, object]:
+    tree = ast.parse(INSTANT_DEXTERITY_PATH.read_text())
+    functions = {
+        node.name: node
+        for node in tree.body
+        if isinstance(node, ast.FunctionDef) and node.name in names
+    }
+    assert set(functions) == set(names)
+    module = ast.Module(
+        body=[*ast.parse("from __future__ import annotations").body, *(functions[name] for name in names)],
+        type_ignores=[],
+    )
+    namespace = {} if globals_dict is None else dict(globals_dict)
+    exec(compile(ast.fix_missing_locations(module), INSTANT_DEXTERITY_PATH, "exec"), namespace)
+    return {name: namespace[name] for name in names}
 
 
 def test_build_bc_observation_uses_documented_feature_order() -> None:
@@ -206,3 +225,84 @@ def test_instant_dexterity_exposes_recording_cli_and_student_action_contract() -
     assert "recorder.close()" in main_source
     assert "hand_policy_action = low_level_policy.act(low_level_obs)" in main_source
     assert "'observation.low_level': low_level_obs" in main_source
+
+
+def test_instant_dexterity_resolves_each_spawned_object_reference() -> None:
+    selected_paths = ["/assets/object_a.usd", "/assets/object_b.usd", "/assets/object_a.usd"]
+
+    class ReferenceList:
+        def __init__(self, asset_path: str):
+            self.asset_path = asset_path
+
+        def GetAddedOrExplicitItems(self):
+            return [SimpleNamespace(assetPath=self.asset_path)]
+
+    class Prim:
+        def __init__(self, asset_path: str):
+            self.asset_path = asset_path
+
+        def GetMetadata(self, name: str):
+            assert name == "references"
+            return ReferenceList(self.asset_path)
+
+    root_paths = [f"/World/envs/env_{index}/Object" for index in range(3)]
+    stage = SimpleNamespace(GetPrimAtPath=lambda path: Prim(selected_paths[root_paths.index(path)]))
+    sim_utils = SimpleNamespace(find_matching_prim_paths=lambda pattern: root_paths)
+    env = SimpleNamespace(
+        num_envs=3,
+        scene={
+            "object": SimpleNamespace(
+                cfg=SimpleNamespace(
+                    prim_path="/World/envs/env_.*/Object",
+                    spawn=SimpleNamespace(usd_path=["/assets/object_a.usd", "/assets/object_b.usd"]),
+                )
+            )
+        },
+    )
+    functions = _load_script_functions(
+        "_selected_object_usd_paths",
+        "_marker_paths_and_indices",
+        globals_dict={"sim_utils": sim_utils, "get_current_stage": lambda: stage},
+    )
+
+    resolved = functions["_selected_object_usd_paths"](env)
+    unique_paths, marker_indices = functions["_marker_paths_and_indices"](resolved)
+
+    assert resolved == selected_paths
+    assert unique_paths == ["/assets/object_a.usd", "/assets/object_b.usd"]
+    assert marker_indices == [0, 1, 0]
+
+
+def test_instant_dexterity_passes_object_prototype_indices_to_marker() -> None:
+    poses = tuple(torch.zeros(3, size) for size in (3, 4, 3, 4, 3, 4))
+
+    class Marker:
+        def __init__(self):
+            self.calls = []
+
+        def visualize(self, *args, **kwargs):
+            self.calls.append((args, kwargs))
+
+    functions = _load_script_functions(
+        "_update_command_markers",
+        globals_dict={
+            "VisualizationMarkers": Marker,
+            "_command_poses_w": lambda env: poses,
+        },
+    )
+    object_marker = Marker()
+    anchor_marker = Marker()
+    base_marker = Marker()
+
+    functions["_update_command_markers"](
+        SimpleNamespace(),
+        object_marker,
+        [0, 1, 0],
+        anchor_marker,
+        base_marker,
+    )
+
+    assert object_marker.calls[0][1] == {"marker_indices": [0, 1, 0]}
+    assert anchor_marker.calls[0][1] == {}
+    assert base_marker.calls[0][1] == {}
+    assert "usd_path = usd_path[0]" not in INSTANT_DEXTERITY_PATH.read_text()

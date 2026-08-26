@@ -58,6 +58,7 @@ import isaaclab.sim as sim_utils  # noqa: E402
 import src.tasks  # noqa: F401, E402
 import torch  # noqa: E402
 from isaaclab.markers import VisualizationMarkers, VisualizationMarkersCfg  # noqa: E402
+from isaaclab.sim.utils.stage import get_current_stage  # noqa: E402
 from isaaclab_tasks.utils import parse_env_cfg  # noqa: E402
 from isaaclab.utils.assets import ISAAC_NUCLEUS_DIR  # noqa: E402
 from isaaclab.utils.math import (  # noqa: E402
@@ -193,31 +194,76 @@ def _make_frame_marker(prim_path: str) -> VisualizationMarkers:
     return marker
 
 
-def _make_target_object_marker(env) -> VisualizationMarkers:
+def _selected_object_usd_paths(env) -> list[str]:
+    object_asset = env.scene["object"]
+    configured_paths = object_asset.cfg.spawn.usd_path
+    if isinstance(configured_paths, str):
+        return [configured_paths] * env.num_envs
+
+    root_paths = sim_utils.find_matching_prim_paths(object_asset.cfg.prim_path)
+    if len(root_paths) != env.num_envs:
+        raise RuntimeError(
+            f"Expected {env.num_envs} object prims for {object_asset.cfg.prim_path!r}; found {len(root_paths)}."
+        )
+
+    configured_path_set = set(configured_paths)
+    stage = get_current_stage()
+    selected_paths = []
+    for root_path in root_paths:
+        references = stage.GetPrimAtPath(root_path).GetMetadata("references")
+        reference_items = [] if references is None else references.GetAddedOrExplicitItems()
+        matching_paths = [
+            reference.assetPath for reference in reference_items if reference.assetPath in configured_path_set
+        ]
+        if len(matching_paths) != 1:
+            raise RuntimeError(f"Expected one configured USD reference on {root_path}; found {matching_paths}.")
+        selected_paths.append(matching_paths[0])
+    return selected_paths
+
+
+def _marker_paths_and_indices(usd_paths: list[str]) -> tuple[list[str], list[int]]:
+    marker_paths = []
+    path_to_index = {}
+    marker_indices = []
+    for usd_path in usd_paths:
+        marker_index = path_to_index.get(usd_path)
+        if marker_index is None:
+            marker_index = len(marker_paths)
+            path_to_index[usd_path] = marker_index
+            marker_paths.append(usd_path)
+        marker_indices.append(marker_index)
+    return marker_paths, marker_indices
+
+
+def _make_target_object_marker(env) -> tuple[VisualizationMarkers, list[int]]:
     object_spawn = env.scene["object"].cfg.spawn
     if hasattr(object_spawn, "usd_path"):
-        usd_path = object_spawn.usd_path
-        if isinstance(usd_path, list):
-            usd_path = usd_path[0]
-        target_object_cfg = sim_utils.UsdFileCfg(
-            usd_path=usd_path,
-            scale=object_spawn.scale,
-            visual_material=sim_utils.PreviewSurfaceCfg(diffuse_color=(0.1, 0.9, 0.2), opacity=0.8),
-        )
+        marker_paths, marker_indices = _marker_paths_and_indices(_selected_object_usd_paths(env))
+        target_object_cfgs = {
+            f"target_object_{index}": sim_utils.UsdFileCfg(
+                usd_path=usd_path,
+                scale=object_spawn.scale,
+                visual_material=sim_utils.PreviewSurfaceCfg(diffuse_color=(0.1, 0.9, 0.2), opacity=0.8),
+            )
+            for index, usd_path in enumerate(marker_paths)
+        }
     else:
-        target_object_cfg = sim_utils.CuboidCfg(
-            size=(0.04, 0.04, 0.08),
-            visual_material=sim_utils.PreviewSurfaceCfg(diffuse_color=(0.1, 0.9, 0.2), opacity=0.8),
-        )
+        marker_indices = [0] * env.num_envs
+        target_object_cfgs = {
+            "target_object": sim_utils.CuboidCfg(
+                size=(0.04, 0.04, 0.08),
+                visual_material=sim_utils.PreviewSurfaceCfg(diffuse_color=(0.1, 0.9, 0.2), opacity=0.8),
+            )
+        }
 
     marker = VisualizationMarkers(
         VisualizationMarkersCfg(
             prim_path="/Visuals/PickInsertCommand/TargetObject",
-            markers={"target_object": target_object_cfg},
+            markers=target_object_cfgs,
         )
     )
     marker.set_visibility(True)
-    return marker
+    return marker, marker_indices
 
 
 def _command_poses_w(env) -> tuple[torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor]:
@@ -261,11 +307,12 @@ def _command_poses_w(env) -> tuple[torch.Tensor, torch.Tensor, torch.Tensor, tor
 def _update_command_markers(
     env,
     target_object_marker: VisualizationMarkers,
+    target_object_marker_indices: list[int],
     target_anchor_marker: VisualizationMarkers,
     target_base_marker: VisualizationMarkers,
 ) -> None:
     object_pos_w, object_quat_w, anchor_pos_w, anchor_quat_w, base_pos_w, base_quat_w = _command_poses_w(env)
-    target_object_marker.visualize(object_pos_w, object_quat_w)
+    target_object_marker.visualize(object_pos_w, object_quat_w, marker_indices=target_object_marker_indices)
     target_anchor_marker.visualize(anchor_pos_w, anchor_quat_w)
     target_base_marker.visualize(base_pos_w, base_quat_w)
 
@@ -434,10 +481,16 @@ def main() -> None:
         _validate_managers(env_unwrapped)
         _print_snapshot(env_unwrapped, 0)
 
-        target_object_marker = _make_target_object_marker(env_unwrapped)
+        target_object_marker, target_object_marker_indices = _make_target_object_marker(env_unwrapped)
         target_anchor_marker = _make_frame_marker("/Visuals/PickInsertCommand/TargetAnchorFrame")
         target_base_marker = _make_frame_marker("/Visuals/PickInsertCommand/TargetBaseFrame")
-        _update_command_markers(env_unwrapped, target_object_marker, target_anchor_marker, target_base_marker)
+        _update_command_markers(
+            env_unwrapped,
+            target_object_marker,
+            target_object_marker_indices,
+            target_anchor_marker,
+            target_base_marker,
+        )
 
         action_dim = int(env_unwrapped.action_manager.total_action_dim)
         low_level_obs = _low_level_obs(env_unwrapped, observations)
@@ -529,7 +582,13 @@ def main() -> None:
                         truncated=truncated,
                     )
             _print_scene_resets(env_unwrapped, step, terminated, truncated)
-            _update_command_markers(env_unwrapped, target_object_marker, target_anchor_marker, target_base_marker)
+            _update_command_markers(
+                env_unwrapped,
+                target_object_marker,
+                target_object_marker_indices,
+                target_anchor_marker,
+                target_base_marker,
+            )
             if args_cli.print_every > 0 and (step == 1 or step % args_cli.print_every == 0 or step == args_cli.steps):
                 _print_snapshot(env_unwrapped, step)
                 if gate is not None and gate.last_mask is not None:
