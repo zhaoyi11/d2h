@@ -17,7 +17,7 @@ from __future__ import annotations
 # (receptacle) and the table slab. Adding another external target is a one-line
 # edit here plus a matching scene asset.
 CONTACT_FILTER_TARGETS: list[tuple[str, str]] = [
-    ("object",    "{ENV_REGEX_NS}/Object/baseLink"),
+    ("object",    "{ENV_REGEX_NS}/Object/handle"),
     ("receptive", "{ENV_REGEX_NS}/ReceptiveObject"),
     ("table",     "{ENV_REGEX_NS}/Table"),
 ]

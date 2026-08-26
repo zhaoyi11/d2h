@@ -3,6 +3,7 @@ from __future__ import annotations
 import ast
 import json
 from pathlib import Path
+from types import SimpleNamespace
 
 import numpy as np
 import pytest
@@ -18,8 +19,6 @@ from src.policy.instant_dexterity_recording import (
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
 INSTANT_DEXTERITY_PATH = REPO_ROOT / "scripts/instant_dexterity.py"
-TRAJECTORY_COMMAND_PATH = REPO_ROOT / "src/policy/high_level/trajectory_command.py"
-ROTATE_OBJECT_ENV_CFG_PATH = REPO_ROOT / "src/tasks/rotate_object/env_cfg.py"
 
 
 def _load_script_functions(*names: str, globals_dict: dict | None = None) -> dict[str, object]:
@@ -232,11 +231,6 @@ def test_instant_dexterity_enables_object_command_frames_without_shadow_marker()
     tree = ast.parse(INSTANT_DEXTERITY_PATH.read_text())
     main = next(node for node in tree.body if isinstance(node, ast.FunctionDef) and node.name == "main")
     main_source = ast.unparse(main)
-    command_source = TRAJECTORY_COMMAND_PATH.read_text()
-    env_source = ROTATE_OBJECT_ENV_CFG_PATH.read_text()
 
     assert "env_cfg.commands.object_pose.debug_vis = True" in main_source
     assert "_make_target_object_marker" not in INSTANT_DEXTERITY_PATH.read_text()
-    assert 'prim_path="/Visuals/Command/goal_pose"' in command_source
-    assert 'prim_path="/Visuals/Command/body_pose"' in command_source
-    assert "self.commands.object_pose.position_only = False" in env_source

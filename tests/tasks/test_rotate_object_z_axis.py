@@ -19,8 +19,8 @@ TASK_MDPS_PATH = REPO_ROOT / "src/tasks/rotate_object/mdps/task_mdps.py"
 CONTACT_FILTERS_PATH = REPO_ROOT / "src/tasks/rotate_object/mdps/contact_filters.py"
 PPO_CFG_PATH = REPO_ROOT / "src/tasks/rotate_object/rsl_rl_ppo_cfg.py"
 TASKS_INIT_PATH = REPO_ROOT / "src/tasks/__init__.py"
-VISDEX_USD_ROOT = REPO_ROOT / "src/assets/visdex_objects/USD"
-SAMPLE_ASSET_PATH = VISDEX_USD_ROOT / "104738/104738.usd"
+ARIA_KNOB_ROOT = REPO_ROOT / "src/assets/aria/knob1"
+ARIA_KNOB_HANDLE_PATH = ARIA_KNOB_ROOT / "knob1_handle.usda"
 TRAIN_SCRIPT_PATH = REPO_ROOT / "scripts/train_rotate_object_z_axis.sh"
 
 
@@ -271,28 +271,36 @@ def test_stage_tolerances_are_hydra_serializable_and_runtime_typed() -> None:
     assert cfg.stage_object_tolerances == ((0.01, 0.2), (0.01, 0.2))
 
 
-def test_rotate_object_scene_uses_fixed_visdex_asset_index() -> None:
+def test_rotate_object_uses_requested_negative_anchor_z_offset_without_marker_offset() -> None:
     tree = ast.parse(ENV_CFG_PATH.read_text())
-    module = _assignments(tree)
+    commands = _assignments(_class(tree, "CommandsCfg"))
+
+    object_to_anchor_pose = ast.literal_eval(_keyword(commands["object_pose"], "object_to_anchor_pose"))
+
+    assert object_to_anchor_pose == (0.0, 0.0, -0.01, 0.70710678, 0.0, 0.70710678, 0.0)
+    assert all(keyword.arg != "object_marker_z_offset" for keyword in commands["object_pose"].keywords)
+
+
+def test_rotate_object_scene_uses_aria_knob1_at_its_table_baseline() -> None:
+    tree = ast.parse(ENV_CFG_PATH.read_text())
+    source = ENV_CFG_PATH.read_text()
     scene = _assignments(_class(tree, "SceneCfg"))
     events = _assignments(_class(tree, "EventCfg"))
 
     object_cfg = scene["object"]
     object_spawn = _keyword(object_cfg, "spawn")
-    assert ast.literal_eval(module["VISDEX_OBJECT_INDEX"]) == 0
     assert ast.unparse(object_spawn.func) == "sim_utils.UsdFileCfg"
-    assert ast.unparse(_keyword(object_spawn, "usd_path")) == "_get_visdex_usd_paths()[VISDEX_OBJECT_INDEX]"
+    assert ast.unparse(_keyword(object_spawn, "usd_path")) == (
+        "str(ASSETS_DIR / 'aria/knob1/knob1_handle.usda')"
+    )
     assert all(keyword.arg != "random_choice" for keyword in object_spawn.keywords)
-    assert ast.literal_eval(_keyword(object_spawn, "scale")) == (0.8, 0.8, 0.8)
-    mass_props = _keyword(object_spawn, "mass_props")
-    assert ast.literal_eval(_keyword(mass_props, "mass")) == 0.2
-
-    usd_paths = [path / f"{path.name}.usd" for path in sorted(VISDEX_USD_ROOT.iterdir()) if path.is_dir()]
-    assert len([path for path in usd_paths if path.is_file()]) == 152
-    selected_index = ast.literal_eval(module["VISDEX_OBJECT_INDEX"])
-    assert usd_paths[selected_index].parts[-2:] == ("104738", "104738.usd")
+    assert ast.literal_eval(_keyword(object_spawn, "scale")) == (1.0, 1.0, 1.0)
+    assert all(keyword.arg != "collision_props" for keyword in object_spawn.keywords)
+    assert all(keyword.arg != "mass_props" for keyword in object_spawn.keywords)
+    assert "VISDEX_OBJECT_INDEX" not in source
+    assert "_get_visdex_usd_paths" not in source
     object_init = _keyword(object_cfg, "init_state")
-    assert ast.literal_eval(_keyword(object_init, "pos")) == (0.55, 0.20, 0.335)
+    assert ast.literal_eval(_keyword(object_init, "pos")) == (0.55, 0.20, 0.255)
     assert ast.literal_eval(_keyword(object_init, "rot")) == (1.0, 0.0, 0.0, 0.0)
 
     reset_params = _keyword(events["reset_object"], "params")
@@ -308,6 +316,40 @@ def test_rotate_object_scene_uses_fixed_visdex_asset_index() -> None:
         "command_name": "object_pose",
         "std": 0.5,
     }
+
+
+def test_aria_knob1_handle_asset_has_one_rigid_body_and_zero_baseline() -> None:
+    from pxr import Usd, UsdGeom, UsdPhysics
+
+    assert (ARIA_KNOB_ROOT / "knob1.usd").is_file()
+    assert (ARIA_KNOB_ROOT / "knob1/knob1_base.usd").is_file()
+    stage = Usd.Stage.Open(str(ARIA_KNOB_HANDLE_PATH))
+    assert stage is not None
+
+    root = stage.GetDefaultPrim()
+    rigid_body_paths = [
+        str(prim.GetPath()) for prim in stage.Traverse() if prim.HasAPI(UsdPhysics.RigidBodyAPI)
+    ]
+    joint_paths = [str(prim.GetPath()) for prim in stage.Traverse() if prim.IsA(UsdPhysics.Joint)]
+    assert rigid_body_paths == ["/knob/handle"]
+    assert joint_paths == []
+    assert not root.HasAPI(UsdPhysics.ArticulationRootAPI)
+
+    handle = stage.GetPrimAtPath("/knob/handle")
+    mass = UsdPhysics.MassAPI(handle)
+    collision_paths = [
+        str(prim.GetPath()) for prim in stage.Traverse() if prim.HasAPI(UsdPhysics.CollisionAPI)
+    ]
+    assert mass
+    assert mass.GetMassAttr().Get() == pytest.approx(0.2)
+    assert len(collision_paths) == 32
+
+    bounds = UsdGeom.BBoxCache(
+        Usd.TimeCode.Default(), [UsdGeom.Tokens.default_, UsdGeom.Tokens.render]
+    ).ComputeWorldBound(root).ComputeAlignedRange()
+    assert bounds.GetMin()[2] == pytest.approx(0.0, abs=1.0e-6)
+    assert bounds.GetMax()[2] == pytest.approx(0.03, abs=1.0e-6)
+
 
 
 def test_achieved_yaw_goal_is_immediately_resampled() -> None:
@@ -397,7 +439,7 @@ def test_prestartup_joint_anchor_uses_each_cloned_world_pose() -> None:
     for env_index, position in enumerate(expected_positions):
         root_path = f"/World/envs/env_{env_index}/Object"
         root = stage.DefinePrim(root_path, "Xform")
-        root.GetReferences().AddReference(str(SAMPLE_ASSET_PATH))
+        root.GetReferences().AddReference(str(ARIA_KNOB_HANDLE_PATH))
         root_xform = UsdGeom.Xformable(root)
         root_xform.ClearXformOpOrder()
         root_xform.AddTranslateOp().Set(Gf.Vec3d(*position))
@@ -414,7 +456,7 @@ def test_prestartup_joint_anchor_uses_each_cloned_world_pose() -> None:
         assert joint
         assert joint.GetAxisAttr().Get() == UsdGeom.Tokens.z
         assert joint.GetBody0Rel().GetTargets() == []
-        assert joint.GetBody1Rel().GetTargets() == [Sdf.Path(root_path).AppendChild("baseLink")]
+        assert joint.GetBody1Rel().GetTargets() == [Sdf.Path(root_path).AppendChild("handle")]
         assert math.isinf(joint.GetLowerLimitAttr().Get()) and joint.GetLowerLimitAttr().Get() < 0.0
         assert math.isinf(joint.GetUpperLimitAttr().Get()) and joint.GetUpperLimitAttr().Get() > 0.0
         assert tuple(joint.GetLocalPos0Attr().Get()) == pytest.approx(expected)
@@ -517,7 +559,7 @@ def test_rotate_object_contact_filter_roles_are_stable() -> None:
     spec.loader.exec_module(module)
 
     assert module.CONTACT_FILTER_TARGETS == [
-        ("object", "{ENV_REGEX_NS}/Object/baseLink"),
+        ("object", "{ENV_REGEX_NS}/Object/handle"),
         ("receptive", "{ENV_REGEX_NS}/ReceptiveObject"),
         ("table", "{ENV_REGEX_NS}/Table"),
     ]

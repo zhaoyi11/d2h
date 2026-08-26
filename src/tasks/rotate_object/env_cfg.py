@@ -40,26 +40,6 @@ from src.assets.franka_leap_hand.franka_leap import FRANKA_LEAP_HAND_CFG
 
 ASSETS_DIR = Path(__file__).resolve().parents[2] / "assets"
 
-# Change this index to select a different asset from _get_visdex_usd_paths().
-VISDEX_OBJECT_INDEX = 2
-
-
-def _get_visdex_usd_paths() -> list[str]:
-    """Return sorted VisDex USD asset paths bundled with this repo."""
-    usd_root = ASSETS_DIR / "visdex_objects" / "USD"
-    if not usd_root.is_dir():
-        raise FileNotFoundError(f"VisDex USD asset directory does not exist: {usd_root}")
-
-    usd_paths: list[str] = []
-    for object_dir in sorted(path for path in usd_root.iterdir() if path.is_dir()):
-        usd_path = object_dir / f"{object_dir.name}.usd"
-        if usd_path.is_file():
-            usd_paths.append(str(usd_path))
-
-    if not usd_paths:
-        raise ValueError(f"No VisDex USD assets found in: {usd_root}")
-    return usd_paths
-
 
 @configclass
 class SceneCfg(InteractiveSceneCfg):
@@ -68,15 +48,12 @@ class SceneCfg(InteractiveSceneCfg):
     # robot
     robot = FRANKA_LEAP_HAND_CFG.replace(prim_path="{ENV_REGEX_NS}/Robot")
 
-    # The selected object is connected to the world by an unbounded revolute Z joint. A prestartup
-    # event creates the joint and anchors its world-side frame at this cloned spawn pose.
+    # The ARIA knob handle is connected to the world by an unbounded revolute Z joint. Its authored
+    # baseline is z=0, so the spawn Z matches the table's top surface at z=0.255.
     object = RigidObjectCfg(
         prim_path="{ENV_REGEX_NS}/Object",
         spawn=sim_utils.UsdFileCfg(
-            usd_path=_get_visdex_usd_paths()[VISDEX_OBJECT_INDEX],
-            articulation_props=sim_utils.ArticulationRootPropertiesCfg(
-                articulation_enabled=False,
-            ),
+            usd_path=str(ASSETS_DIR / "aria/knob1/knob1_handle.usda"),
             rigid_props=sim_utils.RigidBodyPropertiesCfg(
                 solver_position_iteration_count=16,
                 solver_velocity_iteration_count=1,
@@ -84,11 +61,9 @@ class SceneCfg(InteractiveSceneCfg):
                 kinematic_enabled=False,
                 enable_gyroscopic_forces=True,
             ),
-            collision_props=sim_utils.CollisionPropertiesCfg(collision_enabled=True),
-            mass_props=sim_utils.MassPropertiesCfg(mass=0.2),
-            scale=(0.8, 0.8, 0.8),
+            scale=(0.8, 0.8, 1.0),
         ),
-        init_state=RigidObjectCfg.InitialStateCfg(pos=(0.55, 0.20, 0.335), rot=(1.0, 0.0, 0.0, 0.0)),
+        init_state=RigidObjectCfg.InitialStateCfg(pos=(0.55, 0.20, 0.255), rot=(1.0, 0.0, 0.0, 0.0)),
     )
 
     # receptive_object: the plate (placement target). Kinematic (fixed placement surface).
@@ -123,7 +98,7 @@ class SceneCfg(InteractiveSceneCfg):
             visible=True,
         ),
         init_state=RigidObjectCfg.InitialStateCfg(
-            pos=(0.55, 0.0, 0.235), rot=(1.0, 0.0, 0.0, 0.0)
+            pos=(0.55, 0.0, 0.135), rot=(1.0, 0.0, 0.0, 0.0)
         ),
     )
 
@@ -167,6 +142,7 @@ class CommandsCfg:
         resampling_time_range=(1.0e6, 1.0e6),
         debug_vis=False,
         success_vis_asset_name="table",
+        object_to_anchor_pose=(0.0, 0.0, 0.01, 0.70710678, 0.0, 0.70710678, 0.0),
         enable_drop_recovery=False,
         # Keep the hand open for the initial reach, then close while following yaw goals.
         hand_open_until_stage=0,

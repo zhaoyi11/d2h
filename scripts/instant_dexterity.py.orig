@@ -339,6 +339,7 @@ def main() -> None:
         _validate_managers(env_unwrapped)
         _print_snapshot(env_unwrapped, 0)
 
+
         action_dim = int(env_unwrapped.action_manager.total_action_dim)
         low_level_obs = _low_level_obs(env_unwrapped, observations)
         actual_obs = int(low_level_obs.shape[-1])
