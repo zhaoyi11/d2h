@@ -490,6 +490,15 @@ class EventCfg:
         },
     )
 
+    reset_robot_joints = EventTerm(
+        func=mdp.reset_joints_by_offset,
+        mode="reset",
+        params={
+            "position_range": [0.0, 0.0],
+            "velocity_range": [0.0, 0.0],
+        },
+    )
+
     # Reduced-gravity curriculum (matches pick_insert / the frozen dex_reorient policy's regime).
     variable_gravity = EventTerm(
         func=mdp.randomize_physics_scene_gravity,

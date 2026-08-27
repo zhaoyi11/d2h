@@ -246,6 +246,19 @@ def test_yaw_target_achieved_requires_active_achieved_target() -> None:
     assert torch.equal(success, torch.tensor([False, False, True, False]))
 
 
+def test_reset_restores_robot_default_joint_pose() -> None:
+    env_tree = ast.parse(ENV_CFG_PATH.read_text())
+    events = _assignments(_class(env_tree, "EventCfg"))
+    reset_robot_joints = events["reset_robot_joints"]
+
+    assert ast.unparse(_keyword(reset_robot_joints, "func")) == "mdp.reset_joints_by_offset"
+    assert ast.literal_eval(_keyword(reset_robot_joints, "mode")) == "reset"
+    assert ast.literal_eval(_keyword(reset_robot_joints, "params")) == {
+        "position_range": [0.0, 0.0],
+        "velocity_range": [0.0, 0.0],
+    }
+
+
 def test_config_registration_and_trainer_are_standalone() -> None:
     env_tree = ast.parse(ENV_CFG_PATH.read_text())
     terminations = _assignments(_class(env_tree, "TerminationsCfg"))
