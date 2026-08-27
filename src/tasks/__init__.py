@@ -235,6 +235,39 @@ gym.register(
     },
 )
 
+# Rotate Object Once Environment
+gym.register(
+    id="Rotate_Object_Once-v0",
+    entry_point="isaaclab.envs:ManagerBasedRLEnv",
+    disable_env_checker=True,
+    kwargs={
+        "env_cfg_entry_point": (
+            f"{__name__}.rotate_object_once.env_cfg:"
+            "DexsuiteFrankaLeapRotateObjectOnceEnvCfg"
+        ),
+        "rsl_rl_cfg_entry_point": (
+            "src.tasks.rotate_object_once.rsl_rl_ppo_cfg:"
+            "RotateObjectOnceRslRlPpoCfg"
+        ),
+    },
+)
+
+gym.register(
+    id="Rotate_Object_Once_HRL-v0",
+    entry_point="isaaclab.envs:ManagerBasedRLEnv",
+    disable_env_checker=True,
+    kwargs={
+        "env_cfg_entry_point": (
+            f"{__name__}.rotate_object_once.env_cfg:"
+            "DexsuiteFrankaLeapRotateObjectOnceHrlEnvCfg"
+        ),
+        "rsl_rl_cfg_entry_point": (
+            "src.tasks.rotate_object_once.rsl_rl_ppo_cfg:"
+            "RotateObjectOnceRslRlPpoCfg"
+        ),
+    },
+)
+
 # Threading Environment
 gym.register(
     id="Threading-v0",
