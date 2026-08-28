@@ -268,6 +268,38 @@ gym.register(
     },
 )
 
+gym.register(
+    id="Rotate_Object_OmniReset-v0",
+    entry_point="isaaclab.envs:ManagerBasedRLEnv",
+    disable_env_checker=True,
+    kwargs={
+        "env_cfg_entry_point": (
+            f"{__name__}.rotate_object_omnireset.env_cfg:"
+            "DexsuiteFrankaLeapRotateObjectOmniResetEnvCfg"
+        ),
+        "rsl_rl_cfg_entry_point": (
+            "src.tasks.rotate_object_omnireset.rsl_rl_ppo_cfg:"
+            "RotateObjectOmniResetRslRlPpoCfg"
+        ),
+    },
+)
+
+gym.register(
+    id="Rotate_Object_OmniReset_Play-v0",
+    entry_point="isaaclab.envs:ManagerBasedRLEnv",
+    disable_env_checker=True,
+    kwargs={
+        "env_cfg_entry_point": (
+            f"{__name__}.rotate_object_omnireset.env_cfg:"
+            "DexsuiteFrankaLeapRotateObjectOmniResetEnvCfg_PLAY"
+        ),
+        "rsl_rl_cfg_entry_point": (
+            "src.tasks.rotate_object_omnireset.rsl_rl_ppo_cfg:"
+            "RotateObjectOmniResetRslRlPpoCfg"
+        ),
+    },
+)
+
 # Threading Environment
 gym.register(
     id="Threading-v0",
