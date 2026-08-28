@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import ast
 import importlib.util
+import math
 import sys
 import types
 from pathlib import Path
@@ -102,6 +103,9 @@ def _load_commands_module():
         def _update_hand_base_pose_command(self, env_ids):
             self.hand_base_updated.append(env_ids.clone())
 
+        def _object_target_achieved(self):
+            return self.base_object_target_achieved
+
     class FakeTrajectoryCommandCfg:
         def replace(self, **kwargs):
             replacement = type(self)()
@@ -181,6 +185,36 @@ def test_standalone_package_has_no_rotate_object_task_imports() -> None:
     assert source_files
     for path in source_files:
         assert "src.tasks.rotate_object." not in path.read_text(), path
+
+
+def test_initial_waypoint_is_the_sampled_yaw_target() -> None:
+    module = _load_trajectory_module()
+    current = torch.tensor([0.55, 0.20, 0.255, 1.0, 0.0, 0.0, 0.0], dtype=torch.float64)
+    yaw_delta = math.pi / 3.0
+
+    trajectory = module.build_rotate_object_once_z_axis_object_pose_sequence(
+        current,
+        yaw_delta=yaw_delta,
+    )
+
+    expected_quat = torch.tensor(
+        [math.cos(yaw_delta / 2.0), 0.0, 0.0, math.sin(yaw_delta / 2.0)],
+        dtype=current.dtype,
+    )
+    assert trajectory.shape == (2, 7)
+    torch.testing.assert_close(trajectory[:, :3], current[:3].expand(2, -1))
+    torch.testing.assert_close(trajectory[:, 3:7], expected_quat.expand(2, -1))
+
+
+def test_reach_stage_bypasses_only_object_target_achievement() -> None:
+    module = _load_commands_module()
+    command = object.__new__(module.RotateObjectOnceTrajectoryObjectAndHandBasePoseCommand)
+    command._stepper = types.SimpleNamespace(step=torch.tensor([0, 1, 1]))
+    command.base_object_target_achieved = torch.tensor([False, False, True])
+
+    achieved = command._object_target_achieved()
+
+    assert torch.equal(achieved, torch.tensor([True, False, True]))
 
 
 def test_final_yaw_goal_latches_success_without_resampling() -> None:

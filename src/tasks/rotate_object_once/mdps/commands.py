@@ -26,7 +26,7 @@ from src.tasks.rotate_object_once.mdps.trajectory import (
 
 
 class RotateObjectOnceTrajectoryObjectAndHandBasePoseCommand(TrajectoryObjectAndHandBasePoseCommand):
-    """Reach the fixed object, then issue one yaw-only object goal."""
+    """Expose one yaw-only object goal while preserving an open-hand reach stage."""
 
     cfg: RotateObjectOnceTrajectoryObjectAndHandBasePoseCommandCfg
 
@@ -53,6 +53,11 @@ class RotateObjectOnceTrajectoryObjectAndHandBasePoseCommand(TrajectoryObjectAnd
             for env_idx in range(env_ids.numel())
         ]
         return torch.stack(trajectories, dim=0)
+
+    def _object_target_achieved(self) -> torch.Tensor:
+        """Make stage 0 hand-arrival-only while stage 1 tracks the sampled yaw target."""
+        achieved = super()._object_target_achieved()
+        return achieved | (self._stepper.step == 0)
 
     def _activate_sampled_yaw_target(self, env_ids: torch.Tensor) -> None:
         if env_ids.numel() == 0:

@@ -20,7 +20,7 @@ from src.policy.high_level.utils import (
 
 
 DEFAULT_ROTATE_OBJECT_ONCE_Z_AXIS_SEGMENT_STEPS = (0, 1)
-"""Reach the fixed object, then activate one yaw target."""
+"""Keep separate reach and yaw-control stages while exposing the yaw target immediately."""
 
 DEFAULT_ROTATE_OBJECT_ONCE_Z_AXIS_STAGE_OBJECT_TOLERANCES = (
     (0.01, 0.2),  # reach
@@ -59,10 +59,11 @@ def build_rotate_object_once_z_axis_object_pose_sequence(
     yaw_delta: float | torch.Tensor,
     segment_steps: Sequence[int] = DEFAULT_ROTATE_OBJECT_ONCE_Z_AXIS_SEGMENT_STEPS,
 ) -> torch.Tensor:
-    """Build reach and fixed-position yaw-target poses in the robot-base frame.
+    """Build a target-first reach and yaw-control sequence in the robot-base frame.
 
     The robot base is fixed and world-aligned in this task, so composing an extrinsic base ``+Z``
-    yaw matches the revolute joint's world ``+Z`` axis.
+    yaw matches the revolute joint's world ``+Z`` axis. Both stages carry the sampled target; the
+    command term keeps stage 0 hand-arrival-only so the hand can still reach open before rotating.
     """
     if len(segment_steps) != 2:
         raise ValueError("segment_steps must contain 2 values.")
@@ -71,7 +72,7 @@ def build_rotate_object_once_z_axis_object_pose_sequence(
 
     current = _with_normalized_quat(_as_pose_tensor(current_pose))
     target = torch.cat((current[:3], compose_world_yaw(current[3:7], yaw_delta)))
-    key_poses = (current, current, target)
+    key_poses = (target, target, target)
     return build_object_pose_sequence_from_keyframes(key_poses, segment_steps)
 
 
