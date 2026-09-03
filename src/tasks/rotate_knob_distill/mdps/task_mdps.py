@@ -1,0 +1,62 @@
+"""Observation and objective terms for knob policy distillation."""
+
+from __future__ import annotations
+
+import torch
+
+from isaaclab.managers import SceneEntityCfg
+
+from src.policy.knob_interface import build_aria_frame
+
+from .commands import wrap_to_pi, yaw_from_quat
+
+
+def student_frame(
+    env,
+    asset_cfg: SceneEntityCfg = SceneEntityCfg("robot"),
+    object_cfg: SceneEntityCfg = SceneEntityCfg("object"),
+    action_name: str = "hand_action",
+    command_name: str = "object_pose",
+) -> torch.Tensor:
+    """Current 35D hardware-observable frame; IsaacLab supplies its three-frame history."""
+    robot = env.scene[asset_cfg.name]
+    knob = env.scene[object_cfg.name]
+    action = env.action_manager.get_term(action_name)
+    joint_ids = action._joint_ids
+    joint_pos = robot.data.joint_pos[:, joint_ids]
+    limits = robot.data.soft_joint_pos_limits[:, joint_ids]
+    applied_targets = action._prev_applied_actions
+    angle = yaw_from_quat(knob.data.root_quat_w)
+    velocity = knob.data.root_ang_vel_w[:, 2]
+    target = env.command_manager.get_term(command_name).target_angle
+    return build_aria_frame(joint_pos, applied_targets, angle, velocity, target, limits[..., 0], limits[..., 1])
+
+
+def angle_error(env, command_name: str = "object_pose") -> torch.Tensor:
+    command = env.command_manager.get_term(command_name)
+    angle = yaw_from_quat(command.object.data.root_quat_w)
+    return wrap_to_pi(command.target_angle - angle).abs()
+
+
+def yaw_tracking(env, command_name: str = "object_pose", std: float = 0.5) -> torch.Tensor:
+    return 1.0 - torch.tanh(angle_error(env, command_name) / std)
+
+
+def action_rate_l2(env) -> torch.Tensor:
+    return torch.sum(torch.square(env.action_manager.action - env.action_manager.prev_action), dim=1)
+
+
+def knob_success(
+    env,
+    command_name: str = "object_pose",
+    object_cfg: SceneEntityCfg = SceneEntityCfg("object"),
+    angle_threshold: float = 0.02,
+    velocity_threshold: float = 0.2,
+) -> torch.Tensor:
+    knob = env.scene[object_cfg.name]
+    return (angle_error(env, command_name) <= angle_threshold) & (
+        knob.data.root_ang_vel_w[:, 2].abs() <= velocity_threshold
+    )
+
+
+__all__ = ["action_rate_l2", "angle_error", "knob_success", "student_frame", "yaw_tracking"]

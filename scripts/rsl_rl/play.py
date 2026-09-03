@@ -37,6 +37,11 @@ parser.add_argument(
     action="store_true",
     help="Load only actor-compatible checkpoint weights; useful when critic privileged observations changed.",
 )
+parser.add_argument(
+    "--teacher-policy",
+    action="store_true",
+    help="Run the teacher network from a distillation runner instead of the student.",
+)
 parser.add_argument("--real-time", action="store_true", default=False, help="Run in real-time, if possible.")
 # append RSL-RL cli arguments
 cli_args.add_rsl_rl_args(parser)
@@ -250,6 +255,10 @@ def main(env_cfg: ManagerBasedRLEnvCfg | DirectRLEnvCfg | DirectMARLEnvCfg, agen
 
     # obtain the trained policy for inference
     policy = runner.get_inference_policy(device=env.unwrapped.device)
+    if args_cli.teacher_policy:
+        if agent_cfg.class_name != "DistillationRunner":
+            raise ValueError("--teacher-policy requires a DistillationRunner task.")
+        policy = runner.alg.policy.evaluate
 
     # extract neural network module, keeping compatibility with older rsl-rl versions.
     try:

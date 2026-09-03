@@ -235,6 +235,33 @@ gym.register(
     },
 )
 
+# Knob policy distillation environment
+gym.register(
+    id="Rotate_Knob_Distill-v0",
+    entry_point="isaaclab.envs:ManagerBasedRLEnv",
+    disable_env_checker=True,
+    kwargs={
+        "env_cfg_entry_point": f"{__name__}.rotate_knob_distill.env_cfg:RotateKnobDistillEnvCfg",
+        "rsl_rl_cfg_entry_point": (
+            "src.tasks.rotate_knob_distill.rsl_rl_distillation_cfg:"
+            "RotateKnobDistillationRunnerCfg"
+        ),
+    },
+)
+
+gym.register(
+    id="Rotate_Knob_Distill_Play-v0",
+    entry_point="isaaclab.envs:ManagerBasedRLEnv",
+    disable_env_checker=True,
+    kwargs={
+        "env_cfg_entry_point": f"{__name__}.rotate_knob_distill.env_cfg:RotateKnobDistillEnvCfg_PLAY",
+        "rsl_rl_cfg_entry_point": (
+            "src.tasks.rotate_knob_distill.rsl_rl_distillation_cfg:"
+            "RotateKnobDistillationRunnerCfg"
+        ),
+    },
+)
+
 # Rotate Object Once Environment
 gym.register(
     id="Rotate_Object_Once-v0",
