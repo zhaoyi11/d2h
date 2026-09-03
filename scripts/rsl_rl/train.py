@@ -80,6 +80,12 @@ parser.add_argument(
     default=False,
     help="Initialize the episode length at a random length.",
 )
+parser.add_argument(
+    "--checkpoint_sha256",
+    type=str,
+    default=None,
+    help="Optional SHA-256 pin for an absolute/local checkpoint path.",
+)
 # append RSL-RL cli arguments
 cli_args.add_rsl_rl_args(parser)
 # append AppLauncher cli args
@@ -100,6 +106,7 @@ simulation_app = app_launcher.app
 
 """Rest everything follows."""
 
+import hashlib
 import logging
 import os
 import time
@@ -263,9 +270,20 @@ def main(
 
     # save resume path before creating a new log_dir
     if agent_cfg.resume or agent_cfg.algorithm.class_name == "Distillation":
-        resume_path = get_checkpoint_path(
-            log_root_path, agent_cfg.load_run, agent_cfg.load_checkpoint
-        )
+        local_checkpoint = os.path.abspath(os.path.expanduser(args_cli.checkpoint or ""))
+        if args_cli.checkpoint and os.path.isfile(local_checkpoint):
+            resume_path = local_checkpoint
+        else:
+            resume_path = get_checkpoint_path(
+                log_root_path, agent_cfg.load_run, agent_cfg.load_checkpoint
+            )
+        if args_cli.checkpoint_sha256 is not None:
+            with open(resume_path, "rb") as checkpoint_file:
+                digest = hashlib.file_digest(checkpoint_file, "sha256").hexdigest()
+            if digest != args_cli.checkpoint_sha256.lower():
+                raise ValueError(
+                    f"Checkpoint SHA-256 mismatch: expected {args_cli.checkpoint_sha256}, got {digest}."
+                )
 
     # wrap for video recording
     if args_cli.video:

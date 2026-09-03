@@ -9,6 +9,7 @@ description = "D2H Isaac Lab Environment"
 requires-python = ">=3.10"
 dependencies = [
     "diffusers>=0.37.1",
+    "dynamixel-sdk==4.0.5",
 ]
 
 [tool.setuptools.packages.find]
