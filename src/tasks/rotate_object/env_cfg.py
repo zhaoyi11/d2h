@@ -61,7 +61,7 @@ class SceneCfg(InteractiveSceneCfg):
                 kinematic_enabled=False,
                 enable_gyroscopic_forces=True,
             ),
-            scale=(0.8, 0.8, 1.0),
+            scale=(0.65, 0.65, 1.0),
         ),
         init_state=RigidObjectCfg.InitialStateCfg(pos=(0.55, 0.20, 0.255), rot=(1.0, 0.0, 0.0, 0.0)),
     )

@@ -37,10 +37,6 @@ class RotateObjectTrajectoryObjectAndHandBasePoseCommand(TrajectoryObjectAndHand
         super().__init__(runtime_cfg, env)
         self.metrics["yaw_target_active"] = torch.zeros(self.num_envs, device=self.device)
 
-    def _object_target_achieved(self) -> torch.Tensor:
-        achieved = super()._object_target_achieved()
-        return achieved & (self.object.data.root_ang_vel_w[:, 2].abs() < self.cfg.yaw_velocity_tolerance)
-
     def _build_object_trajectories(self, env_ids: torch.Tensor, current_pose_b: torch.Tensor) -> torch.Tensor:
         yaw_deltas = sample_signed_yaw_deltas(
             env_ids.numel(),
@@ -94,9 +90,6 @@ class RotateObjectTrajectoryObjectAndHandBasePoseCommandCfg(TrajectoryObjectAndH
 
     yaw_delta_range: tuple[float, float] = DEFAULT_ROTATE_OBJECT_Z_AXIS_YAW_DELTA_RANGE
     """Uniform absolute yaw delta range in radians; direction is sampled independently."""
-
-    yaw_velocity_tolerance: float = 0.2
-    """Maximum absolute world-Z object angular velocity for considering a target achieved."""
 
     trajectory_segment_steps: tuple[int, ...] = DEFAULT_ROTATE_OBJECT_Z_AXIS_SEGMENT_STEPS
     """Reach and yaw-target interpolation samples."""
