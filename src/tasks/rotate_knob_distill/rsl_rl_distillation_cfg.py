@@ -25,7 +25,7 @@ class RotateKnobDistillationRunnerCfg(RslRlDistillationRunnerCfg):
     )
     algorithm = RslRlDistillationAlgorithmCfg(
         num_learning_epochs=2,
-        learning_rate=1.0e-3,
+        learning_rate=3.0e-4,
         gradient_length=15,
         max_grad_norm=1.0,
         loss_type="mse",

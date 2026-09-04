@@ -1,4 +1,4 @@
-"""One-shot signed world-Z knob target."""
+"""Continuous signed world-Z knob targets."""
 
 from __future__ import annotations
 
@@ -10,6 +10,8 @@ import torch
 
 from isaaclab.assets import Articulation, RigidObject
 from isaaclab.managers import CommandTerm, CommandTermCfg
+from isaaclab.markers import VisualizationMarkers, VisualizationMarkersCfg
+from isaaclab.markers.config import BLUE_ARROW_X_MARKER_CFG, GREEN_ARROW_X_MARKER_CFG
 from isaaclab.utils import configclass
 from isaaclab.utils.math import quat_from_euler_xyz, subtract_frame_transforms
 
@@ -24,7 +26,7 @@ def wrap_to_pi(angle: torch.Tensor) -> torch.Tensor:
 
 
 class KnobTargetCommand(CommandTerm):
-    """Sample a single signed target angle and expose its pose in the LEAP base frame."""
+    """Continuously sample signed yaw deltas and expose their targets in the LEAP base frame."""
 
     cfg: "KnobTargetCommandCfg"
 
@@ -46,7 +48,8 @@ class KnobTargetCommand(CommandTerm):
         env_ids = torch.as_tensor(env_ids, device=self.device, dtype=torch.long)
         magnitude = torch.empty(env_ids.numel(), device=self.device).uniform_(*self.cfg.magnitude_range)
         sign = torch.randint(0, 2, (env_ids.numel(),), device=self.device) * 2 - 1
-        self.target_angle[env_ids] = magnitude * sign
+        current_angle = yaw_from_quat(self.object.data.root_quat_w[env_ids])
+        self.target_angle[env_ids] = wrap_to_pi(current_angle + magnitude * sign)
 
         goal_pos_w = self.object.data.root_pos_w[env_ids]
         zero = torch.zeros_like(magnitude)
@@ -65,7 +68,28 @@ class KnobTargetCommand(CommandTerm):
         self.metrics["angle_error"] = wrap_to_pi(self.target_angle - angle).abs()
 
     def _update_command(self):
-        pass
+        achieved = self.metrics["angle_error"] <= self.cfg.angle_threshold
+        env_ids = achieved.nonzero().flatten()
+        if env_ids.numel() > 0:
+            self._resample_command(env_ids)
+
+    def _set_debug_vis_impl(self, debug_vis: bool):
+        if debug_vis:
+            if not hasattr(self, "goal_visualizer"):
+                self.goal_visualizer = VisualizationMarkers(self.cfg.goal_visualizer_cfg)
+                self.current_visualizer = VisualizationMarkers(self.cfg.current_visualizer_cfg)
+            self.goal_visualizer.set_visibility(True)
+            self.current_visualizer.set_visibility(True)
+        elif hasattr(self, "goal_visualizer"):
+            self.goal_visualizer.set_visibility(False)
+            self.current_visualizer.set_visibility(False)
+
+    def _debug_vis_callback(self, event):
+        if not self.robot.is_initialized:
+            return
+        marker_pos_w = self.object.data.root_pos_w
+        self.goal_visualizer.visualize(marker_pos_w, self.pose_command_w[:, 3:])
+        self.current_visualizer.visualize(marker_pos_w, self.object.data.root_quat_w)
 
 
 @configclass
@@ -73,7 +97,16 @@ class KnobTargetCommandCfg(CommandTermCfg):
     class_type: type = KnobTargetCommand
     asset_name: str = MISSING
     object_name: str = MISSING
-    magnitude_range: tuple[float, float] = (math.pi / 12.0, math.pi - 0.02)
+    magnitude_range: tuple[float, float] = (math.pi / 3.0, math.pi / 2.0)
+    angle_threshold: float = 0.1
+    goal_visualizer_cfg: VisualizationMarkersCfg = GREEN_ARROW_X_MARKER_CFG.replace(
+        prim_path="/Visuals/Command/knob_goal"
+    )
+    goal_visualizer_cfg.markers["arrow"].scale = (0.06, 0.06, 0.18)
+    current_visualizer_cfg: VisualizationMarkersCfg = BLUE_ARROW_X_MARKER_CFG.replace(
+        prim_path="/Visuals/Command/knob_current"
+    )
+    current_visualizer_cfg.markers["arrow"].scale = (0.06, 0.06, 0.18)
 
 
 __all__ = ["KnobTargetCommand", "KnobTargetCommandCfg", "wrap_to_pi", "yaw_from_quat"]

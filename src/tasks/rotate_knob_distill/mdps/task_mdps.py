@@ -46,17 +46,4 @@ def action_rate_l2(env) -> torch.Tensor:
     return torch.sum(torch.square(env.action_manager.action - env.action_manager.prev_action), dim=1)
 
 
-def knob_success(
-    env,
-    command_name: str = "object_pose",
-    object_cfg: SceneEntityCfg = SceneEntityCfg("object"),
-    angle_threshold: float = 0.02,
-    velocity_threshold: float = 0.2,
-) -> torch.Tensor:
-    knob = env.scene[object_cfg.name]
-    return (angle_error(env, command_name) <= angle_threshold) & (
-        knob.data.root_ang_vel_w[:, 2].abs() <= velocity_threshold
-    )
-
-
-__all__ = ["action_rate_l2", "angle_error", "knob_success", "student_frame", "yaw_tracking"]
+__all__ = ["action_rate_l2", "angle_error", "student_frame", "yaw_tracking"]

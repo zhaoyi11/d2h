@@ -188,7 +188,7 @@ class RotateKnobDistillEnvCfg(ManagerBasedRLEnvCfg):
     viewer: ViewerCfg = ViewerCfg(eye=(0.5, 0.5, 0.4), lookat=(0.0, 0.0, 0.08), origin_type="env")
     scene: SceneCfg = SceneCfg(num_envs=2048, env_spacing=0.6, replicate_physics=False)
     sim: SimulationCfg = SimulationCfg(
-        dt=1.0 / 120.0,
+        dt=1.0 / 240.0,
         render_interval=4,
         gravity=(0.0, 0.0, -9.81),
         physx=PhysxCfg(
@@ -206,7 +206,7 @@ class RotateKnobDistillEnvCfg(ManagerBasedRLEnvCfg):
     curriculum = None
 
     def __post_init__(self):
-        self.decimation = 2
+        self.decimation = 4
         self.episode_length_s = 15.0
         self.is_finite_horizon = True
 
@@ -216,3 +216,4 @@ class RotateKnobDistillEnvCfg_PLAY(RotateKnobDistillEnvCfg):
     def __post_init__(self):
         super().__post_init__()
         self.scene.num_envs = 1
+        self.commands.object_pose.debug_vis = True
