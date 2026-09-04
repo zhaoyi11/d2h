@@ -5,6 +5,7 @@ from __future__ import annotations
 import torch
 
 from isaaclab.managers import SceneEntityCfg
+from isaaclab.utils.math import quat_mul
 
 from src.policy.knob_interface import build_aria_frame
 
@@ -28,7 +29,9 @@ def student_frame(
     applied_targets = action._prev_applied_actions
     angle = yaw_from_quat(knob.data.root_quat_w)
     velocity = knob.data.root_ang_vel_w[:, 2]
-    target = env.command_manager.get_term(command_name).target_angle
+    command = env.command_manager.get_term(command_name)
+    target_quat_w = quat_mul(robot.data.root_quat_w, command.pose_command_b[:, 3:])
+    target = yaw_from_quat(target_quat_w)
     return build_aria_frame(joint_pos, applied_targets, angle, velocity, target, limits[..., 0], limits[..., 1])
 
 

@@ -235,6 +235,16 @@ gym.register(
     },
 )
 
+gym.register(
+    id="Rotate_Object_Student_HRL-v0",
+    entry_point="isaaclab.envs:ManagerBasedRLEnv",
+    disable_env_checker=True,
+    kwargs={
+        "env_cfg_entry_point": f"{__name__}.rotate_object_student.env_cfg:DexsuiteFrankaLeapRotateObjectStudentHrlEnvCfg",
+        "rsl_rl_cfg_entry_point": "src.tasks.rotate_object_student.rsl_rl_ppo_cfg:RotateObjectStudentRslRlPpoCfg",
+    },
+)
+
 # Knob policy distillation environment
 gym.register(
     id="Rotate_Knob_Distill-v0",

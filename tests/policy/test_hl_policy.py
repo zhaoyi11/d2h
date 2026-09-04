@@ -17,6 +17,17 @@ def _write_rsl_rl_checkpoint(path: Path, obs_dim: int = 3, action_dim: int = 2) 
     torch.save({"model_state_dict": state_dict}, path)
 
 
+def _write_rsl_rl_distillation_checkpoint(path: Path, obs_dim: int = 3, action_dim: int = 2) -> torch.nn.Module:
+    student = _make_rsl_rl_actor(obs_dim=obs_dim, action_dim=action_dim)
+    teacher = _make_rsl_rl_actor(obs_dim=obs_dim + 1, action_dim=action_dim)
+    state_dict = {f"student.{key}": value for key, value in student.state_dict().items()}
+    state_dict.update({f"teacher.{key}": value for key, value in teacher.state_dict().items()})
+    state_dict["student_obs_normalizer._mean"] = torch.ones(1, obs_dim)
+    state_dict["student_obs_normalizer._std"] = torch.full((1, obs_dim), 2.0)
+    torch.save({"model_state_dict": state_dict}, path)
+    return student
+
+
 class _ExportedRslRlPolicy(torch.nn.Module):
     def __init__(self, obs_dim: int = 3, action_dim: int = 2) -> None:
         super().__init__()
@@ -52,6 +63,26 @@ def test_low_level_rsl_rl_loader_supports_training_checkpoint(tmp_path: Path) ->
     assert not any(param.requires_grad for param in policy.model.parameters())
     assert not policy.model.training
     assert policy.act(torch.zeros(5, 3)).shape == (5, 2)
+
+
+def test_low_level_rsl_rl_loader_supports_distilled_student_checkpoint(tmp_path: Path) -> None:
+    from src.policy.low_level.policy import load_low_level_rsl_rl_policy
+
+    checkpoint_path = tmp_path / "student_model.pt"
+    student = _write_rsl_rl_distillation_checkpoint(checkpoint_path)
+    observations = torch.zeros(5, 3)
+
+    policy = load_low_level_rsl_rl_policy(
+        checkpoint_path,
+        device="cpu",
+        expected_obs_dim=3,
+        expected_action_dim=2,
+    )
+
+    expected = student((observations - 1.0) / 2.01)
+    torch.testing.assert_close(policy.act(observations), expected)
+    assert policy.obs_dim == 3
+    assert policy.action_dim == 2
 
 
 def test_low_level_rsl_rl_loader_supports_torchscript_policy(tmp_path: Path) -> None:

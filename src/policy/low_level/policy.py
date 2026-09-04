@@ -16,7 +16,7 @@ DEFAULT_LOW_LEVEL_RSL_RL_CHECKPOINT = Path("/home/yizhao/yi/D2H/logs/rsl_rl/anyr
 
 def _torch_load_checkpoint(path: str | Path, map_location: torch.device | str) -> dict[str, Any]:
     try:
-        return torch.load(path, map_location=map_location, weights_only=False)
+        return torch.load(path, map_location=map_location, weights_only=True)
     except TypeError:
         return torch.load(path, map_location=map_location)
 
@@ -51,14 +51,20 @@ class LowLevelRslRlPolicy:
         return self.model(obs)
 
 
+def _rsl_rl_policy_prefix(state_dict: dict[str, Tensor]) -> str:
+    for prefix in ("actor", "student"):
+        if any(key.startswith(f"{prefix}.") and key.endswith(".weight") for key in state_dict):
+            return prefix
+    raise KeyError("Checkpoint is missing actor or student weights.")
+
+
 def _rsl_rl_actor_weight_items(state_dict: dict[str, Tensor]) -> list[tuple[int, Tensor]]:
     weight_items = []
+    prefix = _rsl_rl_policy_prefix(state_dict)
     for key, value in state_dict.items():
-        if key.startswith("actor.") and key.endswith(".weight"):
+        if key.startswith(f"{prefix}.") and key.endswith(".weight"):
             layer_idx = int(key.split(".")[1])
             weight_items.append((layer_idx, value))
-    if not weight_items:
-        raise KeyError("Checkpoint is missing actor weights.")
     return sorted(weight_items)
 
 
@@ -70,6 +76,7 @@ def _rsl_rl_actor_dims_from_state_dict(state_dict: dict[str, Tensor]) -> tuple[i
 
 
 def _build_rsl_rl_actor_from_state_dict(state_dict: dict[str, Tensor]) -> nn.Sequential:
+    prefix = _rsl_rl_policy_prefix(state_dict)
     layers: list[nn.Module] = []
     weight_items = _rsl_rl_actor_weight_items(state_dict)
     for idx, (_, weight) in enumerate(weight_items):
@@ -79,7 +86,7 @@ def _build_rsl_rl_actor_from_state_dict(state_dict: dict[str, Tensor]) -> nn.Seq
         if idx < len(weight_items) - 1:
             layers.append(nn.ELU())
     model = nn.Sequential(*layers)
-    actor_state_dict = {key.removeprefix("actor."): value for key, value in state_dict.items() if key.startswith("actor.")}
+    actor_state_dict = {key.removeprefix(f"{prefix}."): value for key, value in state_dict.items() if key.startswith(f"{prefix}.")}
     model.load_state_dict(actor_state_dict)
     return model
 
@@ -124,7 +131,7 @@ def load_low_level_rsl_rl_policy(
     expected_obs_dim: int | None = None,
     expected_action_dim: int | None = None,
 ) -> LowLevelRslRlPolicy:
-    """Load a frozen RSL-RL actor checkpoint for one-step low-level hand control."""
+    """Load a frozen RSL-RL actor or distilled student for low-level hand control."""
     path = Path(checkpoint_path).expanduser()
     if _is_torchscript_archive(path):
         return _load_low_level_rsl_rl_torchscript_policy(
@@ -142,6 +149,7 @@ def load_low_level_rsl_rl_policy(
         )
 
     state_dict = checkpoint["model_state_dict"]
+    policy_prefix = _rsl_rl_policy_prefix(state_dict)
     actor = _build_rsl_rl_actor_from_state_dict(state_dict).to(device)
     actor.eval()
     for param in actor.parameters():
@@ -150,8 +158,8 @@ def load_low_level_rsl_rl_policy(
     obs_dim, action_dim = _rsl_rl_actor_dims_from_state_dict(state_dict)
     _validate_rsl_rl_dims(obs_dim, action_dim, expected_obs_dim, expected_action_dim)
 
-    obs_mean = state_dict.get("actor_obs_normalizer._mean")
-    obs_std = state_dict.get("actor_obs_normalizer._std")
+    obs_mean = state_dict.get(f"{policy_prefix}_obs_normalizer._mean")
+    obs_std = state_dict.get(f"{policy_prefix}_obs_normalizer._std")
     if obs_mean is not None:
         obs_mean = obs_mean.to(device=device)
     if obs_std is not None:

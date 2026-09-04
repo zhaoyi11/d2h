@@ -1,0 +1,20 @@
+from pathlib import Path
+
+
+ROOT = Path(__file__).resolve().parents[2]
+
+
+def test_rotate_object_student_task_contract() -> None:
+    env = (ROOT / "src/tasks/rotate_object_student/env_cfg.py").read_text()
+    runner = (ROOT / "src/tasks/rotate_object_student/rsl_rl_ppo_cfg.py").read_text()
+    registry = (ROOT / "src/tasks/__init__.py").read_text()
+    student_obs = (ROOT / "src/tasks/rotate_knob_distill/mdps/task_mdps.py").read_text()
+
+    assert "DexsuiteFrankaLeapRotateObjectStudentHrlEnvCfg" in env
+    assert "DexsuiteFrankaLeapRotateObjectHrlEnvCfg" in env
+    assert "RotateKnobDistillObservationsCfg.StudentCfg()" in env
+    assert 'experiment_name = "rotate_object_student"' in runner
+    assert 'id="Rotate_Object_Student_HRL-v0"' in registry
+    assert "rotate_object_student.env_cfg:DexsuiteFrankaLeapRotateObjectStudentHrlEnvCfg" in registry
+    assert "rotate_object_student.rsl_rl_ppo_cfg:RotateObjectStudentRslRlPpoCfg" in registry
+    assert "quat_mul(robot.data.root_quat_w, command.pose_command_b[:, 3:])" in student_obs
