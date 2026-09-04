@@ -43,6 +43,21 @@ def build_bc_observation(
     return torch.cat(tuple(tensors.values()), dim=1)
 
 
+def hand_target_to_teacher_action(
+    hand_joint_target: torch.Tensor,
+    previous_target: torch.Tensor,
+    lower_limit: torch.Tensor,
+    upper_limit: torch.Tensor,
+    alpha: float,
+) -> torch.Tensor:
+    """Invert the teacher hand EMA target back to its normalized input action."""
+    if not 0.0 < alpha <= 1.0:
+        raise ValueError(f"alpha must be in (0, 1], got {alpha}.")
+    pre_ema_target = (hand_joint_target - (1.0 - alpha) * previous_target) / alpha
+    normalized = 2.0 * (pre_ema_target - lower_limit) / (upper_limit - lower_limit) - 1.0
+    return normalized.clamp(-1.0, 1.0)
+
+
 def build_bc_action(
     arm_joint_target: torch.Tensor,
     arm_joint_pos: torch.Tensor,
@@ -154,4 +169,5 @@ __all__ = [
     "build_bc_action",
     "build_bc_observation",
     "flatten_scene_state",
+    "hand_target_to_teacher_action",
 ]

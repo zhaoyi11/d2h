@@ -13,7 +13,7 @@ from isaaclab.managers import CommandTerm, CommandTermCfg
 from isaaclab.markers import VisualizationMarkers, VisualizationMarkersCfg
 from isaaclab.markers.config import BLUE_ARROW_X_MARKER_CFG, GREEN_ARROW_X_MARKER_CFG
 from isaaclab.utils import configclass
-from isaaclab.utils.math import quat_from_euler_xyz, subtract_frame_transforms
+from isaaclab.utils.math import quat_from_angle_axis, quat_mul, subtract_frame_transforms
 
 
 def yaw_from_quat(quat: torch.Tensor) -> torch.Tensor:
@@ -37,23 +37,28 @@ class KnobTargetCommand(CommandTerm):
         self.pose_command_b = torch.zeros(self.num_envs, 7, device=self.device)
         self.pose_command_b[:, 3] = 1.0
         self.pose_command_w = torch.zeros_like(self.pose_command_b)
-        self.target_angle = torch.zeros(self.num_envs, device=self.device)
-        self.metrics["angle_error"] = torch.zeros_like(self.target_angle)
+        self.pose_command_w[:, 3] = 1.0
+        self.metrics["angle_error"] = torch.zeros(self.num_envs, device=self.device)
 
     @property
     def command(self) -> torch.Tensor:
         return self.pose_command_b
 
+    @property
+    def target_angle(self) -> torch.Tensor:
+        """Wrapped world-Z target angle derived from the quaternion command."""
+        return yaw_from_quat(self.pose_command_w[:, 3:])
+
     def _resample_command(self, env_ids: Sequence[int]):
         env_ids = torch.as_tensor(env_ids, device=self.device, dtype=torch.long)
         magnitude = torch.empty(env_ids.numel(), device=self.device).uniform_(*self.cfg.magnitude_range)
         sign = torch.randint(0, 2, (env_ids.numel(),), device=self.device) * 2 - 1
-        current_angle = yaw_from_quat(self.object.data.root_quat_w[env_ids])
-        self.target_angle[env_ids] = wrap_to_pi(current_angle + magnitude * sign)
 
         goal_pos_w = self.object.data.root_pos_w[env_ids]
-        zero = torch.zeros_like(magnitude)
-        goal_quat_w = quat_from_euler_xyz(zero, zero, self.target_angle[env_ids])
+        z_axis_w = torch.zeros_like(goal_pos_w)
+        z_axis_w[:, 2] = 1.0
+        yaw_delta_w = quat_from_angle_axis(magnitude * sign, z_axis_w)
+        goal_quat_w = quat_mul(yaw_delta_w, self.object.data.root_quat_w[env_ids])
         goal_pos_b, goal_quat_b = subtract_frame_transforms(
             self.robot.data.root_pos_w[env_ids],
             self.robot.data.root_quat_w[env_ids],
@@ -97,7 +102,7 @@ class KnobTargetCommandCfg(CommandTermCfg):
     class_type: type = KnobTargetCommand
     asset_name: str = MISSING
     object_name: str = MISSING
-    magnitude_range: tuple[float, float] = (math.pi / 3.0, math.pi / 2.0)
+    magnitude_range: tuple[float, float] = (math.pi / 3.0, math.pi / 3.0)
     angle_threshold: float = 0.1
     goal_visualizer_cfg: VisualizationMarkersCfg = GREEN_ARROW_X_MARKER_CFG.replace(
         prim_path="/Visuals/Command/knob_goal"
