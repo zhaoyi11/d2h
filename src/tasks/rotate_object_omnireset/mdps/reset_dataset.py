@@ -48,6 +48,7 @@ class ResetStatePool:
     receptive_object_root_pose: torch.Tensor
     table_root_pose: torch.Tensor
     goal_pose_b: torch.Tensor
+    hand_base_command_b: torch.Tensor
     progress: torch.Tensor
 
     @property
@@ -244,8 +245,22 @@ def _episode_pool(episode: dict[str, np.ndarray], device: str | torch.device) ->
         ).index_select(0, indices),
         table_root_pose=tensor("state.rigid_object.table.root_pose").index_select(0, indices),
         goal_pose_b=goal_pose_b.index_select(0, indices),
+        hand_base_command_b=hand_base_command.index_select(0, indices),
         progress=torch.cat(retained_progress),
     )
+
+
+def _sample_hardest_state_indices(
+    progress: torch.Tensor,
+    count: int,
+    device: str | torch.device,
+) -> torch.Tensor:
+    """Sample uniformly from the earliest retained state of each recorded goal."""
+    hardest_indices = (progress == 0.0).nonzero().flatten().to(device)
+    if hardest_indices.numel() == 0:
+        raise ValueError("Reset dataset contains no zero-progress states.")
+    positions = torch.randint(hardest_indices.numel(), (count,), device=device)
+    return hardest_indices.index_select(0, positions)
 
 
 def _sample_curriculum_state_indices(
@@ -289,6 +304,7 @@ def load_reset_state_pool(
         receptive_object_root_pose=torch.cat([pool.receptive_object_root_pose for pool in pools]),
         table_root_pose=torch.cat([pool.table_root_pose for pool in pools]),
         goal_pose_b=torch.cat([pool.goal_pose_b for pool in pools]),
+        hand_base_command_b=torch.cat([pool.hand_base_command_b for pool in pools]),
         progress=torch.cat([pool.progress for pool in pools]),
     )
 

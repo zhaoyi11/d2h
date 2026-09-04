@@ -15,7 +15,12 @@ from isaaclab.markers.config import (
     GREEN_ARROW_X_MARKER_CFG,
 )
 from isaaclab.utils import configclass
-from isaaclab.utils.math import combine_frame_transforms, compute_pose_error, quat_mul
+from isaaclab.utils.math import (
+    combine_frame_transforms,
+    compute_pose_error,
+    quat_mul,
+    subtract_frame_transforms,
+)
 
 if TYPE_CHECKING:
     from isaaclab.envs import ManagerBasedRLEnv
@@ -32,7 +37,10 @@ class RecordedObjectPoseCommand(CommandTerm):
         self.object: RigidObject = env.scene[cfg.object_name]
         self.pose_command_b = torch.zeros(self.num_envs, 7, device=self.device)
         self.pose_command_b[:, 3] = 1.0
+        self.hand_base_command_b = self.pose_command_b.clone()
+        self._command_b = torch.cat((self.pose_command_b, self.hand_base_command_b), dim=1)
         self._pending_goal_b = torch.zeros_like(self.pose_command_b)
+        self._pending_hand_base_command_b = torch.zeros_like(self.pose_command_b)
         self._has_pending_goal = torch.zeros(
             self.num_envs, dtype=torch.bool, device=self.device
         )
@@ -44,22 +52,49 @@ class RecordedObjectPoseCommand(CommandTerm):
 
     @property
     def command(self) -> torch.Tensor:
-        return self.pose_command_b
+        if not self.cfg.include_hand_base_command:
+            return self.pose_command_b
+        goal_pos_h, goal_quat_h = subtract_frame_transforms(
+            self.hand_base_command_b[:, :3],
+            self.hand_base_command_b[:, 3:7],
+            self.pose_command_b[:, :3],
+            self.pose_command_b[:, 3:7],
+        )
+        self._command_b[:, :7] = torch.cat((goal_pos_h, goal_quat_h), dim=1)
+        self._command_b[:, 7:14] = self.hand_base_command_b
+        return self._command_b
 
     def _env_ids_tensor(self, env_ids: Sequence[int] | slice) -> torch.Tensor:
         if isinstance(env_ids, slice):
             return torch.arange(self.num_envs, device=self.device)[env_ids]
         return torch.as_tensor(env_ids, dtype=torch.long, device=self.device)
 
-    def set_pending_goals(self, env_ids: torch.Tensor, goal_pose_b: torch.Tensor) -> None:
+    def set_pending_goals(
+        self,
+        env_ids: torch.Tensor,
+        goal_pose_b: torch.Tensor,
+        hand_base_command_b: torch.Tensor | None = None,
+    ) -> None:
         """Stage paired goals for consumption by the following command-manager reset."""
         env_ids = self._env_ids_tensor(env_ids)
-        if goal_pose_b.shape != (env_ids.numel(), 7):
+        expected_shape = (env_ids.numel(), 7)
+        if goal_pose_b.shape != expected_shape:
             raise ValueError(
-                f"Recorded goals must have shape ({env_ids.numel()}, 7), got {goal_pose_b.shape}."
+                f"Recorded goals must have shape {expected_shape}, got {goal_pose_b.shape}."
             )
         if not bool(torch.isfinite(goal_pose_b).all()):
             raise ValueError("Recorded goals must contain only finite values.")
+        if self.cfg.include_hand_base_command and hand_base_command_b is None:
+            raise ValueError("BC commands require a paired hand-base command.")
+        if hand_base_command_b is not None:
+            if hand_base_command_b.shape != expected_shape:
+                raise ValueError(
+                    f"Recorded hand-base commands must have shape {expected_shape}, "
+                    f"got {hand_base_command_b.shape}."
+                )
+            if not bool(torch.isfinite(hand_base_command_b).all()):
+                raise ValueError("Recorded hand-base commands must contain only finite values.")
+            self._pending_hand_base_command_b[env_ids] = hand_base_command_b
         self._pending_goal_b[env_ids] = goal_pose_b
         self._has_pending_goal[env_ids] = True
 
@@ -71,6 +106,7 @@ class RecordedObjectPoseCommand(CommandTerm):
                 f"Reset event did not provide recorded goals for environments {missing.tolist()}."
             )
         self.pose_command_b[env_ids] = self._pending_goal_b[env_ids]
+        self.hand_base_command_b[env_ids] = self._pending_hand_base_command_b[env_ids]
         self._has_pending_goal[env_ids] = False
 
     def _update_metrics(self) -> None:
@@ -132,6 +168,8 @@ class RecordedObjectPoseCommandCfg(CommandTermCfg):
     class_type: type = RecordedObjectPoseCommand
     asset_name: str = MISSING
     object_name: str = MISSING
+    include_hand_base_command: bool = False
+    """Expose the 14-D object-in-hand and hand-base command used by BC."""
     goal_axis_visualizer_cfg: VisualizationMarkersCfg = (
         GREEN_ARROW_X_MARKER_CFG.replace(
             prim_path="/Visuals/Command/rotate_object_goal_y_axis"

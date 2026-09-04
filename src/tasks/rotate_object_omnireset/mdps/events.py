@@ -7,7 +7,11 @@ from typing import TYPE_CHECKING
 import torch
 from isaaclab.managers import EventTermCfg, ManagerTermBase
 
-from .reset_dataset import _sample_curriculum_state_indices, load_reset_state_pool
+from .reset_dataset import (
+    _sample_curriculum_state_indices,
+    _sample_hardest_state_indices,
+    load_reset_state_pool,
+)
 
 if TYPE_CHECKING:
     from isaaclab.envs import ManagerBasedEnv
@@ -35,16 +39,23 @@ class ResetSceneFromInstantDexterity(ManagerTermBase):
             env.device,
         )
 
-    def __call__(self, env: ManagerBasedEnv, env_ids) -> None:
+    def __call__(self, env: ManagerBasedEnv, env_ids, hardest_only: bool = False) -> None:
         env_ids_t = _env_ids_tensor(env_ids, env.num_envs, env.device)
-        curriculum = env.curriculum_manager.cfg.reset_state.func
-        state_indices = _sample_curriculum_state_indices(
-            self._pool.progress,
-            count=env_ids_t.numel(),
-            stage=curriculum.current_stage,
-            num_stages=curriculum.num_stages,
-            device=env.device,
-        )
+        if hardest_only:
+            state_indices = _sample_hardest_state_indices(
+                self._pool.progress,
+                count=env_ids_t.numel(),
+                device=env.device,
+            )
+        else:
+            curriculum = env.curriculum_manager.cfg.reset_state.func
+            state_indices = _sample_curriculum_state_indices(
+                self._pool.progress,
+                count=env_ids_t.numel(),
+                stage=curriculum.current_stage,
+                num_stages=curriculum.num_stages,
+                device=env.device,
+            )
         env.scene.reset_to(
             self._pool.scene_state(state_indices),
             env_ids=env_ids_t,
@@ -54,6 +65,7 @@ class ResetSceneFromInstantDexterity(ManagerTermBase):
         command.set_pending_goals(
             env_ids_t,
             self._pool.goal_pose_b.index_select(0, state_indices),
+            self._pool.hand_base_command_b.index_select(0, state_indices),
         )
 
 
