@@ -102,7 +102,7 @@ class KnobTargetCommandCfg(CommandTermCfg):
     class_type: type = KnobTargetCommand
     asset_name: str = MISSING
     object_name: str = MISSING
-    magnitude_range: tuple[float, float] = (math.pi / 3.0, math.pi / 3.0)
+    magnitude_range: tuple[float, float] = (math.pi / 3.0, math.pi / 2.0)
     angle_threshold: float = 0.1
     goal_visualizer_cfg: VisualizationMarkersCfg = GREEN_ARROW_X_MARKER_CFG.replace(
         prim_path="/Visuals/Command/knob_goal"
