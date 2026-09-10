@@ -7,7 +7,7 @@ from isaaclab.utils import configclass
 from src.tasks.rotate_knob_distill.env_cfg import (
     ObservationsCfg as RotateKnobDistillObservationsCfg,
 )
-from src.tasks.rotate_object.env_cfg import (
+from src.tasks.rotate_knob.env_cfg import (
     DexsuiteFrankaLeapRotateObjectHrlEnvCfg,
 )
 

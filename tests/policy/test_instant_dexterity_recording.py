@@ -20,7 +20,7 @@ from src.policy.instant_dexterity_recording import (
 REPO_ROOT = Path(__file__).resolve().parents[2]
 INSTANT_DEXTERITY_PATH = REPO_ROOT / "scripts/instant_dexterity.py"
 TRAJECTORY_COMMAND_PATH = REPO_ROOT / "src/policy/high_level/trajectory_command.py"
-ROTATE_OBJECT_ENV_CFG_PATH = REPO_ROOT / "src/tasks/rotate_object/env_cfg.py"
+ROTATE_OBJECT_ENV_CFG_PATH = REPO_ROOT / "src/tasks/rotate_knob/env_cfg.py"
 
 
 def _load_script_functions(*names: str, globals_dict: dict | None = None) -> dict[str, object]:

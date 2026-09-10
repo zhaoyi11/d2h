@@ -232,34 +232,34 @@ gym.register(
     },
 )
 
-# Rotate Object Environment
+# Rotate Knob Environment
 gym.register(
-    id="Rotate_Object-v0",
+    id="Rotate_Knob-v0",
     entry_point="isaaclab.envs:ManagerBasedRLEnv",
     disable_env_checker=True,
     kwargs={
-        "env_cfg_entry_point": f"{__name__}.rotate_object.env_cfg:DexsuiteFrankaLeapRotateObjectEnvCfg",
-        "rsl_rl_cfg_entry_point": "src.tasks.rotate_object.rsl_rl_ppo_cfg:RotateObjectRslRlPpoCfg",
+        "env_cfg_entry_point": f"{__name__}.rotate_knob.env_cfg:DexsuiteFrankaLeapRotateObjectEnvCfg",
+        "rsl_rl_cfg_entry_point": "src.tasks.rotate_knob.rsl_rl_ppo_cfg:RotateObjectRslRlPpoCfg",
     },
 )
 
 gym.register(
-    id="Rotate_Object_HRL-v0",
+    id="Rotate_Knob_HRL-v0",
     entry_point="isaaclab.envs:ManagerBasedRLEnv",
     disable_env_checker=True,
     kwargs={
-        "env_cfg_entry_point": f"{__name__}.rotate_object.env_cfg:DexsuiteFrankaLeapRotateObjectHrlEnvCfg",
-        "rsl_rl_cfg_entry_point": "src.tasks.rotate_object.rsl_rl_ppo_cfg:RotateObjectRslRlPpoCfg",
+        "env_cfg_entry_point": f"{__name__}.rotate_knob.env_cfg:DexsuiteFrankaLeapRotateObjectHrlEnvCfg",
+        "rsl_rl_cfg_entry_point": "src.tasks.rotate_knob.rsl_rl_ppo_cfg:RotateObjectRslRlPpoCfg",
     },
 )
 
 gym.register(
-    id="Rotate_Object_Student_HRL-v0",
+    id="Rotate_Knob_Student_HRL-v0",
     entry_point="isaaclab.envs:ManagerBasedRLEnv",
     disable_env_checker=True,
     kwargs={
-        "env_cfg_entry_point": f"{__name__}.rotate_object_student.env_cfg:DexsuiteFrankaLeapRotateObjectStudentHrlEnvCfg",
-        "rsl_rl_cfg_entry_point": "src.tasks.rotate_object_student.rsl_rl_ppo_cfg:RotateObjectStudentRslRlPpoCfg",
+        "env_cfg_entry_point": f"{__name__}.rotate_knob_student.env_cfg:DexsuiteFrankaLeapRotateObjectStudentHrlEnvCfg",
+        "rsl_rl_cfg_entry_point": "src.tasks.rotate_knob_student.rsl_rl_ppo_cfg:RotateObjectStudentRslRlPpoCfg",
     },
 )
 
@@ -290,90 +290,3 @@ gym.register(
     },
 )
 
-# Rotate Object Once Environment
-gym.register(
-    id="Rotate_Object_Once-v0",
-    entry_point="isaaclab.envs:ManagerBasedRLEnv",
-    disable_env_checker=True,
-    kwargs={
-        "env_cfg_entry_point": (
-            f"{__name__}.rotate_object_once.env_cfg:"
-            "DexsuiteFrankaLeapRotateObjectOnceEnvCfg"
-        ),
-        "rsl_rl_cfg_entry_point": (
-            "src.tasks.rotate_object_once.rsl_rl_ppo_cfg:"
-            "RotateObjectOnceRslRlPpoCfg"
-        ),
-    },
-)
-
-gym.register(
-    id="Rotate_Object_Once_HRL-v0",
-    entry_point="isaaclab.envs:ManagerBasedRLEnv",
-    disable_env_checker=True,
-    kwargs={
-        "env_cfg_entry_point": (
-            f"{__name__}.rotate_object_once.env_cfg:"
-            "DexsuiteFrankaLeapRotateObjectOnceHrlEnvCfg"
-        ),
-        "rsl_rl_cfg_entry_point": (
-            "src.tasks.rotate_object_once.rsl_rl_ppo_cfg:"
-            "RotateObjectOnceRslRlPpoCfg"
-        ),
-    },
-)
-
-gym.register(
-    id="Rotate_Object_OmniReset-v0",
-    entry_point="isaaclab.envs:ManagerBasedRLEnv",
-    disable_env_checker=True,
-    kwargs={
-        "env_cfg_entry_point": (
-            f"{__name__}.rotate_object_omnireset.env_cfg:"
-            "DexsuiteFrankaLeapRotateObjectOmniResetEnvCfg"
-        ),
-        "rsl_rl_cfg_entry_point": (
-            "src.tasks.rotate_object_omnireset.rsl_rl_ppo_cfg:"
-            "RotateObjectOmniResetRslRlPpoCfg"
-        ),
-    },
-)
-
-gym.register(
-    id="Rotate_Object_BC-v0",
-    entry_point="isaaclab.envs:ManagerBasedRLEnv",
-    disable_env_checker=True,
-    kwargs={
-        "env_cfg_entry_point": (
-            f"{__name__}.rotate_object_bc.env_cfg:"
-            "DexsuiteFrankaLeapRotateObjectBCEnvCfg"
-        ),
-    },
-)
-
-gym.register(
-    id="Rotate_Object_OmniReset_Play-v0",
-    entry_point="isaaclab.envs:ManagerBasedRLEnv",
-    disable_env_checker=True,
-    kwargs={
-        "env_cfg_entry_point": (
-            f"{__name__}.rotate_object_omnireset.env_cfg:"
-            "DexsuiteFrankaLeapRotateObjectOmniResetEnvCfg_PLAY"
-        ),
-        "rsl_rl_cfg_entry_point": (
-            "src.tasks.rotate_object_omnireset.rsl_rl_ppo_cfg:"
-            "RotateObjectOmniResetRslRlPpoCfg"
-        ),
-    },
-)
-
-# Threading Environment
-gym.register(
-    id="Threading-v0",
-    entry_point="isaaclab.envs:ManagerBasedRLEnv",
-    disable_env_checker=True,
-    kwargs={
-        "env_cfg_entry_point": f"{__name__}.threading.env_cfg:DexsuiteFrankaLeapThreadingEnvCfg",
-        "rsl_rl_cfg_entry_point": "src.tasks.threading.rsl_rl_ppo_cfg:ThreadingRslRlPpoCfg",
-    },
-)

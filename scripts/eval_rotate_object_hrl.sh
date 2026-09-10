@@ -23,7 +23,7 @@ conda activate env_isaaclab
 set -u
 
 python3 scripts/instant_dexterity.py \
-  --task Rotate_Object_HRL-v0 \
+  --task Rotate_Knob_HRL-v0 \
   --num_envs 1 \
   --low_level_checkpoint "$EVAL_LOW_LEVEL_CHECKPOINT" \
   "$@"

@@ -1,6 +1,6 @@
 from isaaclab.utils import configclass
 
-from src.tasks.rotate_object.rsl_rl_ppo_cfg import RotateObjectRslRlPpoCfg
+from src.tasks.rotate_knob.rsl_rl_ppo_cfg import RotateObjectRslRlPpoCfg
 
 
 @configclass

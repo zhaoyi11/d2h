@@ -12,12 +12,12 @@ import torch
 
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
-ENV_CFG_PATH = REPO_ROOT / "src/tasks/rotate_object/env_cfg.py"
-TRAJECTORY_PATH = REPO_ROOT / "src/tasks/rotate_object/mdps/trajectory.py"
-COMMANDS_PATH = REPO_ROOT / "src/tasks/rotate_object/mdps/commands.py"
-TASK_MDPS_PATH = REPO_ROOT / "src/tasks/rotate_object/mdps/task_mdps.py"
-CONTACT_FILTERS_PATH = REPO_ROOT / "src/tasks/rotate_object/mdps/contact_filters.py"
-PPO_CFG_PATH = REPO_ROOT / "src/tasks/rotate_object/rsl_rl_ppo_cfg.py"
+ENV_CFG_PATH = REPO_ROOT / "src/tasks/rotate_knob/env_cfg.py"
+TRAJECTORY_PATH = REPO_ROOT / "src/tasks/rotate_knob/mdps/trajectory.py"
+COMMANDS_PATH = REPO_ROOT / "src/tasks/rotate_knob/mdps/commands.py"
+TASK_MDPS_PATH = REPO_ROOT / "src/tasks/rotate_knob/mdps/task_mdps.py"
+CONTACT_FILTERS_PATH = REPO_ROOT / "src/tasks/rotate_knob/mdps/contact_filters.py"
+PPO_CFG_PATH = REPO_ROOT / "src/tasks/rotate_knob/rsl_rl_ppo_cfg.py"
 TASKS_INIT_PATH = REPO_ROOT / "src/tasks/__init__.py"
 ARIA_KNOB_ROOT = REPO_ROOT / "src/assets/aria/knob1"
 ARIA_KNOB_HANDLE_PATH = ARIA_KNOB_ROOT / "knob1_handle.usda"
@@ -88,7 +88,7 @@ def _load_commands_module():
         "isaaclab",
         "isaaclab.utils",
         "src.policy.high_level.trajectory_command",
-        "src.tasks.rotate_object.mdps.trajectory",
+        "src.tasks.rotate_knob.mdps.trajectory",
     )
     previous = {name: sys.modules.get(name) for name in module_names}
     isaaclab = types.ModuleType("isaaclab")
@@ -131,7 +131,7 @@ def _load_commands_module():
             "isaaclab": isaaclab,
             "isaaclab.utils": isaaclab_utils,
             "src.policy.high_level.trajectory_command": trajectory_command,
-            "src.tasks.rotate_object.mdps.trajectory": trajectory,
+            "src.tasks.rotate_knob.mdps.trajectory": trajectory,
         }
     )
     spec = importlib.util.spec_from_file_location("rotate_object_z_axis_commands_under_test", COMMANDS_PATH)
@@ -486,7 +486,7 @@ def test_training_launcher_targets_trainable_rotate_object_task() -> None:
 
     assert "conda activate env_isaaclab" in source
     assert "scripts/rsl_rl/train.py" in source
-    assert "--task Rotate_Object-v0" in source
+    assert "--task Rotate_Knob-v0" in source
     assert "--num_envs 4096" in source
     assert "--max_iterations 15000" in source
     assert "--headless" in source
@@ -500,11 +500,11 @@ def test_training_launcher_targets_trainable_rotate_object_task() -> None:
 def test_rotate_object_tasks_are_registered_with_renamed_entry_points() -> None:
     source = TASKS_INIT_PATH.read_text()
 
-    assert 'id="Rotate_Object-v0"' in source
-    assert 'id="Rotate_Object_HRL-v0"' in source
-    assert "rotate_object.env_cfg:DexsuiteFrankaLeapRotateObjectEnvCfg" in source
-    assert "rotate_object.env_cfg:DexsuiteFrankaLeapRotateObjectHrlEnvCfg" in source
-    assert "rotate_object.rsl_rl_ppo_cfg:RotateObjectRslRlPpoCfg" in source
+    assert 'id="Rotate_Knob-v0"' in source
+    assert 'id="Rotate_Knob_HRL-v0"' in source
+    assert "rotate_knob.env_cfg:DexsuiteFrankaLeapRotateObjectEnvCfg" in source
+    assert "rotate_knob.env_cfg:DexsuiteFrankaLeapRotateObjectHrlEnvCfg" in source
+    assert "rotate_knob.rsl_rl_ppo_cfg:RotateObjectRslRlPpoCfg" in source
     assert 'id="Cupcake_on_Plate-v0"' not in source
     assert 'id="Cupcake_on_Plate_HRL-v0"' not in source
 

@@ -29,9 +29,9 @@ from isaaclab.utils.noise import AdditiveGaussianNoiseCfg as Gnoise
 from isaaclab.utils.noise import AdditiveUniformNoiseCfg as Unoise
 from isaaclab.sensors import ContactSensorCfg, FrameTransformerCfg, OffsetCfg
 
-import src.tasks.rotate_object_once.mdps as mdp
+import src.tasks.rotate_knob.mdps as mdp
 import src.tasks.reorient.mdps as task_mdps
-from src.tasks.rotate_object_once.mdps.contact_filters import (
+from src.tasks.rotate_knob.mdps.contact_filters import (
     contact_filter_prim_paths,
     external_indices,
     object_indices,
@@ -61,7 +61,7 @@ class SceneCfg(InteractiveSceneCfg):
                 kinematic_enabled=False,
                 enable_gyroscopic_forces=True,
             ),
-            scale=(0.8, 0.8, 1.0),
+            scale=(0.65, 0.65, 1.0),
         ),
         init_state=RigidObjectCfg.InitialStateCfg(pos=(0.55, 0.20, 0.255), rot=(1.0, 0.0, 0.0, 0.0)),
     )
@@ -136,7 +136,7 @@ class SceneCfg(InteractiveSceneCfg):
 class CommandsCfg:
     """Command terms for the MDP."""
 
-    object_pose = mdp.RotateObjectOnceTrajectoryObjectAndHandBasePoseCommandCfg(
+    object_pose = mdp.RotateObjectTrajectoryObjectAndHandBasePoseCommandCfg(
         asset_name="robot",
         object_name="object",
         resampling_time_range=(1.0e6, 1.0e6),
@@ -490,15 +490,6 @@ class EventCfg:
         },
     )
 
-    reset_robot_joints = EventTerm(
-        func=mdp.reset_joints_by_offset,
-        mode="reset",
-        params={
-            "position_range": [0.0, 0.0],
-            "velocity_range": [0.0, 0.0],
-        },
-    )
-
     # Reduced-gravity curriculum (matches pick_insert / the frozen dex_reorient policy's regime).
     variable_gravity = EventTerm(
         func=mdp.randomize_physics_scene_gravity,
@@ -584,14 +575,9 @@ class TerminationsCfg:
         },
     )
 
-    success = DoneTerm(
-        func=mdp.yaw_target_achieved,
-        params={"command_name": "object_pose"},
-    )
-
 
 @configclass
-class DexsuiteRotateObjectOnceEnvCfg(ManagerBasedRLEnvCfg):
+class DexsuiteRotateObjectEnvCfg(ManagerBasedRLEnvCfg):
     """Base rotate-object env: scripted trajectory command + joint-control actions."""
 
     # Scene settings
@@ -617,7 +603,7 @@ class DexsuiteRotateObjectOnceEnvCfg(ManagerBasedRLEnvCfg):
         # general settings
         self.decimation = 2  # 60 Hz control
 
-        # Goal-driven completion; the final yaw target remains latched until the success reset.
+        # Goal-driven resampling; the command term replaces each achieved yaw target immediately.
         self.commands.object_pose.resampling_time_range = (1.0e6, 1.0e6)
         self.commands.object_pose.position_only = False
         self.commands.object_pose.success_visualizer_cfg.markers["failure"] = (
@@ -658,7 +644,7 @@ class DexsuiteRotateObjectOnceEnvCfg(ManagerBasedRLEnvCfg):
         self.sim.physx.gpu_collision_stack_size = 2**30
 
 
-class DexsuiteRotateObjectOnceEnvCfg_PLAY(DexsuiteRotateObjectOnceEnvCfg):
+class DexsuiteRotateObjectEnvCfg_PLAY(DexsuiteRotateObjectEnvCfg):
     """Rotate-object evaluation environment definition."""
 
     def __post_init__(self):
@@ -674,7 +660,7 @@ class DexsuiteRotateObjectOnceEnvCfg_PLAY(DexsuiteRotateObjectOnceEnvCfg):
 @configclass
 class FrankaLeapMixinCfg:
 
-    def __post_init__(self: DexsuiteRotateObjectOnceEnvCfg):
+    def __post_init__(self: DexsuiteRotateObjectEnvCfg):
         super().__post_init__()
         self.commands.object_pose.body_name = "base"
         finger_tip_body_list = [
@@ -737,20 +723,20 @@ class FrankaLeapMixinCfg:
 
 
 @configclass
-class DexsuiteFrankaLeapRotateObjectOnceEnvCfg(FrankaLeapMixinCfg, DexsuiteRotateObjectOnceEnvCfg):
+class DexsuiteFrankaLeapRotateObjectEnvCfg(FrankaLeapMixinCfg, DexsuiteRotateObjectEnvCfg):
     pass
 
 
 @configclass
-class DexsuiteFrankaLeapRotateObjectOnceEnvCfg_PLAY(
-    FrankaLeapMixinCfg, DexsuiteRotateObjectOnceEnvCfg_PLAY
+class DexsuiteFrankaLeapRotateObjectEnvCfg_PLAY(
+    FrankaLeapMixinCfg, DexsuiteRotateObjectEnvCfg_PLAY
 ):
     pass
 
 
 @configclass
-class DexsuiteFrankaLeapRotateObjectOnceHrlEnvCfg(FrankaLeapMixinCfg, DexsuiteRotateObjectOnceEnvCfg):
-    """HRL variant that reaches the fixed object and follows one world-Z yaw goal."""
+class DexsuiteFrankaLeapRotateObjectHrlEnvCfg(FrankaLeapMixinCfg, DexsuiteRotateObjectEnvCfg):
+    """HRL variant that reaches the fixed object and follows successive world-Z yaw goals."""
 
     actions: HrlActionsCfg = HrlActionsCfg()
 

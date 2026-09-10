@@ -18,7 +18,7 @@ from isaaclab.utils import configclass
 
 from src.assets.franka_leap_hand.leap import LEAP_HAND_CFG
 import src.tasks.rotate_knob_distill.mdps as mdp
-from src.tasks.rotate_object.env_cfg import ObservationsCfg as RotateObjectObservationsCfg
+from src.tasks.rotate_knob.env_cfg import ObservationsCfg as RotateObjectObservationsCfg
 
 
 ASSETS_DIR = Path(__file__).resolve().parents[2] / "assets"

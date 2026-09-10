@@ -9,7 +9,7 @@
  knob angle (1), knob velocity (1), signed target angle (1)] = 35
 ```
 
-IsaacLab stores three frames oldest-to-newest, producing 105 inputs. The action contract is identical to `Rotate_Object_HRL-v0`: 16 normalized absolute joint targets are clamped to `[-1, 1]`, unscaled to the LEAP limits, and filtered as `applied = 0.5 * target + 0.5 * previous_applied`. This is not a relative or cumulative-delta action.
+IsaacLab stores three frames oldest-to-newest, producing 105 inputs. The action contract is identical to `Rotate_Knob_HRL-v0`: 16 normalized absolute joint targets are clamped to `[-1, 1]`, unscaled to the LEAP limits, and filtered as `applied = 0.5 * target + 0.5 * previous_applied`. This is not a relative or cumulative-delta action.
 
 The task uses the ARIA knob-handle geometry and hand base pose with D2H's checkpoint-compatible zero joint reset, a 15 second episode, 240 Hz physics, and 60 Hz control. Hand-to-knob pose is randomized by ±8 mm and ±0.08 rad. Each target is a signed 60–90° world-Z delta from the current knob angle; reaching it with wrapped angle error ≤0.02 rad and |velocity| ≤0.2 rad/s immediately samples the next target without resetting the episode.
 
