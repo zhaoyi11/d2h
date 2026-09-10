@@ -10,39 +10,20 @@ from src.tasks.common.observations_cfg import (
 )
 
 import isaaclab.sim as sim_utils
-import torch
-from isaaclab.assets import ArticulationCfg, RigidObjectCfg
-from isaaclab.controllers.differential_ik_cfg import DifferentialIKControllerCfg
+from isaaclab.assets import RigidObjectCfg
 from isaaclab.envs import ManagerBasedRLEnvCfg, ViewerCfg
-from isaaclab.actuators.actuator_cfg import ImplicitActuatorCfg
 from isaaclab.managers import EventTermCfg as EventTerm
 from isaaclab.managers import ObservationGroupCfg as ObsGroup
 from isaaclab.managers import ObservationTermCfg as ObsTerm
-from isaaclab.managers import RewardTermCfg as RewTerm
 from isaaclab.managers import SceneEntityCfg
 from isaaclab.scene import InteractiveSceneCfg
-from isaaclab.sim import CapsuleCfg, ConeCfg, CuboidCfg, RigidBodyMaterialCfg, SphereCfg
 from isaaclab.sim.simulation_cfg import SimulationCfg
 from isaaclab.utils import configclass
-from src.tasks.common.env_cfg import (
-    HrlActionsCfg as CommonHrlActionsCfg,
-    JointActionsCfg,
-    ObjectTerminationsCfg,
-    configure_contact_physics,
-    configure_fingertip_contacts,
-    configure_success_visualization,
-    fingertip_contact_observation,
-    fingertip_transforms_cfg,
-    ground_plane_cfg,
-    light_cfg,
-    table_cfg,
-)
-from isaaclab.utils.assets import ISAAC_NUCLEUS_DIR
+from src.tasks.common.env_cfg import HrlActionsCfg as CommonHrlActionsCfg, ObjectTerminationsCfg, configure_contact_physics, configure_fingertip_contacts, configure_success_visualization, fingertip_contact_observation, fingertip_transforms_cfg, ground_plane_cfg, light_cfg, table_cfg
 from isaaclab.utils.noise import AdditiveUniformNoiseCfg as Unoise
 
 import src.tasks.pick_insert.mdps as mdp
 from src.policy.high_level.trajectory_stepper import StageObjTol
-from src.tasks.pick_insert.mdps.contact_filters import contact_filter_prim_paths, object_indices
 
 from src.assets.franka_leap_hand.franka_leap import FRANKA_LEAP_HAND_CFG
 
@@ -118,22 +99,6 @@ class SceneCfg(InteractiveSceneCfg):
             pos=(0.5, -0.25, 0.38), rot=(1.0, 0.0, 0.0, 0.0)
         ),
     )
-
-    # ###### DYNAMIC OBSTACLE ######
-    # # dynamic obstacle: a box driven on a scripted Y-sinusoid each step (EventCfg.move_dynamic_obstacle).
-    # # The arm action mirrors its live pose into the cuRobo world (dynamic_obstacle_assets). Visual-only.
-    # dynamic_obstacle: RigidObjectCfg = RigidObjectCfg(
-    #     prim_path="{ENV_REGEX_NS}/DynamicObstacle",
-    #     spawn=sim_utils.CuboidCfg(
-    #         size=(0.06, 0.06, 0.06),
-    #         rigid_props=sim_utils.RigidBodyPropertiesCfg(kinematic_enabled=True),
-    #         visual_material=sim_utils.PreviewSurfaceCfg(diffuse_color=(0.85, 0.2, 0.2)),
-    #         visible=True,
-    #     ),
-    #     init_state=RigidObjectCfg.InitialStateCfg(
-    #         pos=(0.4, 0.05, 0.45), rot=(1.0, 0.0, 0.0, 0.0)
-    #     ),
-    # )
 
     # plane
     plane = ground_plane_cfg()
@@ -232,7 +197,7 @@ class ObservationsCfg:
     policy: PolicyCfg = PolicyCfg()
     proprio: ProprioObsCfg = ProprioObsCfg()
     perception: PerceptionObsCfg = PerceptionObsCfg()
-    low_level: LowLevelObsCfg | None = None
+    low_level: LowLevelObsCfg = LowLevelObsCfg()
 
 
 @configclass
@@ -304,8 +269,8 @@ class EventCfg:
     )
 
     # Rest the peg on the table each reset (its init_state is an on-table lying pose). Small x/y
-    # jitter keeps it on the table; velocity zeroed so it settles gently under the reduced-gravity
-    # curriculum. This replaces the in-hand teleport (removed below) so there is no hand/object
+    # jitter keeps it on the table; velocity zeroed so it settles gently under reduced gravity.
+    # There is no hand/object
     # contact at t=0. Orientation is fixed (no yaw jitter): the reach-to-grasp command derives a
     # grasp pose with a fixed anchor orientation, so the peg must spawn at a consistent orientation
     # for the grasp to align (x/y variation is fine -- the reach reads the peg's live pose).
@@ -337,11 +302,7 @@ class EventCfg:
     #         "velocity_range": [0.0, 0.0],
     #     },
     # )
-    # Note (Octi): This is a deliberate trick in Remake to accelerate learning.
-    # By scheduling gravity as a curriculum — starting with no gravity (easy)
-    # and gradually introducing full gravity (hard) — the agent learns more smoothly.
-    # This removes the need for a special "Lift" reward (often required to push the
-    # agent to counter gravity), which has bonus effect of simplifying reward composition overall.
+    # Fixed reduced gravity for the frozen hand policy.
     variable_gravity = EventTerm(
         func=mdp.randomize_physics_scene_gravity,
         mode="reset",
@@ -350,23 +311,6 @@ class EventCfg:
             "operation": "abs",
         },
     )
-
-    # ##### DYNAMIC OBSTACLE #####
-    # # Drive the dynamic_obstacle prop along a scripted Y-sinusoid every step (kinematic). The arm
-    # # action mirrors its live pose into the cuRobo collision world (dynamic_obstacle_assets), so the
-    # # MPC re-plans around the moving box. Global-time phased so all envs stay in sync.
-    # move_dynamic_obstacle = EventTerm(
-    #     func=mdp.move_dynamic_obstacle,
-    #     mode="interval",
-    #     interval_range_s=(0.0, 0.0),
-    #     params={
-    #         "asset_cfg": SceneEntityCfg("dynamic_obstacle"),
-    #         "center": (0.4, 0.05, 0.45),
-    #         "axis": (0.0, 1.0, 0.0),
-    #         "amplitude": 0.2,
-    #         "freq": 0.25,
-    #     },
-    # )
 
 
 @configclass
@@ -377,249 +321,42 @@ class HrlActionsCfg(CommonHrlActionsCfg):
 
 
 @configclass
-class RewardsCfg:
-    """Reward terms for the MDP."""
+class DexsuiteFrankaLeapInsertHrlEnvCfg(ManagerBasedRLEnvCfg):
+    """Reach, establish a grasp, and insert the peg with a frozen hand policy."""
 
-    action_l2 = RewTerm(func=mdp.action_l2_clamped, weight=-0.002)
-
-    action_rate_l2 = RewTerm(func=mdp.action_rate_l2_clamped, weight=-0.005)
-
-    fingers_to_object = RewTerm(
-        func=mdp.object_ee_distance, params={"std": 0.25}, weight=1.0
-    )
-
-    # bool awarding term if 2 finger tips are in contact with object, one of the contacting fingers has to be thumb.
-    good_finger_contact = RewTerm(
-        func=mdp.contacts,
-        weight=1.0,
-        params={"threshold": 1.0},
-    )
-
-    object_lifted = RewTerm(
-        func=mdp.object_lifted_above_table,
-        weight=2.0,
-        params={
-            "object_cfg": SceneEntityCfg("object"),
-            "table_cfg": SceneEntityCfg("table"),
-            "height": 0.06,
-            "table_half_height": 0.02,
-        },
-    )
-
-    pre_insert_position = RewTerm(
-        func=mdp.object_to_hole_xy_tanh,
-        weight=4.0,
-        params={
-            "object_cfg": SceneEntityCfg("object"),
-            "hole_cfg": SceneEntityCfg("receptive_object"),
-            "table_cfg": SceneEntityCfg("table"),
-            "std": 0.08,
-            "contact_threshold": 1.0,
-            "lift_height": 0.06,
-            "lift_gate": 0.5,
-        },
-    )
-
-    insertion_orientation = RewTerm(
-        func=mdp.peg_hole_axis_alignment,
-        weight=3.0,
-        params={
-            "object_cfg": SceneEntityCfg("object"),
-            "hole_cfg": SceneEntityCfg("receptive_object"),
-            "std": 0.35,
-        },
-    )
-
-    insertion_depth = RewTerm(
-        func=mdp.peg_insertion_depth,
-        weight=8.0,
-        params={
-            "object_cfg": SceneEntityCfg("object"),
-            "hole_cfg": SceneEntityCfg("receptive_object"),
-            "table_cfg": SceneEntityCfg("table"),
-            "target_depth": 0.015,
-            "approach_height": 0.08,
-            "xy_tolerance": 0.04,
-            "axis_tolerance": 0.25,
-            "contact_threshold": 1.0,
-            "lift_height": 0.06,
-            "lift_gate": 0.5,
-        },
-    )
-
-    success = RewTerm(
-        func=mdp.peg_inserted_success,
-        weight=20.0,
-        params={
-            "object_cfg": SceneEntityCfg("object"),
-            "hole_cfg": SceneEntityCfg("receptive_object"),
-            "pos_tol": 0.015,
-            "axis_tol": 0.15,
-            "depth": 0.015,
-        },
-    )
-
-    # early_termination = RewTerm(
-    #     func=mdp.is_terminated_term, weight=-1, params={"term_keys": "abnormal_robot"}
-    # )
-
-
-    # abnormal_robot = DoneTerm(func=mdp.abnormal_robot_state)
-
-
-@configclass
-class DexsuiteInsertPegEnvCfg(ManagerBasedRLEnvCfg):
-    """Dexsuite reorientation task definition, also the base definition for derivative Lift task and evaluation task"""
-
-    # Scene settings
     viewer: ViewerCfg = ViewerCfg(
         eye=(2.25, 0.0, 0.75), lookat=(0.0, 0.0, 0.45), origin_type="env"
     )
     scene: SceneCfg = SceneCfg(num_envs=4096, env_spacing=3, replicate_physics=False)
-    # Simulation settings
     sim: SimulationCfg = SimulationCfg(gravity=(0.0, 0.0, -9.81))
-    # Basic settings
     observations: ObservationsCfg = ObservationsCfg()
-    actions: JointActionsCfg = JointActionsCfg()
+    actions: HrlActionsCfg = HrlActionsCfg()
     commands: CommandsCfg = CommandsCfg()
-    # MDP settings
-    rewards: RewardsCfg = RewardsCfg()
+    rewards = None
     terminations: ObjectTerminationsCfg = ObjectTerminationsCfg()
     events: EventCfg = EventCfg()
-    curriculum: mdp.CurriculumCfg | None = mdp.CurriculumCfg()
+    curriculum = None
 
     def __post_init__(self):
-        """Post initialization."""
-        # general settings
-        self.decimation = 4  # 50 Hz
-
-        # *single-goal setup
-        self.commands.object_pose.resampling_time_range = (10.0, 10.0)
-        self.commands.object_pose.position_only = False
-        configure_success_visualization(self.commands.object_pose, self.scene.table)
-
-
+        self.decimation = 4
         self.episode_length_s = 20.0
         self.is_finite_horizon = True
-
-        # simulation settings
         self.sim.dt = 1 / 120
-
-        # Contact and solver settings
-        configure_contact_physics(self.sim)
-
-
-        # # Render settings
-        # self.sim.render.enable_dlssg = True
-        # self.sim.render.enable_ambient_occlusion = True
-        # self.sim.render.enable_reflections = True
-        # self.sim.render.enable_dl_denoiser = True
-
-
-        ''' Note: the following settings are used previously. Compare whether this is the cause of penetration. '''
-        # self.sim.render_interval = self.decimation
-        # self.sim.physx.bounce_threshold_velocity = 0.2
-        # self.sim.physx.bounce_threshold_velocity = 0.01
-        # self.sim.physx.gpu_max_rigid_patch_count = 4 * 5 * 2**15
-        # self.sim.physx.gpu_collision_stack_size = 2**28
-
-        if self.curriculum is not None:
-            self.curriculum.adr.params["pos_tol"] = self.rewards.success.params["pos_tol"]
-            self.curriculum.adr.params["rot_tol"] = None
-
-        self.commands.object_pose.body_name = "base"  # TODO: check this !!
-
-        self.scene.fingertip_transforms = fingertip_transforms_cfg()
-        # Filter against the full target registry [Object, ReceptiveObject, Table] so
-        # force_matrix_w column k == CONTACT_FILTER_TARGETS[k]; the low-level obs then splits
-        # object (index 0) vs external (receptacle + table) contact via filter_indices.
-        configure_fingertip_contacts(self.scene, contact_filter_prim_paths())
-        self.observations.proprio.contact = fingertip_contact_observation(filter_indices=object_indices())
-        self.observations.proprio.hand_tips_state_b.params[
-            "body_asset_cfg"
-        ].body_names = [".*fingertip.*"]
-        self.rewards.fingers_to_object.params["asset_cfg"] = SceneEntityCfg(
-            "robot", body_names=[".*fingertip.*"]
-        )
-
-
-class DexsuiteInsertEnvCfg(DexsuiteInsertPegEnvCfg):
-    """Dexsuite lift task definition"""
-
-    def __post_init__(self):
-        super().__post_init__()
+        configure_contact_physics(self.sim, collision_stack_size=2**30)
+        configure_success_visualization(self.commands.object_pose, self.scene.table)
+        self.commands.object_pose.body_name = "base"
         self.commands.object_pose.position_only = False
 
+        self.scene.fingertip_transforms = fingertip_transforms_cfg()
+        # Object is filter zero; remaining filters are external contact surfaces.
+        configure_fingertip_contacts(self.scene, [
+            "{ENV_REGEX_NS}/Object",
+            "{ENV_REGEX_NS}/ReceptiveObject",
+            "{ENV_REGEX_NS}/Table",
+        ])
+        self.observations.proprio.contact = fingertip_contact_observation(filter_indices=[0])
+        self.observations.proprio.hand_tips_state_b.params["body_asset_cfg"].body_names = [".*fingertip.*"]
 
-class DexsuiteInsertEnvCfg_PLAY(DexsuiteInsertPegEnvCfg):
-    """Dexsuite reorientation task evaluation environment definition"""
-
-    def __post_init__(self):
-        super().__post_init__()
-        self.commands.object_pose.resampling_time_range = (2.0, 3.0)
-        self.commands.object_pose.debug_vis = False
-        self.curriculum.adr.params["init_difficulty"] = self.curriculum.adr.params[
-            "max_difficulty"
-        ]
-
-
-# class DexsuiteInsertEnvCfg_PLAY(DexsuiteInsertEnvCfg):
-#     """Dexsuite lift task evaluation environment definition"""
-
-#     def __post_init__(self):
-#         super().__post_init__()
-#         self.commands.object_pose.resampling_time_range = (2.0, 3.0)
-#         self.commands.object_pose.debug_vis = True
-#         self.commands.object_pose.position_only = True
-#         self.curriculum.adr.params["init_difficulty"] = self.curriculum.adr.params[
-#             "max_difficulty"
-#         ]
-
-
-##########
-#  Tasks
-##########
-
-
-# @configclass
-# class DexsuiteFrankaLeapInsertEnvCfg(DexsuiteInsertEnvCfg):
-#     pass
-
-
-# @configclass
-# class DexsuiteFrankaLeapInsertEnvCfg_PLAY(
-#     DexsuiteInsertEnvCfg_PLAY
-# ):
-#     pass
-
-
-@configclass
-class DexsuiteFrankaLeapInsertEnvCfg(DexsuiteInsertEnvCfg):
-    pass
-
-
-@configclass
-class DexsuiteFrankaLeapInsertEnvCfg_PLAY(DexsuiteInsertEnvCfg_PLAY):
-    pass
-
-
-@configclass
-class DexsuiteFrankaLeapInsertHrlEnvCfg(DexsuiteInsertEnvCfg):
-    """Pick-insert HRL env driven by the EXTERNAL-FORCE-SENSING low-level hand policy.
-
-    cuRobo-MPC arm + frozen low-level LEAP-hand policy. The peg spawns on the table and the
-    reach-to-grasp command drives the pick before the pick->insert trajectory. The ``low_level``
-    observation group is the 155-dim reorient layout (object + external fingertip-contact
-    sensing), matching the dex_reorient ``reorient`` checkpoint. The 7-DOF arm is purely
-    MPC-driven (0 external action dims).
-    """
-
-    actions: HrlActionsCfg = HrlActionsCfg()
-
-    def __post_init__(self):
-        self.observations.low_level = LowLevelObsCfg()
-        super().__post_init__()
-        # Add a contact-confirmed close phase before lift. The raw env keeps the legacy seven stages.
         self.commands.object_pose.enable_grasp_establish = True
         self.commands.object_pose.trajectory_segment_steps = (0, 1, 1, 2, 1, 1, 1, 1)
         self.commands.object_pose.stage_object_tolerances = (
@@ -634,7 +371,7 @@ class DexsuiteFrankaLeapInsertHrlEnvCfg(DexsuiteInsertEnvCfg):
         )
         self.commands.object_pose.recovery_arm_after_stage = 2
         self.commands.object_pose.hand_base_hold_until_stage = 1
-        # cuRobo MPC owns the arm: zero the arm position gains (the MPC action restores them on
-        # reset); the LEAP hand ("fingers") stays position-controlled.
+
+        # The MPC action restores arm gains on reset; the hand stays position-controlled.
         self.scene.robot.actuators["joints"].stiffness = 0.0
         self.scene.robot.actuators["joints"].damping = 0.0

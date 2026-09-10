@@ -48,3 +48,26 @@ def test_contact_metrics_preserve_filter_masks_force_frames_and_empty_sensors():
     torch.testing.assert_close(external_contact["in_contact"], torch.tensor([[True, False], [True, False]]))
     torch.testing.assert_close(external_contact["force_mag"], torch.tensor([[0., 0.], [2., 0.]]))
     torch.testing.assert_close(external_contact["contact_pose"][1, 0], torch.tensor([-np.deg2rad(50.), 0.], dtype=torch.float32), atol=1e-6, rtol=0.)
+
+
+def test_grasp_contact_requires_thumb_and_another_finger_on_object_filter():
+    envs = ModuleType("isaaclab.envs")
+    envs.ManagerBasedRLEnv = object
+    spec = importlib.util.spec_from_file_location(
+        "common_grasp_contacts_under_test",
+        Path(__file__).resolve().parents[2] / "src/tasks/common/mdps/contacts.py",
+    )
+    contacts = importlib.util.module_from_spec(spec)
+    with patch.dict(sys.modules, {"isaaclab.envs": envs}):
+        spec.loader.exec_module(contacts)
+    names = ["thumb_fingertip_object_s", "fingertip_object_s", "fingertip_2_object_s", "fingertip_3_object_s"]
+    forces = torch.zeros(3, 1, 2, 3)
+    forces[:, :, 1, 0] = 100.0  # External contact never establishes an object grasp.
+    thumb = forces.clone()
+    thumb[:2, :, 0, 0] = 2.0
+    index = forces.clone()
+    index[[0, 2], :, 0, 0] = 2.0
+    sensors = {name: SimpleNamespace(data=SimpleNamespace(force_matrix_w=value))
+               for name, value in zip(names, [thumb, index, forces, None])}
+    env = SimpleNamespace(num_envs=3, device="cpu", scene=SimpleNamespace(sensors=sensors))
+    torch.testing.assert_close(contacts.contacts(env, 1.0), torch.tensor([True, False, False]))

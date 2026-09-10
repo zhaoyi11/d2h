@@ -85,14 +85,14 @@ def _load_task_mdps_module():
     math_module.subtract_frame_transforms = (
         lambda rpos, rquat, opos, oquat: (opos - rpos, oquat)
     )
-    rewards = types.ModuleType("src.tasks.common.mdps.rewards")
+    rewards = types.ModuleType("src.tasks.common.mdps.contacts")
     rewards.contacts = lambda env, threshold: env.good_contact
     with _temporary_modules(
         {
             "isaaclab.assets": assets,
             "isaaclab.managers": managers,
             "isaaclab.utils.math": math_module,
-            "src.tasks.common.mdps.rewards": rewards,
+            "src.tasks.common.mdps.contacts": rewards,
         }
     ):
         return _load_file(
@@ -130,7 +130,7 @@ def _load_commands_module():
     utils.configclass = lambda cls: cls
     math_module = types.ModuleType("isaaclab.utils.math")
     math_module.subtract_frame_transforms = lambda *args: (args[2] - args[0], args[3])
-    rewards = types.ModuleType("src.tasks.common.mdps.rewards")
+    rewards = types.ModuleType("src.tasks.common.mdps.contacts")
     rewards.contacts = lambda env, threshold: env.good_contact
     task_mdps = types.ModuleType("src.tasks.unscrew.mdps.task_mdps")
     task_mdps.bolt_aabb_corners = lambda device: torch.zeros(8, 3, device=device)
@@ -141,7 +141,7 @@ def _load_commands_module():
             "isaaclab.utils.math": math_module,
             "src.policy.high_level.trajectory_command": trajectory_command,
             "src.policy.high_level.trajectory_stepper": stepper_module,
-            "src.tasks.common.mdps.rewards": rewards,
+            "src.tasks.common.mdps.contacts": rewards,
             "src.tasks.unscrew.mdps.task_mdps": task_mdps,
             "src.tasks.unscrew.mdps.trajectory": trajectory,
         }

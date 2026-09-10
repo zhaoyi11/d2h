@@ -24,7 +24,7 @@ from src.policy.high_level.trajectory_command import (
     TrajectoryObjectAndHandBasePoseCommand,
     TrajectoryObjectAndHandBasePoseCommandCfg,
 )
-from src.tasks.common.mdps.rewards import contacts as good_object_contact
+from src.tasks.common.mdps.contacts import contacts as good_object_contact
 from src.tasks.pick_insert.mdps.trajectory import (build_pick_insert_object_pose_sequence,
                                                    DEFAULT_PICK_INSERT_RECEPTIVE_POSE,
                                                    DEFAULT_PICK_INSERT_SEGMENT_STEPS,

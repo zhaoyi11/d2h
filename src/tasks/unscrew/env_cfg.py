@@ -11,36 +11,20 @@ from src.tasks.common.observations_cfg import (
 )
 
 import isaaclab.sim as sim_utils
-from isaaclab.assets import ArticulationCfg, RigidObjectCfg
+from isaaclab.assets import RigidObjectCfg
 from isaaclab.envs import ManagerBasedRLEnvCfg, ViewerCfg
-from isaaclab.actuators.actuator_cfg import ImplicitActuatorCfg
 from isaaclab.managers import EventTermCfg as EventTerm
 from isaaclab.managers import ObservationGroupCfg as ObsGroup
 from isaaclab.managers import ObservationTermCfg as ObsTerm
-from isaaclab.managers import RewardTermCfg as RewTerm
 from isaaclab.managers import SceneEntityCfg
 from isaaclab.managers import TerminationTermCfg as DoneTerm
 from isaaclab.scene import InteractiveSceneCfg
-from isaaclab.sim import CapsuleCfg, ConeCfg, CuboidCfg, RigidBodyMaterialCfg, SphereCfg
 from isaaclab.utils import configclass
-from src.tasks.common.env_cfg import (
-    HrlActionsCfg as CommonHrlActionsCfg,
-    JointActionsCfg,
-    configure_contact_physics,
-    configure_fingertip_contacts,
-    configure_success_visualization,
-    fingertip_contact_observation,
-    fingertip_transforms_cfg,
-    ground_plane_cfg,
-    light_cfg,
-    table_cfg,
-)
-from isaaclab.utils.assets import ISAAC_NUCLEUS_DIR
+from src.tasks.common.env_cfg import HrlActionsCfg as CommonHrlActionsCfg, configure_contact_physics, configure_fingertip_contacts, configure_success_visualization, fingertip_contact_observation, fingertip_transforms_cfg, ground_plane_cfg, light_cfg, table_cfg
 from isaaclab.utils.noise import AdditiveUniformNoiseCfg as Unoise
 
 import src.tasks.common.mdps as mdp
 import src.tasks.unscrew.mdps as unscrew_mdp
-from src.tasks.unscrew.mdps.contacts import contact_filter_prim_paths, object_indices
 from src.assets.franka_leap_hand.franka_leap import FRANKA_LEAP_HAND_CFG
 
 UWLAB_CLOUD_ASSETS_DIR = "https://huggingface.co/datasets/UW-Lab/uwlab-assets/resolve/main"
@@ -53,7 +37,6 @@ IDENTITY_QUAT = (1.0, 0.0, 0.0, 0.0)
 INSTALLED_OBJECT_POS = (0.4659913182258606, 0.08350233733654022, 0.3423238694667816)
 INSTALLED_OBJECT_QUAT = (0.97566819190979, 0.00011654444824671373, -0.0003023587341886014, 0.21925236284732819)
 
-EXTRACTED_OBJECT_POS = (0.465625, 0.084375, 0.416834)
 TABLE_POS = (0.55, 0.0, 0.235)
 
 
@@ -173,26 +156,6 @@ class SceneCfg(InteractiveSceneCfg):
 
 
 @configclass
-class CommandsCfg:
-    """Command terms for the MDP."""
-
-    object_pose = mdp.ObjectUniformPoseCommandCfg(
-        asset_name="robot",
-        object_name="object",
-        resampling_time_range=(20.0, 20.0),
-        debug_vis=False,
-        ranges=mdp.ObjectUniformPoseCommandCfg.Ranges(
-            pos_x=(EXTRACTED_OBJECT_POS[0], EXTRACTED_OBJECT_POS[0]),
-            pos_y=(EXTRACTED_OBJECT_POS[1], EXTRACTED_OBJECT_POS[1]),
-            pos_z=(EXTRACTED_OBJECT_POS[2], EXTRACTED_OBJECT_POS[2]),
-            roll=(0.0, 0.0),
-            pitch=(0.0, 0.0),
-            yaw=(0.0, 0.0),
-        ),
-        success_vis_asset_name="table",
-    )
-
-@configclass
 class ObservationsCfg:
     """Observation specifications for the MDP."""
     @configclass
@@ -221,7 +184,7 @@ class ObservationsCfg:
     policy: PolicyCfg = PolicyCfg()
     proprio: ProprioObsCfg = ProprioObsCfg()
     perception: PerceptionObsCfg = PerceptionObsCfg()
-    low_level: LowLevelObsCfg | None = None
+    low_level: LowLevelObsCfg = LowLevelObsCfg()
 
 
 @configclass
@@ -329,78 +292,14 @@ class EventCfg:
         },
     )
 
-    # Note (Octi): This is a deliberate trick in Remake to accelerate learning.
-    # By scheduling gravity as a curriculum — starting with no gravity (easy)
-    # and gradually introducing full gravity (hard) — the agent learns more smoothly.
-    # This removes the need for a special "Lift" reward (often required to push the
-    # agent to counter gravity), which has bonus effect of simplifying reward composition overall.
+    # Fixed reduced gravity for the frozen hand policy.
     variable_gravity = EventTerm(
         func=mdp.randomize_physics_scene_gravity,
         mode="reset",
         params={
-            "gravity_distribution_params": ([0.0, 0.0, 0.0], [0.0, 0.0, 0.0]),
+            "gravity_distribution_params": ([0.0, 0.0, -1.81], [0.0, 0.0, -1.81]),
             "operation": "abs",
         },
-    )
-
-
-@configclass
-class RewardsCfg:
-    """Reward terms for the MDP."""
-
-    action_l2 = RewTerm(func=mdp.action_l2_clamped, weight=-0.005)
-
-    action_rate_l2 = RewTerm(func=mdp.action_rate_l2_clamped, weight=-0.005)
-
-    fingers_to_object = RewTerm(
-        func=mdp.object_ee_distance, params={"std": 0.4}, weight=1.0
-    )
-
-    position_tracking = RewTerm(
-        func=mdp.position_command_error_tanh,
-        weight=2.0,
-        params={
-            "asset_cfg": SceneEntityCfg("robot"),
-            "std": 0.2,
-            "command_name": "object_pose",
-            "align_asset_cfg": SceneEntityCfg("object"),
-        },
-    )
-
-    orientation_tracking = None
-
-    # success_position = RewTerm(
-    #     func=mdp.success_reward,
-    #     weight=5,
-    #     params={
-    #         "asset_cfg": SceneEntityCfg("robot"),
-    #         "pos_std": 0.1,
-    #         "rot_std": None,
-    #         "command_name": "object_pose",
-    #         "align_asset_cfg": SceneEntityCfg("object"),
-    #     },
-    # )
-
-    success = RewTerm(
-        func=mdp.success_reward,
-        weight=10,
-        params={
-            "asset_cfg": SceneEntityCfg("robot"),
-            "pos_std": 0.01,
-            "rot_std": None,
-            "command_name": "object_pose",
-            "align_asset_cfg": SceneEntityCfg("object"),
-        },
-    )
-
-    completion = RewTerm(
-        func=mdp.is_terminated_term,
-        weight=10.0,
-        params={"term_keys": "unscrew_success"},
-    )
-
-    early_termination = RewTerm(
-        func=mdp.is_terminated_term, weight=-1, params={"term_keys": "abnormal_robot"}
     )
 
 
@@ -432,107 +331,7 @@ class TerminationsCfg:
 
 
 @configclass
-class DexsuiteUnscrewEnvCfg(ManagerBasedRLEnvCfg):
-    """Flat RL task for extracting a threaded square-table leg."""
-
-    # Scene settings
-    viewer: ViewerCfg = ViewerCfg(
-        eye=(2.25, 0.0, 0.75), lookat=(0.0, 0.0, 0.45), origin_type="env"
-    )
-    scene: SceneCfg = SceneCfg(num_envs=4096, env_spacing=3, replicate_physics=False)
-    # Basic settings
-    observations: ObservationsCfg = ObservationsCfg()
-    actions: JointActionsCfg = JointActionsCfg()
-    commands: CommandsCfg = CommandsCfg()
-    # MDP settings
-    rewards: RewardsCfg = RewardsCfg()
-    terminations: TerminationsCfg = TerminationsCfg()
-    events: EventCfg = EventCfg()
-    curriculum: mdp.CurriculumCfg | None = mdp.CurriculumCfg()
-
-    def __post_init__(self):
-        """Post initialization."""
-        # general settings
-        self.decimation = 4  # 50 Hz
-
-        # *single-goal setup
-        self.commands.object_pose.resampling_time_range = (20.0, 20.0)
-        self.commands.object_pose.position_only = True
-        configure_success_visualization(self.commands.object_pose, self.scene.table)
-
-
-        self.episode_length_s = 20.0
-        self.is_finite_horizon = True
-
-        # simulation settings
-        self.sim.dt = 1 / 120
-        self.sim.render_interval = self.decimation
-
-        # Contact and solver settings
-        configure_contact_physics(self.sim)
-        # self.sim.physx.contact_offset = 10
-
-
-        # self.sim.physx.bounce_threshold_velocity = 0.2
-        # self.sim.physx.bounce_threshold_velocity = 0.01
-        # self.sim.physx.gpu_max_rigid_patch_count = 4 * 5 * 2**15
-        # self.sim.physx.gpu_collision_stack_size = 2**28
-
-        if self.curriculum is not None:
-            self.curriculum.adr.params["pos_tol"] = (
-                self.rewards.success.params["pos_std"] / 2
-            )
-
-            self.curriculum.adr.params["rot_tol"] = None
-
-        self.commands.object_pose.body_name = "base"  # TODO: check this !!
-
-        configure_fingertip_contacts(self.scene, ['{ENV_REGEX_NS}/Object'])
-        self.observations.proprio.contact = fingertip_contact_observation()
-
-        self.observations.proprio.hand_tips_state_b.params[
-            "body_asset_cfg"
-        ].body_names = [".*fingertip.*"]
-        self.rewards.fingers_to_object.params["asset_cfg"] = SceneEntityCfg(
-            "robot", body_names=[".*fingertip.*"]
-        )
-
-
-class DexsuiteUnscrewEnvCfg_PLAY(DexsuiteUnscrewEnvCfg):
-    """Unscrew evaluation environment definition."""
-
-    def __post_init__(self):
-        super().__post_init__()
-        self.commands.object_pose.resampling_time_range = (20.0, 20.0)
-        self.commands.object_pose.debug_vis = True
-        self.curriculum.adr.params["init_difficulty"] = self.curriculum.adr.params[
-            "max_difficulty"
-        ]
-
-##########
-#  Tasks
-##########
-
-
-@configclass
-class DexsuiteFrankaLeapUnscrewEnvCfg(DexsuiteUnscrewEnvCfg):
-    pass
-
-
-@configclass
-class DexsuiteFrankaLeapUnscrewEnvCfg_PLAY(
-    DexsuiteUnscrewEnvCfg_PLAY
-):
-    pass
-
-
-##########
-#  HRL + cuRobo-MPC variant
-##########
-
-
-@configclass
-class HrlCommandsCfg:
+class CommandsCfg:
     """Command that emits BOTH the object goal pose and the hand-base anchor pose.
 
     ``command[:, 7:14]`` is the hand-base anchor the cuRobo MPC arm action tracks; the in-hand
@@ -590,47 +389,42 @@ class HrlActionsCfg(CommonHrlActionsCfg):
         obstacle_cuboids={"table": {"dims": [0.8, 1.5, 0.04], "pose": [0.55, 0.0, 0.235, 1, 0, 0, 0]}},
     )
 
-
 @configclass
-class DexsuiteFrankaLeapUnscrewHrlEnvCfg(DexsuiteUnscrewEnvCfg):
-    """Unscrew HRL variant: cuRobo-MPC arm + frozen low-level LEAP-hand policy.
+class DexsuiteFrankaLeapUnscrewHrlEnvCfg(ManagerBasedRLEnvCfg):
+    """Extract the threaded leg with cuRobo and a frozen hand policy."""
 
-    The 7-DOF arm tracks the command hand-base anchor via cuRobo reactive MPC (0 external action
-    dims); the 16-DOF LEAP hand is driven by a frozen reorient policy reading the ``low_level``
-    observation group (167 dims, incl. external-contact force sensing). No high-level RL policy —
-    a smoke script feeds the hand policy's 16 actions while the MPC drives the arm.
-    """
-
-    commands: HrlCommandsCfg = HrlCommandsCfg()
+    viewer: ViewerCfg = ViewerCfg(
+        eye=(2.25, 0.0, 0.75), lookat=(0.0, 0.0, 0.45), origin_type="env"
+    )
+    scene: SceneCfg = SceneCfg(num_envs=4096, env_spacing=3, replicate_physics=False)
+    observations: ObservationsCfg = ObservationsCfg()
     actions: HrlActionsCfg = HrlActionsCfg()
+    commands: CommandsCfg = CommandsCfg()
+    rewards = None
+    terminations: TerminationsCfg = TerminationsCfg()
+    events: EventCfg = EventCfg()
+    curriculum = None
 
     def __post_init__(self):
-        # Enable the reorient-style 167-dim low-level observation group.
-        self.observations.low_level = LowLevelObsCfg()
-        super().__post_init__()
-        # The flat task's goal is position-only; the scripted HRL stepper must still enforce each
-        # 30-degree orientation target.
+        self.decimation = 4
+        self.episode_length_s = 20.0
+        self.is_finite_horizon = True
+        self.sim.dt = 1 / 120
+        self.sim.render_interval = self.decimation
+        configure_contact_physics(self.sim)
+        configure_success_visualization(self.commands.object_pose, self.scene.table)
+        self.commands.object_pose.body_name = "base"
         self.commands.object_pose.position_only = False
-
-        # FrameTransformer over the fingertips: tip_contact_* read its target_quat_w to rotate
-        # contact forces into each fingertip frame.
+        # Object is filter zero; remaining filters are external contact surfaces.
+        configure_fingertip_contacts(self.scene, [
+            "{ENV_REGEX_NS}/Object",
+            "{ENV_REGEX_NS}/ReceptiveObject",
+            "{ENV_REGEX_NS}/Table",
+        ])
+        self.observations.proprio.contact = fingertip_contact_observation(filter_indices=[0])
+        self.observations.proprio.hand_tips_state_b.params["body_asset_cfg"].body_names = [".*fingertip.*"]
         self.scene.fingertip_transforms = fingertip_transforms_cfg()
 
-        # Rebuild the fingertip contact sensors to filter against the full target registry
-        # [Object, ReceptiveObject, Table] so force_matrix_w column k == CONTACT_FILTER_TARGETS[k].
-        # (Replaces the base task's object-only contact filter.)
-        configure_fingertip_contacts(self.scene, contact_filter_prim_paths())
-        # Keep the proprio object-contact channel object-only now that sensors carry 3 filters.
-        self.observations.proprio.contact.params["filter_indices"] = object_indices()
-
-        # cuRobo MPC owns the arm: zero the arm's position gains so set_joint_position_target has
-        # no PD authority until the MPC action restores them on reset (mirrors pick_insert demo).
+        # The MPC action restores arm gains on reset; the hand stays position-controlled.
         self.scene.robot.actuators["joints"].stiffness = 0.0
         self.scene.robot.actuators["joints"].damping = 0.0
-
-        # Reduced gravity (-1.81) is the regime the frozen reorient hand policy was trained under
-        # (matches pick_insert/cupcake); the flat env retains its gravity curriculum.
-        self.events.variable_gravity.params["gravity_distribution_params"] = (
-            [0.0, 0.0, -1.81],
-            [0.0, 0.0, -1.81],
-        )

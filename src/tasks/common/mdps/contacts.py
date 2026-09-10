@@ -1,9 +1,13 @@
 from __future__ import annotations
 
 import math as _math
+from typing import TYPE_CHECKING
 
 import torch
 from isaaclab.envs import ManagerBasedRLEnv
+
+if TYPE_CHECKING:
+    from isaaclab.sensors import ContactSensor
 
 
 def _compute_contact_metrics(
@@ -99,3 +103,37 @@ def _compute_contact_metrics(
         "contact_pose": torch.stack(pose_list, dim=1),          # (N, n, 2)
     }
 
+
+def _object_contact_force_w(sensor: ContactSensor, num_envs: int, device) -> torch.Tensor:
+    """Per-env object contact force (N, 3) for a fingertip sensor.
+
+    Selects only the object's contact-filter index (0) and sums over the sensor's bodies, so it
+    stays correct when external contact targets (receptacle, table, ...) add more filter columns
+    to ``force_matrix_w``. Backward compatible with single-filter sensors (index 0 == only filter).
+    """
+    fm = sensor.data.force_matrix_w
+    if fm is None or fm.numel() == 0 or fm.shape[2] < 1:
+        return torch.zeros(num_envs, 3, device=device)
+    return torch.nan_to_num(fm[:, :, 0, :], nan=0.0).sum(dim=1)
+
+def contacts(env: ManagerBasedRLEnv, threshold: float) -> torch.Tensor:
+    """Check for object contact above threshold on the thumb and another fingertip."""
+
+    thumb_contact_sensor: ContactSensor = env.scene.sensors["thumb_fingertip_object_s"]
+    index_contact_sensor: ContactSensor = env.scene.sensors["fingertip_object_s"]
+    middle_contact_sensor: ContactSensor = env.scene.sensors["fingertip_2_object_s"]
+    ring_contact_sensor: ContactSensor = env.scene.sensors["fingertip_3_object_s"]
+    # check if object contact force is above threshold (object filter index 0 only)
+    thumb_contact = _object_contact_force_w(thumb_contact_sensor, env.num_envs, env.device)
+    index_contact = _object_contact_force_w(index_contact_sensor, env.num_envs, env.device)
+    middle_contact = _object_contact_force_w(middle_contact_sensor, env.num_envs, env.device)
+    ring_contact = _object_contact_force_w(ring_contact_sensor, env.num_envs, env.device)
+    thumb_contact_mag = torch.norm(thumb_contact, dim=-1)
+    index_contact_mag = torch.norm(index_contact, dim=-1)
+    middle_contact_mag = torch.norm(middle_contact, dim=-1)
+    ring_contact_mag = torch.norm(ring_contact, dim=-1)
+    good_contact_cond1 = (thumb_contact_mag > threshold) & (
+        (index_contact_mag > threshold) | (middle_contact_mag > threshold) | (ring_contact_mag > threshold)
+    )
+
+    return good_contact_cond1

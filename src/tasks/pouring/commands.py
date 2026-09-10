@@ -10,7 +10,7 @@ from src.policy.high_level.trajectory_command import (
 )
 from src.policy.high_level.trajectory_stepper import StageObjTol
 from src.policy.high_level.utils import hand_base_pose_from_object_command_b
-from src.tasks.common.mdps.rewards import contacts
+from src.tasks.common.mdps.contacts import contacts
 from src.tasks.pouring.trajectory import DEFAULT_TRAJECTORY, load_pouring_trajectory
 
 

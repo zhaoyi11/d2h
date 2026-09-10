@@ -39,7 +39,7 @@ try:
 
     from src.tasks.unscrew import env_cfg as task_env_cfg  # noqa: E402
     from src.tasks.unscrew.mdps import physics_verifier, trajectory  # noqa: E402
-    from src.tasks.unscrew.mdps.task_mdps import BOLT_AABB_MAX, BOLT_AABB_MIN, SOCKET_TOP_Z  # noqa: E402
+    from src.tasks.unscrew.geometry import BOLT_AABB_MAX, BOLT_AABB_MIN, SOCKET_TOP_Z  # noqa: E402
 except BaseException:
     traceback.print_exc()
     simulation_app.app.post_uncancellable_quit(1)

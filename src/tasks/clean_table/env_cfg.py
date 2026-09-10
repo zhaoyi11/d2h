@@ -10,21 +10,17 @@ from src.tasks.common.observations_cfg import (
 )
 
 import isaaclab.sim as sim_utils
-from isaaclab.assets import ArticulationCfg, RigidObjectCfg
+from isaaclab.assets import RigidObjectCfg
 from isaaclab.envs import ManagerBasedRLEnvCfg, ViewerCfg
-from isaaclab.actuators.actuator_cfg import ImplicitActuatorCfg
 from isaaclab.managers import ObservationGroupCfg as ObsGroup
 from isaaclab.managers import ObservationTermCfg as ObsTerm
 from isaaclab.managers import SceneEntityCfg
-from isaaclab.sim import CapsuleCfg, ConeCfg, CuboidCfg, RigidBodyMaterialCfg, SphereCfg
 from isaaclab.sim.simulation_cfg import SimulationCfg
 from isaaclab.utils import configclass
-from src.tasks.common.env_cfg import TabletopSceneCfg, TabletopEventsCfg, PlacementRewardsCfg, tote_cfg, HrlActionsCfg, JointActionsCfg, ObjectTerminationsCfg, configure_contact_physics, configure_fingertip_contacts, configure_success_visualization, fingertip_contact_observation, fingertip_transforms_cfg, get_visdex_usd_paths
-from isaaclab.utils.assets import ISAAC_NUCLEUS_DIR
+from src.tasks.common.env_cfg import TabletopSceneCfg, TabletopEventsCfg, tote_cfg, HrlActionsCfg, ObjectTerminationsCfg, configure_contact_physics, configure_fingertip_contacts, configure_success_visualization, fingertip_contact_observation, fingertip_transforms_cfg, get_visdex_usd_paths
 from isaaclab.utils.noise import AdditiveUniformNoiseCfg as Unoise
 
 import src.tasks.clean_table.mdps as mdp
-from src.tasks.clean_table.mdps.contact_filters import contact_filter_prim_paths, object_indices
 from src.policy.high_level.trajectory_stepper import StageObjTol
 
 # UWLAB_CLOUD_ASSETS_DIR = "https://huggingface.co/datasets/UW-Lab/uwlab-assets/resolve/main"
@@ -142,114 +138,45 @@ class ObservationsCfg:
     policy: PolicyCfg = PolicyCfg()
     proprio: ProprioObsCfg = ProprioObsCfg()
     perception: PerceptionObsCfg = PerceptionObsCfg()
-    low_level: LowLevelObsCfg | None = None
-
-
-    # early_termination = RewTerm(
-    #     func=mdp.is_terminated_term, weight=-1, params={"term_keys": "abnormal_robot"}
-    # )
-
-
-    # abnormal_robot = DoneTerm(func=mdp.abnormal_robot_state)
+    low_level: LowLevelObsCfg = LowLevelObsCfg()
 
 
 @configclass
-class DexsuiteReorientEnvCfg(ManagerBasedRLEnvCfg):
-    """Dexsuite reorientation task definition, also the base definition for derivative Lift task and evaluation task"""
+class DexsuiteFrankaLeapCleanTableHrlEnvCfg(ManagerBasedRLEnvCfg):
+    """Place objects in the tote with cuRobo and a frozen hand policy."""
 
-    # Scene settings
     viewer: ViewerCfg = ViewerCfg(
         eye=(2.25, 0.0, 0.75), lookat=(0.0, 0.0, 0.45), origin_type="env"
     )
     scene: SceneCfg = SceneCfg(num_envs=4096, env_spacing=3, replicate_physics=False)
     sim: SimulationCfg = SimulationCfg(gravity=(0.0, 0.0, -9.81))
-    # Basic settings
     observations: ObservationsCfg = ObservationsCfg()
-    actions: JointActionsCfg = JointActionsCfg()
+    actions: HrlActionsCfg = HrlActionsCfg()
     commands: CommandsCfg = CommandsCfg()
-    # MDP settings
-    rewards: PlacementRewardsCfg = PlacementRewardsCfg()
+    rewards = None
     terminations: ObjectTerminationsCfg = ObjectTerminationsCfg()
     events: TabletopEventsCfg = TabletopEventsCfg()
-    curriculum: mdp.CurriculumCfg | None = None
+    curriculum = None
 
     def __post_init__(self):
-        """Post initialization."""
-        # general settings
-        self.decimation = 2  # 60 Hz
-
+        self.decimation = 4
+        self.episode_length_s = 30.0
+        self.is_finite_horizon = True
+        self.sim.dt = 1 / 120
+        self.sim.render_interval = self.decimation
+        configure_contact_physics(self.sim)
         configure_success_visualization(self.commands.object_pose, self.scene.table)
 
-
-        self.episode_length_s = 20.0
-        self.is_finite_horizon = True
-
-        # simulation settings
-        self.sim.dt = 1 / 120
-        configure_contact_physics(self.sim, found_lost_pairs=2**22, collision_stack_size=2**30)
-
-
         self.scene.fingertip_transforms = fingertip_transforms_cfg()
-        configure_fingertip_contacts(self.scene, contact_filter_prim_paths())
-        self.observations.proprio.contact = fingertip_contact_observation(filter_indices=object_indices())
+        # Object is filter zero; remaining filters are external contact surfaces.
+        configure_fingertip_contacts(self.scene, [
+            "{ENV_REGEX_NS}/Object/baseLink*",
+            "{ENV_REGEX_NS}/ReceptiveObject",
+            "{ENV_REGEX_NS}/Table",
+        ])
+        self.observations.proprio.contact = fingertip_contact_observation(filter_indices=[0])
+        self.observations.proprio.hand_tips_state_b.params["body_asset_cfg"].body_names = [".*fingertip.*"]
 
-        self.observations.proprio.hand_tips_state_b.params[
-            "body_asset_cfg"
-        ].body_names = [".*fingertip.*"]
-        self.rewards.fingers_to_object.params["asset_cfg"] = SceneEntityCfg(
-            "robot", body_names=[".*fingertip.*"]
-        )
-
-
-class DexsuiteLiftEnvCfg(DexsuiteReorientEnvCfg):
-    """Dexsuite lift task definition"""
-
-    def __post_init__(self):
-        super().__post_init__()
-
-
-class DexsuiteReorientEnvCfg_PLAY(DexsuiteReorientEnvCfg):
-    """Dexsuite reorientation task evaluation environment definition"""
-
-    def __post_init__(self):
-        super().__post_init__()
-
-
-class DexsuiteLiftEnvCfg_PLAY(DexsuiteLiftEnvCfg):
-    """Dexsuite lift task evaluation environment definition"""
-
-    def __post_init__(self):
-        super().__post_init__()
-
-
-##########
-#  Tasks
-##########
-
-
-@configclass
-class DexsuiteFrankaLeapCleanTableEnvCfg(DexsuiteReorientEnvCfg):
-    pass
-
-
-@configclass
-class DexsuiteFrankaLeapCleanTableEnvCfg_PLAY(
-    DexsuiteReorientEnvCfg_PLAY
-):
-    pass
-
-
-@configclass
-class DexsuiteFrankaLeapCleanTableHrlEnvCfg(
-    DexsuiteReorientEnvCfg
-):
-    """Autonomous clean-table environment driven by cuRobo and a frozen hand policy."""
-
-    actions: HrlActionsCfg = HrlActionsCfg()
-
-    def __post_init__(self):
-        self.observations.low_level = LowLevelObsCfg()
-        super().__post_init__()
         self.commands.object_pose.hand_base_hold_until_stage = 1
         self.commands.object_pose.drop_object_hand_distance = 0.12
         self.commands.object_pose.lift_height = 0.10
@@ -258,11 +185,7 @@ class DexsuiteFrankaLeapCleanTableHrlEnvCfg(
             StageObjTol(0.02, 0.3),
             *self.commands.object_pose.stage_object_tolerances[2:],
         )
-        self.decimation = 4  # 30 Hz, matching the frozen hand policy.
-        self.episode_length_s = 30.0
-        self.sim.render_interval = self.decimation
-        configure_contact_physics(self.sim)
 
-
+        # The MPC action restores arm gains on reset; the hand stays position-controlled.
         self.scene.robot.actuators["joints"].stiffness = 0.0
         self.scene.robot.actuators["joints"].damping = 0.0

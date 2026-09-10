@@ -13,7 +13,7 @@ from src.policy.high_level.trajectory_command import (
     TrajectoryObjectAndHandBasePoseCommand,
     TrajectoryObjectAndHandBasePoseCommandCfg,
 )
-from src.tasks.common.mdps.rewards import contacts as good_object_contact
+from src.tasks.common.mdps.contacts import contacts as good_object_contact
 
 
 if TYPE_CHECKING:
@@ -241,43 +241,6 @@ class PlacementCommandCfg(TrajectoryObjectAndHandBasePoseCommandCfg):
     success_stable_steps: int = 5
 
 
-def _place_context(env: ManagerBasedRLEnv, command_name: str):
-    return env.command_manager.get_term(command_name)
-
-
-def lift_reward(
-    env: ManagerBasedRLEnv,
-    command_name: str = "object_pose",
-    target_height: float = 0.08,
-) -> torch.Tensor:
-    context = _place_context(env, command_name)
-    return torch.clamp(context.object_height_above_table / target_height, 0.0, 1.0)
-
-
-def transport_reward(
-    env: ManagerBasedRLEnv,
-    command_name: str = "object_pose",
-    std: float = 0.35,
-) -> torch.Tensor:
-    context = _place_context(env, command_name)
-    reward = 1.0 - torch.tanh(context.object_to_box_distance / std)
-    return reward * context.lifted.float()
-
-
-def inside_box_reward(
-    env: ManagerBasedRLEnv,
-    command_name: str = "object_pose",
-) -> torch.Tensor:
-    return _place_context(env, command_name).inside_box.float()
-
-
-def place_success_reward(
-    env: ManagerBasedRLEnv,
-    command_name: str = "object_pose",
-) -> torch.Tensor:
-    return _place_context(env, command_name).success.float()
-
-
 def object_pos_box(
     env: ManagerBasedRLEnv,
     object_cfg: SceneEntityCfg = SceneEntityCfg("object"),
@@ -311,10 +274,6 @@ def box_pose_b(
 __all__ = [
     "PlacementCommand",
     "PlacementCommandCfg",
-    "lift_reward",
-    "transport_reward",
-    "inside_box_reward",
-    "place_success_reward",
     "object_pos_box",
     "box_pose_b",
 ]

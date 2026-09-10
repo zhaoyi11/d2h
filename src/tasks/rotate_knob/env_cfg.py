@@ -3,12 +3,7 @@
 #
 # SPDX-License-Identifier: BSD-3-Clause
 
-"""Rotate-object task: rotate an upright object about its fixed world-Z axis.
-
-Mirrors the ``pick_insert`` HRL stack: a scripted object-pose trajectory command drives a cuRobo-MPC
-arm (hand ``base``) and a frozen ``dex_reorient`` low-level LEAP-hand policy. The base ``-v0`` env is
-the RL/joint-control variant; ``...HrlEnvCfg`` is the HRL variant consumed by ``scripts/instant_dexterity.py``.
-"""
+"""Rotate an upright knob about its fixed world-Z axis using the HRL controller."""
 
 from src.tasks.common.observations_cfg import (
     ProprioObsCfg,
@@ -23,28 +18,14 @@ from isaaclab.envs import ManagerBasedRLEnvCfg, ViewerCfg
 from isaaclab.managers import EventTermCfg as EventTerm
 from isaaclab.managers import ObservationGroupCfg as ObsGroup
 from isaaclab.managers import ObservationTermCfg as ObsTerm
-from isaaclab.managers import RewardTermCfg as RewTerm
 from isaaclab.managers import SceneEntityCfg
 from isaaclab.scene import InteractiveSceneCfg
 from isaaclab.sim.simulation_cfg import SimulationCfg
 from isaaclab.utils import configclass
-from src.tasks.common.env_cfg import (
-    HrlActionsCfg,
-    JointActionsCfg,
-    ObjectTerminationsCfg,
-    configure_contact_physics,
-    configure_fingertip_contacts,
-    configure_success_visualization,
-    fingertip_contact_observation,
-    fingertip_transforms_cfg,
-    ground_plane_cfg,
-    light_cfg,
-    table_cfg,
-)
+from src.tasks.common.env_cfg import HrlActionsCfg, ObjectTerminationsCfg, configure_contact_physics, configure_fingertip_contacts, configure_success_visualization, fingertip_contact_observation, fingertip_transforms_cfg, ground_plane_cfg, light_cfg, table_cfg
 from isaaclab.utils.noise import AdditiveUniformNoiseCfg as Unoise
 
 import src.tasks.rotate_knob.mdps as mdp
-from src.tasks.rotate_knob.mdps.contact_filters import contact_filter_prim_paths, object_indices
 from src.assets.franka_leap_hand.franka_leap import FRANKA_LEAP_HAND_CFG
 
 ASSETS_DIR = Path(__file__).resolve().parents[2] / "assets"
@@ -177,7 +158,7 @@ class ObservationsCfg:
     policy: PolicyCfg = PolicyCfg()
     proprio: ProprioObsCfg = ProprioObsCfg()
     perception: PerceptionObsCfg = PerceptionObsCfg()
-    low_level: LowLevelObsCfg | None = None
+    low_level: LowLevelObsCfg = LowLevelObsCfg()
 
 
 @configclass
@@ -276,7 +257,7 @@ class EventCfg:
         },
     )
 
-    # Reduced-gravity curriculum (matches pick_insert / the frozen dex_reorient policy's regime).
+    # Reduced gravity matches the frozen dex_reorient policy's regime.
     variable_gravity = EventTerm(
         func=mdp.randomize_physics_scene_gravity,
         mode="reset",
@@ -286,124 +267,43 @@ class EventCfg:
         },
     )
 
-
 @configclass
-class RewardsCfg:
-    """Reward terms for the MDP.
+class DexsuiteFrankaLeapRotateObjectHrlEnvCfg(ManagerBasedRLEnvCfg):
+    """Reach the fixed knob and follow successive world-Z yaw goals."""
 
-    The yaw term reads the trajectory command term's current object goal directly rather than the
-    14-D public hand-relative command representation.
-    """
-
-    action_l2 = RewTerm(func=mdp.action_l2_clamped, weight=-0.002)
-
-    action_rate_l2 = RewTerm(func=mdp.action_rate_l2_clamped, weight=-0.005)
-
-    fingers_to_object = RewTerm(func=mdp.object_ee_distance, params={"std": 0.25}, weight=1.0)
-
-    # bool award if >=2 finger tips (one being the thumb) contact the object.
-    good_finger_contact = RewTerm(func=mdp.contacts, weight=1.0, params={"threshold": 1.0})
-
-    yaw_tracking = RewTerm(
-        func=mdp.trajectory_yaw_tracking,
-        weight=4.0,
-        params={"command_name": "object_pose", "std": 0.5},
-    )
-
-
-@configclass
-class DexsuiteRotateObjectEnvCfg(ManagerBasedRLEnvCfg):
-    """Base rotate-object env: scripted trajectory command + joint-control actions."""
-
-    # Scene settings
     viewer: ViewerCfg = ViewerCfg(
         eye=(2.25, 0.0, 0.75), lookat=(0.0, 0.0, 0.45), origin_type="env"
     )
     scene: SceneCfg = SceneCfg(num_envs=4096, env_spacing=3, replicate_physics=False)
-    # Simulation settings
     sim: SimulationCfg = SimulationCfg(gravity=(0.0, 0.0, -9.81))
-    # Basic settings
     observations: ObservationsCfg = ObservationsCfg()
-    actions: JointActionsCfg = JointActionsCfg()
+    actions: HrlActionsCfg = HrlActionsCfg()
     commands: CommandsCfg = CommandsCfg()
-    # MDP settings
-    rewards: RewardsCfg = RewardsCfg()
+    rewards = None
     terminations: ObjectTerminationsCfg = ObjectTerminationsCfg()
     events: EventCfg = EventCfg()
-    # Scripted-rollout task: no ADR curriculum (the trajectory/hand policy drive the motion).
-    curriculum: mdp.CurriculumCfg | None = None
+    curriculum = None
 
     def __post_init__(self):
-        """Post initialization."""
-        # general settings
-        self.decimation = 2  # 60 Hz control
-
-        # Goal-driven resampling; the command term replaces each achieved yaw target immediately.
-        self.commands.object_pose.resampling_time_range = (1.0e6, 1.0e6)
-        self.commands.object_pose.position_only = False
-        configure_success_visualization(self.commands.object_pose, self.scene.table)
-
-
+        self.decimation = 2
         self.episode_length_s = 20.0
         self.is_finite_horizon = True
-
-        # simulation settings
         self.sim.dt = 1 / 120
-
-        # Contact and solver settings
         configure_contact_physics(self.sim, found_lost_pairs=2**22, collision_stack_size=2**30)
-
+        configure_success_visualization(self.commands.object_pose, self.scene.table)
         self.commands.object_pose.body_name = "base"
+        self.commands.object_pose.position_only = False
 
         self.scene.fingertip_transforms = fingertip_transforms_cfg()
-        # Filter against the full target registry [Object, ReceptiveObject, Table] so
-        # force_matrix_w column k == CONTACT_FILTER_TARGETS[k]; the low-level obs then splits
-        # object (index 0) vs external (plate + table) contact via filter_indices.
-        configure_fingertip_contacts(self.scene, contact_filter_prim_paths())
-        self.observations.proprio.contact = fingertip_contact_observation(filter_indices=object_indices())
-        self.observations.proprio.hand_tips_state_b.params[
-            "body_asset_cfg"
-        ].body_names = [".*fingertip.*"]
-        self.rewards.fingers_to_object.params["asset_cfg"] = SceneEntityCfg(
-            "robot", body_names=[".*fingertip.*"]
-        )
+        # Object is filter zero; remaining filters are external contact surfaces.
+        configure_fingertip_contacts(self.scene, [
+            "{ENV_REGEX_NS}/Object/handle",
+            "{ENV_REGEX_NS}/ReceptiveObject",
+            "{ENV_REGEX_NS}/Table",
+        ])
+        self.observations.proprio.contact = fingertip_contact_observation(filter_indices=[0])
+        self.observations.proprio.hand_tips_state_b.params["body_asset_cfg"].body_names = [".*fingertip.*"]
 
-
-class DexsuiteRotateObjectEnvCfg_PLAY(DexsuiteRotateObjectEnvCfg):
-    """Rotate-object evaluation environment definition."""
-
-    def __post_init__(self):
-        super().__post_init__()
-        self.commands.object_pose.debug_vis = True
-
-
-##########
-#  Tasks
-##########
-
-
-@configclass
-class DexsuiteFrankaLeapRotateObjectEnvCfg(DexsuiteRotateObjectEnvCfg):
-    pass
-
-
-@configclass
-class DexsuiteFrankaLeapRotateObjectEnvCfg_PLAY(
-    DexsuiteRotateObjectEnvCfg_PLAY
-):
-    pass
-
-
-@configclass
-class DexsuiteFrankaLeapRotateObjectHrlEnvCfg(DexsuiteRotateObjectEnvCfg):
-    """HRL variant that reaches the fixed object and follows successive world-Z yaw goals."""
-
-    actions: HrlActionsCfg = HrlActionsCfg()
-
-    def __post_init__(self):
-        self.observations.low_level = LowLevelObsCfg()
-        super().__post_init__()
-        # cuRobo MPC owns the arm: zero the arm position gains (the MPC action restores them on
-        # reset); the LEAP hand ("fingers") stays position-controlled.
+        # The MPC action restores arm gains on reset; the hand stays position-controlled.
         self.scene.robot.actuators["joints"].stiffness = 0.0
         self.scene.robot.actuators["joints"].damping = 0.0

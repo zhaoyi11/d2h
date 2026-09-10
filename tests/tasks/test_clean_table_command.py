@@ -20,7 +20,7 @@ def _load_commands_module():
         "isaaclab.utils",
         "isaaclab.utils.math",
         "src.policy.high_level.trajectory_command",
-        "src.tasks.common.mdps.rewards",
+        "src.tasks.common.mdps.contacts",
         "src.tasks.common.mdps.placement",
         "src.tasks.clean_table.mdps",
         "src.tasks.clean_table.mdps.trajectory",
@@ -77,7 +77,7 @@ def _load_commands_module():
     trajectory_command.TrajectoryObjectAndHandBasePoseCommand = BaseCommand
     trajectory_command.TrajectoryObjectAndHandBasePoseCommandCfg = BaseCommandCfg
 
-    common_rewards = types.ModuleType("src.tasks.common.mdps.rewards")
+    common_rewards = types.ModuleType("src.tasks.common.mdps.contacts")
     common_rewards.contacts = lambda env, threshold: torch.zeros(
         env.num_envs, dtype=torch.bool
     )
@@ -99,7 +99,7 @@ def _load_commands_module():
     sys.modules["isaaclab.utils"] = utils
     sys.modules["isaaclab.utils.math"] = math_module
     sys.modules["src.policy.high_level.trajectory_command"] = trajectory_command
-    sys.modules["src.tasks.common.mdps.rewards"] = common_rewards
+    sys.modules["src.tasks.common.mdps.contacts"] = common_rewards
     sys.modules["src.tasks.clean_table.mdps"] = mdps_package
     sys.modules["src.tasks.clean_table.mdps.trajectory"] = trajectory
 
@@ -280,22 +280,3 @@ def test_success_requires_stable_containment_after_retreat_and_hand_clearance() 
     torch.testing.assert_close(command.released, torch.tensor([True, True]))
     torch.testing.assert_close(command.hand_clear, torch.tensor([True, True]))
     torch.testing.assert_close(command.success, torch.tensor([True, False]))
-
-
-def test_shared_placement_rewards_read_the_selected_command() -> None:
-    context = SimpleNamespace(
-        object_height_above_table=torch.tensor([-0.01, 0.04, 0.16]),
-        object_to_box_distance=torch.tensor([0.0, 0.0, 0.35]),
-        lifted=torch.tensor([False, True, True]),
-        inside_box=torch.tensor([False, True, True]),
-        success=torch.tensor([False, False, True]),
-    )
-    env = SimpleNamespace(command_manager=SimpleNamespace(
-        get_term=lambda name: {"placement": context}[name],
-    ))
-    torch.testing.assert_close(placement.lift_reward(env, "placement"), torch.tensor([0.0, 0.5, 1.0]))
-    torch.testing.assert_close(
-        placement.transport_reward(env, "placement"), torch.tensor([0.0, 1.0, 0.23840584]),
-    )
-    torch.testing.assert_close(placement.inside_box_reward(env, "placement"), torch.tensor([0.0, 1.0, 1.0]))
-    torch.testing.assert_close(placement.place_success_reward(env, "placement"), torch.tensor([0.0, 0.0, 1.0]))

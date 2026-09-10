@@ -18,7 +18,7 @@ class PickAnyRotateHrlRegistrationTest(unittest.TestCase):
 
         spec = gym.spec("Pick_AnyRotate_HRL-v0")
         self.assertTrue(spec.kwargs["env_cfg_entry_point"].endswith("DexsuiteFrankaLeapAnyRotateHrlEnvCfg"))
-        self.assertTrue(spec.kwargs["rsl_rl_cfg_entry_point"].endswith("PickAnyRotateRslRlPpoCfg"))
+        self.assertNotIn("rsl_rl_cfg_entry_point", spec.kwargs)
 
 
 class PickAnyRotateHrlConfigStructureTest(unittest.TestCase):
@@ -33,7 +33,7 @@ class PickAnyRotateHrlConfigStructureTest(unittest.TestCase):
                                     if isinstance(node, ast.ClassDef) and node.name == "LowLevelObsCfg")
 
     def test_hrl_config_uses_trajectory_command_and_split_actions(self) -> None:
-        command_cls = self.classes["HrlCommandsCfg"]
+        command_cls = self.classes["CommandsCfg"]
         command_assignments = [ast.unparse(node) for node in command_cls.body if isinstance(node, ast.Assign)]
         self.assertTrue(any("PickAnyRotateTrajectoryObjectAndHandBasePoseCommandCfg" in item for item in command_assignments))
 
@@ -52,7 +52,7 @@ class PickAnyRotateHrlConfigStructureTest(unittest.TestCase):
     def test_low_level_observation_contract_matches_155_dim_checkpoint(self) -> None:
         low_level = self.shared_low_level
         self.assertEqual(ast.unparse(self.classes["LowLevelObsCfg"].bases[0]), "SharedLowLevelObsCfg")
-        self.assertIn("self.observations.low_level = LowLevelObsCfg()", ast.unparse(self.tree))
+        self.assertIn("low_level: LowLevelObsCfg = LowLevelObsCfg()", ast.unparse(self.tree))
         names = [
             target.id
             for node in low_level.body

@@ -7,7 +7,6 @@ import isaaclab.sim as sim_utils
 from isaaclab.assets import ArticulationCfg, AssetBaseCfg, RigidObjectCfg
 from isaaclab.scene import InteractiveSceneCfg
 from isaaclab.managers import EventTermCfg as EventTerm
-from isaaclab.managers import RewardTermCfg as RewTerm
 from isaaclab.managers import ObservationTermCfg as ObsTerm, SceneEntityCfg
 from isaaclab.managers import TerminationTermCfg as DoneTerm
 from isaaclab.sensors import ContactSensorCfg, FrameTransformerCfg, OffsetCfg
@@ -16,7 +15,6 @@ from isaaclab.utils import configclass
 from src.assets.franka_leap_hand.franka_leap import FRANKA_LEAP_HAND_CFG
 
 import src.tasks.common.mdps as mdp
-import src.tasks.common.mdps.placement as placement_mdp
 
 
 FRANKA_HAND_PRIM_PATH = "{ENV_REGEX_NS}/Robot/Franka_LeapHand/leap_hand_right"
@@ -333,47 +331,4 @@ class TabletopEventsCfg:
             "gravity_distribution_params": ([0.0, 0.0, -1.81], [0.0, 0.0, -1.81]),
             "operation": "abs",
         },
-    )
-
-
-@configclass
-class PlacementRewardsCfg:
-    """Reward terms for the MDP."""
-
-    action_l2 = RewTerm(func=mdp.action_l2_clamped, weight=-0.005)
-
-    action_rate_l2 = RewTerm(func=mdp.action_rate_l2_clamped, weight=-0.005)
-
-    fingers_to_object = RewTerm(
-        func=mdp.object_ee_distance, params={"std": 0.4}, weight=1.0
-    )
-
-    good_finger_contact = RewTerm(
-        func=mdp.contacts,
-        weight=0.5,
-        params={"threshold": 1.0},
-    )
-
-    lift = RewTerm(
-        func=placement_mdp.lift_reward,
-        weight=2.0,
-        params={"command_name": "object_pose", "target_height": 0.08},
-    )
-
-    transport = RewTerm(
-        func=placement_mdp.transport_reward,
-        weight=3.0,
-        params={"command_name": "object_pose", "std": 0.35},
-    )
-
-    inside_box = RewTerm(
-        func=placement_mdp.inside_box_reward,
-        weight=8.0,
-        params={"command_name": "object_pose"},
-    )
-
-    success = RewTerm(
-        func=placement_mdp.place_success_reward,
-        weight=10,
-        params={"command_name": "object_pose"},
     )

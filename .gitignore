@@ -70,6 +70,7 @@ _build
 # Tests
 tests/*
 !tests/policy/
+!tests/deployment/
 !tests/policy/test_vae.py
 !tests/tasks/
 tests/tasks/*
@@ -99,3 +100,6 @@ tests/tasks/unscrew/*
 !tests/tasks/check_task_runtime.py
 !tests/tasks/test_common_observation_body_state.py
 !tests/tasks/test_pick_anyrotate_hrl.py
+
+# HRL-only registration regression checks
+!tests/tasks/test_hrl_only_registration.py

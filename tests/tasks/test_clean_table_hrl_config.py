@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 import ast
-import importlib.util
 import os
 from pathlib import Path
 import subprocess
@@ -41,7 +40,7 @@ def _dict_value(node: ast.Dict, key: str) -> ast.expr:
 
 def test_clean_table_low_level_observation_contract_is_155_dimensional() -> None:
     tree = ast.parse(ENV_CFG_PATH.read_text())
-    assert "self.observations.low_level = LowLevelObsCfg()" in ast.unparse(tree)
+    assert "low_level: LowLevelObsCfg = LowLevelObsCfg()" in ast.unparse(tree)
     terms = _assignments(_class(ast.parse(COMMON_OBS_CFG_PATH.read_text()), "LowLevelObsCfg"))
     widths = {
         "joint_pos": 16,
@@ -88,7 +87,7 @@ def test_clean_table_hrl_actions_and_command_match_runner_contract() -> None:
     assert ast.literal_eval(_keyword(actions["arm_action"], "command_name")) == "object_pose"
     assert ast.unparse(actions["hand_action"].func).endswith("EMAJointPositionToLimitsActionCfg")
     hrl_source = ast.unparse(_class(tree, "DexsuiteFrankaLeapCleanTableHrlEnvCfg"))
-    assert "self.observations.low_level = LowLevelObsCfg()" in hrl_source
+    assert "low_level: LowLevelObsCfg = LowLevelObsCfg()" in ast.unparse(tree)
     assert "self.commands.object_pose.hand_base_hold_until_stage = 1" in hrl_source
     assert "self.commands.object_pose.drop_object_hand_distance = 0.12" in hrl_source
     assert "self.commands.object_pose.lift_height = 0.1" in hrl_source
@@ -111,8 +110,9 @@ def test_clean_table_hrl_actions_and_command_match_runner_contract() -> None:
     assert sim.physx.gpu_collision_stack_size == 2**31
     assert "self.scene.robot.actuators['joints'].stiffness = 0.0" in hrl_source
     assert "self.scene.robot.actuators['joints'].damping = 0.0" in hrl_source
-    base_source = ast.unparse(_class(tree, "DexsuiteReorientEnvCfg"))
-    assert "self.decimation = 2" in base_source
+    assert [ast.unparse(base) for base in _class(tree, "DexsuiteFrankaLeapCleanTableHrlEnvCfg").bases] == ["ManagerBasedRLEnvCfg"]
+    assert "rewards = None" in hrl_source
+    assert "curriculum = None" in hrl_source
 
 
 def test_clean_table_uses_pick_anyrotate_scene_and_reset_baseline() -> None:
@@ -167,15 +167,17 @@ def test_clean_table_uses_pick_anyrotate_scene_and_reset_baseline() -> None:
 
 
 def test_clean_table_contact_filter_roles_are_stable() -> None:
-    path = REPO_ROOT / "src/tasks/clean_table/mdps/contact_filters.py"
-    spec = importlib.util.spec_from_file_location("clean_table_contact_filters_under_test", path)
-    assert spec is not None and spec.loader is not None
-    module = importlib.util.module_from_spec(spec)
-    spec.loader.exec_module(module)
-
-    assert module.object_indices() == [0]
-    assert module.external_indices() == [1, 2]
-    assert module.contact_filter_prim_paths()[0].endswith("/Object/.*")
+    tree = ast.parse(ENV_CFG_PATH.read_text())
+    setup = next(node for node in ast.walk(tree) if isinstance(node, ast.Call)
+                 and ast.unparse(node.func) == "configure_fingertip_contacts")
+    assert ast.literal_eval(setup.args[1]) == [
+        "{ENV_REGEX_NS}/Object/baseLink*",
+        "{ENV_REGEX_NS}/ReceptiveObject",
+        "{ENV_REGEX_NS}/Table",
+    ]
+    observations = _assignments(_class(ast.parse(COMMON_OBS_CFG_PATH.read_text()), "LowLevelObsCfg"))
+    for name, indices in (("contact_pose", [0]), ("external_contact_pose", [1, 2])):
+        assert ast.literal_eval(_dict_value(_keyword(observations[name], "params"), "filter_indices")) == indices
 
 
 def test_clean_table_hrl_task_is_registered() -> None:
@@ -186,7 +188,8 @@ spec = gym.spec('Clean_Table_HRL-v0')
 assert spec.kwargs['env_cfg_entry_point'].endswith(
     'clean_table.env_cfg:DexsuiteFrankaLeapCleanTableHrlEnvCfg'
 )
-assert spec.kwargs['rsl_rl_cfg_entry_point'].endswith('CleanTableRslRlPpoCfg')
+assert 'rsl_rl_cfg_entry_point' not in spec.kwargs
+assert 'Clean_Table-v0' not in gym.registry
 """
     env = dict(os.environ)
     env["PYTHONPATH"] = str(REPO_ROOT)

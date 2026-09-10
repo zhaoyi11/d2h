@@ -15,8 +15,7 @@ REPO_ROOT = Path(__file__).resolve().parents[2]
 ENV_CFG_PATH = REPO_ROOT / "src/tasks/rotate_knob/env_cfg.py"
 TRAJECTORY_PATH = REPO_ROOT / "src/tasks/rotate_knob/mdps/trajectory.py"
 COMMANDS_PATH = REPO_ROOT / "src/tasks/rotate_knob/mdps/commands.py"
-TASK_MDPS_PATH = REPO_ROOT / "src/tasks/rotate_knob/mdps/task_mdps.py"
-CONTACT_FILTERS_PATH = REPO_ROOT / "src/tasks/rotate_knob/mdps/contact_filters.py"
+EVENTS_PATH = REPO_ROOT / "src/tasks/common/mdps/events.py"
 PPO_CFG_PATH = REPO_ROOT / "src/tasks/rotate_knob/rsl_rl_ppo_cfg.py"
 TASKS_INIT_PATH = REPO_ROOT / "src/tasks/__init__.py"
 ARIA_KNOB_ROOT = REPO_ROOT / "src/assets/aria/knob1"
@@ -148,64 +147,16 @@ def _load_commands_module():
     return module
 
 
-def _load_task_mdps_module(stage=None, root_paths=()):
-    module_names = (
-        "isaaclab",
-        "isaaclab.sim",
-        "isaaclab.sim.utils",
-        "isaaclab.sim.utils.stage",
-        "isaaclab.utils",
-        "isaaclab.utils.math",
-    )
-    previous = {name: sys.modules.get(name) for name in module_names}
-    isaaclab = types.ModuleType("isaaclab")
-    sim = types.ModuleType("isaaclab.sim")
-    sim.find_matching_prim_paths = lambda _: root_paths
-    sim_utils = types.ModuleType("isaaclab.sim.utils")
+def _load_joint_anchor(monkeypatch, stage, root_paths):
     stage_utils = types.ModuleType("isaaclab.sim.utils.stage")
     stage_utils.get_current_stage = lambda: stage
-    isaaclab_utils = types.ModuleType("isaaclab.utils")
-    isaaclab_math = types.ModuleType("isaaclab.utils.math")
-
-    def quat_mul(first, second):
-        w1, x1, y1, z1 = first.unbind(-1)
-        w2, x2, y2, z2 = second.unbind(-1)
-        return torch.stack(
-            (
-                w1 * w2 - x1 * x2 - y1 * y2 - z1 * z2,
-                w1 * x2 + x1 * w2 + y1 * z2 - z1 * y2,
-                w1 * y2 - x1 * z2 + y1 * w2 + z1 * x2,
-                w1 * z2 + x1 * y2 - y1 * x2 + z1 * w2,
-            ),
-            dim=-1,
-        )
-
-    isaaclab_math.quat_mul = quat_mul
-    isaaclab_math.quat_error_magnitude = lambda first, second: 2.0 * torch.acos(
-        torch.sum(first * second, dim=-1).abs().clamp(max=1.0)
-    )
-    sys.modules.update(
-        {
-            "isaaclab": isaaclab,
-            "isaaclab.sim": sim,
-            "isaaclab.sim.utils": sim_utils,
-            "isaaclab.sim.utils.stage": stage_utils,
-            "isaaclab.utils": isaaclab_utils,
-            "isaaclab.utils.math": isaaclab_math,
-        }
-    )
-    spec = importlib.util.spec_from_file_location("rotate_object_z_axis_task_mdps_under_test", TASK_MDPS_PATH)
-    module = importlib.util.module_from_spec(spec)
-    assert spec.loader is not None
-    try:
-        spec.loader.exec_module(module)
-    finally:
-        for name, prior in previous.items():
-            if prior is None:
-                sys.modules.pop(name, None)
-            else:
-                sys.modules[name] = prior
-    return module
+    monkeypatch.setitem(sys.modules, "isaaclab.sim.utils.stage", stage_utils)
+    tree = ast.parse(EVENTS_PATH.read_text())
+    function = next(node for node in tree.body if isinstance(node, ast.FunctionDef)
+                    and node.name == "anchor_object_z_axis_joint")
+    namespace = {"sim_utils": types.SimpleNamespace(find_matching_prim_paths=lambda _: root_paths)}
+    exec(compile(ast.Module(body=[function], type_ignores=[]), str(EVENTS_PATH), "exec"), namespace)
+    return namespace["anchor_object_z_axis_joint"]
 
 
 @pytest.mark.parametrize("yaw_delta", [math.pi / 3.0, math.pi / 2.0, -math.pi / 3.0, -math.pi / 2.0])
@@ -311,15 +262,6 @@ def test_rotate_object_scene_uses_aria_knob1_at_its_table_baseline() -> None:
     assert pose_range == {"x": [0.0, 0.0], "y": [0.0, 0.0], "yaw": [0.0, 0.0]}
     assert ast.literal_eval(_keyword(events["anchor_object_z_axis_joint"], "mode")) == "prestartup"
 
-    rewards = _assignments(_class(tree, "RewardsCfg"))
-    yaw_tracking = rewards["yaw_tracking"]
-    assert ast.unparse(_keyword(yaw_tracking, "func")) == "mdp.trajectory_yaw_tracking"
-    assert ast.literal_eval(_keyword(yaw_tracking, "weight")) == 4.0
-    assert ast.literal_eval(_keyword(yaw_tracking, "params")) == {
-        "command_name": "object_pose",
-        "std": 0.5,
-    }
-
 
 def test_aria_knob1_handle_asset_has_one_rigid_body_and_zero_baseline() -> None:
     from pxr import Usd, UsdGeom, UsdPhysics
@@ -419,36 +361,7 @@ def test_yaw_goal_ignores_object_angular_velocity() -> None:
     assert torch.equal(achieved, torch.tensor([True, True, False]))
 
 
-def test_yaw_tracking_reward_is_command_conditioned_and_reach_gated() -> None:
-    module = _load_task_mdps_module()
-    angles = torch.tensor([0.0, 0.5, 1.0])
-    target_quat = torch.stack(
-        (torch.cos(angles / 2.0), torch.zeros(3), torch.zeros(3), torch.sin(angles / 2.0)), dim=1
-    )
-    command = types.SimpleNamespace(
-        metrics={
-            # Deliberately stale: a newly activated target must not reuse the prior target's error.
-            "orientation_error": torch.zeros(3),
-            "yaw_target_active": torch.tensor([0.0, 1.0, 1.0]),
-        },
-        pose_command_b=torch.cat((torch.zeros(3, 3), target_quat), dim=1),
-        robot=types.SimpleNamespace(
-            data=types.SimpleNamespace(root_quat_w=torch.tensor([[1.0, 0.0, 0.0, 0.0]]).repeat(3, 1))
-        ),
-        object=types.SimpleNamespace(
-            data=types.SimpleNamespace(root_quat_w=torch.tensor([[1.0, 0.0, 0.0, 0.0]]).repeat(3, 1))
-        ),
-    )
-    command_manager = types.SimpleNamespace(get_term=lambda name: command if name == "object_pose" else None)
-    env = types.SimpleNamespace(command_manager=command_manager)
-
-    reward = module.trajectory_yaw_tracking(env, command_name="object_pose", std=0.5)
-
-    expected = (1.0 - torch.tanh(angles / 0.5)) * torch.tensor([0.0, 1.0, 1.0])
-    torch.testing.assert_close(reward, expected)
-
-
-def test_prestartup_joint_anchor_uses_each_cloned_world_pose() -> None:
+def test_prestartup_joint_anchor_uses_each_cloned_world_pose(monkeypatch) -> None:
     from pxr import Gf, Sdf, Usd, UsdGeom, UsdPhysics
 
     stage = Usd.Stage.CreateInMemory()
@@ -463,11 +376,11 @@ def test_prestartup_joint_anchor_uses_each_cloned_world_pose() -> None:
         root_xform.AddTranslateOp().Set(Gf.Vec3d(*position))
         root_paths.append(root_path)
 
-    module = _load_task_mdps_module(stage, root_paths)
+    anchor_joint = _load_joint_anchor(monkeypatch, stage, root_paths)
     asset = types.SimpleNamespace(cfg=types.SimpleNamespace(prim_path="/World/envs/env_.*/Object"))
     scene = {"object": asset}
     env = types.SimpleNamespace(scene=scene, num_envs=2)
-    module.anchor_object_z_axis_joint(env, None)
+    anchor_joint(env, None)
 
     for root_path, expected in zip(root_paths, expected_positions, strict=True):
         joint = UsdPhysics.RevoluteJoint.Get(stage, Sdf.Path(root_path).AppendChild("z_axis_joint"))
@@ -481,30 +394,19 @@ def test_prestartup_joint_anchor_uses_each_cloned_world_pose() -> None:
         assert tuple(joint.GetLocalPos1Attr().Get()) == pytest.approx((0.0, 0.0, 0.0))
 
 
-def test_training_launcher_targets_trainable_rotate_object_task() -> None:
-    source = TRAIN_SCRIPT_PATH.read_text()
-
-    assert "conda activate env_isaaclab" in source
-    assert "scripts/rsl_rl/train.py" in source
-    assert "--task Rotate_Knob-v0" in source
-    assert "--num_envs 4096" in source
-    assert "--max_iterations 15000" in source
-    assert "--headless" in source
-    assert '"$@"' in source
-    assert "/home/yizhao" not in source
-    assert "conda info --base" in source
-    assert source.index("conda activate env_isaaclab") < source.index("set -u")
-    assert 'export PYTHONPATH="$TRAIN_REPO_ROOT${PYTHONPATH:+:$PYTHONPATH}"' in source
+def test_flat_knob_training_configuration_is_removed() -> None:
+    assert not TRAIN_SCRIPT_PATH.exists()
+    assert not PPO_CFG_PATH.exists()
 
 
 def test_rotate_object_tasks_are_registered_with_renamed_entry_points() -> None:
     source = TASKS_INIT_PATH.read_text()
 
-    assert 'id="Rotate_Knob-v0"' in source
+    assert 'id="Rotate_Knob-v0"' not in source
     assert 'id="Rotate_Knob_HRL-v0"' in source
-    assert "rotate_knob.env_cfg:DexsuiteFrankaLeapRotateObjectEnvCfg" in source
+    assert "rotate_knob.env_cfg:DexsuiteFrankaLeapRotateObjectEnvCfg" not in source
     assert "rotate_knob.env_cfg:DexsuiteFrankaLeapRotateObjectHrlEnvCfg" in source
-    assert "rotate_knob.rsl_rl_ppo_cfg:RotateObjectRslRlPpoCfg" in source
+    assert "rotate_knob.rsl_rl_ppo_cfg" not in source
     assert 'id="Cupcake_on_Plate-v0"' not in source
     assert 'id="Cupcake_on_Plate_HRL-v0"' not in source
 
@@ -557,27 +459,24 @@ def test_rotate_object_hrl_matches_pick_insert_low_level_contract() -> None:
 
     hrl_class = _class(tree, "DexsuiteFrankaLeapRotateObjectHrlEnvCfg")
     hrl_source = ast.unparse(hrl_class)
-    assert "self.observations.low_level = LowLevelObsCfg()" in hrl_source
+    assert "low_level: LowLevelObsCfg = LowLevelObsCfg()" in ast.unparse(tree)
+    assert "rewards = None" in hrl_source
+    assert "curriculum = None" in hrl_source
     assert ".stiffness = 0.0" in hrl_source
     assert ".damping = 0.0" in hrl_source
 
 
-def test_rotate_object_trainer_uses_renamed_experiment() -> None:
-    tree = ast.parse(PPO_CFG_PATH.read_text())
-    trainer = _assignments(_class(tree, "RotateObjectRslRlPpoCfg"))
-    assert ast.literal_eval(trainer["experiment_name"]) == "rotate_object"
-
-
 def test_rotate_object_contact_filter_roles_are_stable() -> None:
-    spec = importlib.util.spec_from_file_location("rotate_object_contact_filters_under_test", CONTACT_FILTERS_PATH)
-    assert spec is not None and spec.loader is not None
-    module = importlib.util.module_from_spec(spec)
-    spec.loader.exec_module(module)
-
-    assert module.CONTACT_FILTER_TARGETS == [
-        ("object", "{ENV_REGEX_NS}/Object/handle"),
-        ("receptive", "{ENV_REGEX_NS}/ReceptiveObject"),
-        ("table", "{ENV_REGEX_NS}/Table"),
+    tree = ast.parse(ENV_CFG_PATH.read_text())
+    setup = next(node for node in ast.walk(tree) if isinstance(node, ast.Call)
+                 and ast.unparse(node.func) == "configure_fingertip_contacts")
+    assert ast.literal_eval(setup.args[1]) == [
+        "{ENV_REGEX_NS}/Object/handle",
+        "{ENV_REGEX_NS}/ReceptiveObject",
+        "{ENV_REGEX_NS}/Table",
     ]
-    assert module.object_indices() == [0]
-    assert module.external_indices() == [1, 2]
+    observations = _assignments(_class(
+        ast.parse((REPO_ROOT / "src/tasks/common/observations_cfg.py").read_text()), "LowLevelObsCfg"
+    ))
+    for name, indices in (("contact_pose", [0]), ("external_contact_pose", [1, 2])):
+        assert ast.literal_eval(_dict_value(_keyword(observations[name], "params"), "filter_indices")) == indices

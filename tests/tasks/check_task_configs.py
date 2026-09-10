@@ -18,6 +18,7 @@ def main():
     parser.add_argument("--repo", type=Path, default=Path(__file__).resolve().parents[2])
     parser.add_argument("--output", type=Path)
     parser.add_argument("--compare", type=Path)
+    parser.add_argument("--allow-hrl-cleanup", action="store_true", help="Compare against configs before removal of flat tasks, HRL rewards, curricula and trainers.")
     AppLauncher.add_app_launcher_args(parser)
     args = parser.parse_args()
     sys.path.insert(0, str(args.repo.resolve()))
@@ -81,6 +82,8 @@ def main():
         if args.compare:
             baseline = args.compare.read_text()
             moves = {
+                "src.tasks.common.mdps.rewards:contacts": "src.tasks.common.mdps.contacts:contacts",
+                "src.tasks.rotate_knob.mdps.task_mdps:anchor_object_z_axis_joint": "src.tasks.common.mdps.events:anchor_object_z_axis_joint",
                 "src.tasks.clean_table.mdps.task_mdps:": "src.tasks.common.mdps.placement:",
                 "src.tasks.clean_table_omnireset.mdps.task_mdps:object_outside_table": "src.tasks.common.mdps.terminations:object_outside_table",
                 "src.tasks.pick_insert_omnireset.mdps.task_mdps:object_outside_table": "src.tasks.common.mdps.terminations:object_outside_table",
@@ -95,8 +98,34 @@ def main():
                 baseline = baseline.replace(old, new)
             before = json.loads(baseline)
             after = json.loads(payload)
+            assert all("error" not in value for value in before.values()), "Baseline contains configuration errors."
+            assert all("error" not in value for value in after.values()), "Current snapshot contains configuration errors."
+            if args.allow_hrl_cleanup:
+                removed = {
+                    "Pick_AnyRotate-v0", "Pick_AnyRotate_Play-v0", "Pick_Lift-v0", "Pick_Lift_Play-v0",
+                    "Pick_Insert-v0", "Unscrew-v0", "Clean_Table-v0", "Rotate_Knob-v0",
+                }
+                assert before.keys() - after.keys() == removed
+                for name in removed:
+                    del before[name]
+                for name, value in after.items():
+                    if name.endswith("_HRL-v0"):
+                        assert value["config"]["rewards"] is None
+                        assert value["config"]["curriculum"] is None
+                        assert "trainer" not in value["config"]
+                        for section in ("rewards", "curriculum", "trainer"):
+                            before[name]["config"].pop(section, None)
+                            value["config"].pop(section, None)
             assert before == after, "Task configs differ; inspect the two JSON snapshots."
+        assert all("error" not in value for value in result.values()), "Task configuration failed."
         print("CONFIG SUMMARY", len(result), "tasks,", sum("error" in v for v in result.values()), "errors", flush=True)
+    except BaseException:
+        import os
+        import traceback
+        traceback.print_exc()
+        sys.stdout.flush()
+        sys.stderr.flush()
+        os._exit(1)  # Kit shutdown can otherwise hide exceptions with a zero exit status.
     finally:
         app.close()
 

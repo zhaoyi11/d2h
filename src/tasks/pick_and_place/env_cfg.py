@@ -5,7 +5,7 @@ from scipy.spatial.transform import Rotation
 
 import isaaclab.sim as sim_utils
 from isaaclab.assets import RigidObjectCfg
-from isaaclab.managers import EventTermCfg, SceneEntityCfg
+from isaaclab.managers import EventTermCfg
 from isaaclab.sim.converters import MeshConverter, MeshConverterCfg
 from isaaclab.utils import configclass
 
@@ -14,7 +14,7 @@ from src.policy.high_level.anchor_correction import AnchorCorrectionCfg
 from isaaclab.envs import ManagerBasedRLEnvCfg, ViewerCfg
 from isaaclab.sim.simulation_cfg import SimulationCfg
 from src.tasks.common.env_cfg import (
-    HrlActionsCfg, ObjectTerminationsCfg, PlacementRewardsCfg, TabletopEventsCfg,
+    HrlActionsCfg, ObjectTerminationsCfg, TabletopEventsCfg,
     TabletopSceneCfg, configure_contact_physics, configure_fingertip_contacts,
     configure_success_visualization, fingertip_transforms_cfg, tote_cfg,
 )
@@ -62,7 +62,7 @@ class PickAndPlaceEnvCfg(ManagerBasedRLEnvCfg):
     scene: SceneCfg = SceneCfg(num_envs=1, env_spacing=3, replicate_physics=False)
     sim: SimulationCfg = SimulationCfg(gravity=(0.0, 0.0, -1.81))
     observations: ObservationsCfg = ObservationsCfg()
-    rewards: PlacementRewardsCfg = PlacementRewardsCfg()
+    rewards = None
     terminations: ObjectTerminationsCfg = ObjectTerminationsCfg()
     events: TabletopEventsCfg = TabletopEventsCfg()
     curriculum = None
@@ -78,9 +78,6 @@ class PickAndPlaceEnvCfg(ManagerBasedRLEnvCfg):
         configure_success_visualization(self.commands.object_pose, self.scene.table)
         self.scene.fingertip_transforms = fingertip_transforms_cfg()
         configure_fingertip_contacts(self.scene, ["{ENV_REGEX_NS}/Object", "{ENV_REGEX_NS}/ReceptiveObject", "{ENV_REGEX_NS}/Table"])
-        self.rewards.fingers_to_object.params["asset_cfg"] = SceneEntityCfg(
-            "robot", body_names=[".*fingertip.*"],
-        )
         self.scene.robot.actuators["joints"].stiffness = 0.0
         self.scene.robot.actuators["joints"].damping = 0.0
         command = self.commands.object_pose

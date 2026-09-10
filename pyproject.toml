@@ -12,6 +12,9 @@ dependencies = [
     "dynamixel-sdk==4.0.5",
 ]
 
+[project.optional-dependencies]
+deployment = ["rich", "pyserial", "PyYAML"]
+
 [tool.setuptools.packages.find]
 where = ["."]
 include = ["src*"]

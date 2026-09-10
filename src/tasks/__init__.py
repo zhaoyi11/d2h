@@ -37,35 +37,7 @@ gym.register(
 )
 
 # Pick AnyRotate Environment
-gym.register(
-    id="Pick_AnyRotate-v0",
-    entry_point="isaaclab.envs:ManagerBasedRLEnv",
-    disable_env_checker=True,
-    kwargs={
-        "env_cfg_entry_point": f"{__name__}.pick_anyrotate.env_cfg:DexsuiteFrankaLeapReorientEnvCfg",
-        "rsl_rl_cfg_entry_point": "src.tasks.pick_anyrotate.rsl_rl_ppo_cfg:PickAnyRotateRslRlPpoCfg",
-    },
-)
 
-gym.register(
-    id="Pick_Lift-v0",
-    entry_point="isaaclab.envs:ManagerBasedRLEnv",
-    disable_env_checker=True,
-    kwargs={
-        "env_cfg_entry_point": f"{__name__}.pick_anyrotate.env_cfg:DexsuiteFrankaLeapLiftEnvCfg",
-        "rsl_rl_cfg_entry_point": "src.tasks.pick_anyrotate.rsl_rl_ppo_cfg:PickAnyRotateRslRlPpoCfg",
-    },
-)
-
-gym.register(
-    id="Pick_AnyRotate_Play-v0",
-    entry_point="isaaclab.envs:ManagerBasedRLEnv",
-    disable_env_checker=True,
-    kwargs={
-        "env_cfg_entry_point": f"{__name__}.pick_anyrotate.env_cfg:DexsuiteFrankaLeapReorientEnvCfg_PLAY",
-        "rsl_rl_cfg_entry_point": "src.tasks.pick_anyrotate.rsl_rl_ppo_cfg:PickAnyRotateRslRlPpoCfg",
-    },
-)
 
 gym.register(
     id="Pick_AnyRotate_HRL-v0",
@@ -73,30 +45,11 @@ gym.register(
     disable_env_checker=True,
     kwargs={
         "env_cfg_entry_point": f"{__name__}.pick_anyrotate.env_cfg:DexsuiteFrankaLeapAnyRotateHrlEnvCfg",
-        "rsl_rl_cfg_entry_point": "src.tasks.pick_anyrotate.rsl_rl_ppo_cfg:PickAnyRotateRslRlPpoCfg",
     },
 )
 
-gym.register(
-    id="Pick_Lift_Play-v0",
-    entry_point="isaaclab.envs:ManagerBasedRLEnv",
-    disable_env_checker=True,
-    kwargs={
-        "env_cfg_entry_point": f"{__name__}.pick_anyrotate.env_cfg:DexsuiteFrankaLeapLiftEnvCfg_PLAY",
-        "rsl_rl_cfg_entry_point": "src.tasks.pick_anyrotate.rsl_rl_ppo_cfg:PickAnyRotateRslRlPpoCfg",
-    },
-)
 
 # Pick Insert Environment
-gym.register(
-    id="Pick_Insert-v0",
-    entry_point="isaaclab.envs:ManagerBasedRLEnv",
-    disable_env_checker=True,
-    kwargs={
-        "env_cfg_entry_point": f"{__name__}.pick_insert.env_cfg:DexsuiteFrankaLeapInsertEnvCfg",
-        "rsl_rl_cfg_entry_point": "src.tasks.pick_insert.rsl_rl_ppo_cfg:PickInsertRslRlPpoCfg",
-    },
-)
 
 gym.register(
     id="Pick_Insert_HRL-v0",
@@ -104,7 +57,6 @@ gym.register(
     disable_env_checker=True,
     kwargs={
         "env_cfg_entry_point": f"{__name__}.pick_insert.env_cfg:DexsuiteFrankaLeapInsertHrlEnvCfg",
-        "rsl_rl_cfg_entry_point": "src.tasks.pick_insert.rsl_rl_ppo_cfg:PickInsertRslRlPpoCfg",
     },
 )
 
@@ -125,15 +77,6 @@ gym.register(
 )
 
 # Unscrew Environment
-gym.register(
-    id="Unscrew-v0",
-    entry_point="isaaclab.envs:ManagerBasedRLEnv",
-    disable_env_checker=True,
-    kwargs={
-        "env_cfg_entry_point": f"{__name__}.unscrew.env_cfg:DexsuiteFrankaLeapUnscrewEnvCfg",
-        "rsl_rl_cfg_entry_point": "src.tasks.unscrew.rsl_rl_ppo_cfg:UnscrewRslRlPpoCfg",
-    },
-)
 
 gym.register(
     id="Unscrew_HRL-v0",
@@ -141,20 +84,10 @@ gym.register(
     disable_env_checker=True,
     kwargs={
         "env_cfg_entry_point": f"{__name__}.unscrew.env_cfg:DexsuiteFrankaLeapUnscrewHrlEnvCfg",
-        "rsl_rl_cfg_entry_point": "src.tasks.unscrew.rsl_rl_ppo_cfg:UnscrewRslRlPpoCfg",
     },
 )
 
 # Clean Table Environment
-gym.register(
-    id="Clean_Table-v0",
-    entry_point="isaaclab.envs:ManagerBasedRLEnv",
-    disable_env_checker=True,
-    kwargs={
-        "env_cfg_entry_point": f"{__name__}.clean_table.env_cfg:DexsuiteFrankaLeapCleanTableEnvCfg",
-        "rsl_rl_cfg_entry_point": "src.tasks.clean_table.rsl_rl_ppo_cfg:CleanTableRslRlPpoCfg",
-    },
-)
 
 gym.register(
     id="Clean_Table_HRL-v0",
@@ -162,7 +95,6 @@ gym.register(
     disable_env_checker=True,
     kwargs={
         "env_cfg_entry_point": f"{__name__}.clean_table.env_cfg:DexsuiteFrankaLeapCleanTableHrlEnvCfg",
-        "rsl_rl_cfg_entry_point": "src.tasks.clean_table.rsl_rl_ppo_cfg:CleanTableRslRlPpoCfg",
     },
 )
 
@@ -201,15 +133,6 @@ gym.register(
 )
 
 # Rotate Knob Environment
-gym.register(
-    id="Rotate_Knob-v0",
-    entry_point="isaaclab.envs:ManagerBasedRLEnv",
-    disable_env_checker=True,
-    kwargs={
-        "env_cfg_entry_point": f"{__name__}.rotate_knob.env_cfg:DexsuiteFrankaLeapRotateObjectEnvCfg",
-        "rsl_rl_cfg_entry_point": "src.tasks.rotate_knob.rsl_rl_ppo_cfg:RotateObjectRslRlPpoCfg",
-    },
-)
 
 gym.register(
     id="Rotate_Knob_HRL-v0",
@@ -217,7 +140,6 @@ gym.register(
     disable_env_checker=True,
     kwargs={
         "env_cfg_entry_point": f"{__name__}.rotate_knob.env_cfg:DexsuiteFrankaLeapRotateObjectHrlEnvCfg",
-        "rsl_rl_cfg_entry_point": "src.tasks.rotate_knob.rsl_rl_ppo_cfg:RotateObjectRslRlPpoCfg",
     },
 )
 
@@ -227,7 +149,6 @@ gym.register(
     disable_env_checker=True,
     kwargs={
         "env_cfg_entry_point": f"{__name__}.rotate_knob_student.env_cfg:DexsuiteFrankaLeapRotateObjectStudentHrlEnvCfg",
-        "rsl_rl_cfg_entry_point": "src.tasks.rotate_knob_student.rsl_rl_ppo_cfg:RotateObjectStudentRslRlPpoCfg",
     },
 )
 

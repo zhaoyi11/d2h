@@ -264,8 +264,7 @@ class CommandHandBaseCuroboMpcActionCfg(ActionTermCfg):
     scene asset's world pose, converts it to the robot base frame, and rewrites that cuRobo cuboid's
     pose so the MPC avoids the moving prop (in-place update -> CUDA-graph safe). Every cuRobo name
     here MUST also appear in ``obstacle_cuboids`` so a collision-world slot exists. Empty (default)
-    keeps a fully static world (current behavior). See :func:`move_dynamic_obstacle` for driving the
-    prop's pose. Note: with ``multi_env=False`` the obstacle is synced from env 0 only."""
+    keeps a fully static world. With ``multi_env=False`` the obstacle is synced from env 0 only."""
 
     arm_stiffness: float = 800.0
     """Position-drive stiffness written to the arm joints so set_joint_position_target has authority

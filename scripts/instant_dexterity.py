@@ -69,7 +69,7 @@ from src.policy.instant_dexterity_recording import (  # noqa: E402
     flatten_scene_state,
 )
 from src.policy.low_level import load_low_level_rsl_rl_policy  # noqa: E402
-from src.tasks.common.mdps.rewards import contacts as good_object_contact  # noqa: E402
+from src.tasks.common.mdps.contacts import contacts as good_object_contact  # noqa: E402
 
 
 def _as_list(tensor: torch.Tensor) -> list[float]:

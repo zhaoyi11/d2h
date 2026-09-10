@@ -8,7 +8,7 @@ from isaaclab.assets import RigidObject
 from isaaclab.managers import ManagerTermBase, SceneEntityCfg, TerminationTermCfg
 from isaaclab.utils.math import subtract_frame_transforms
 
-from src.tasks.common.mdps.rewards import contacts as good_object_contact
+from src.tasks.common.mdps.contacts import contacts as good_object_contact
 from src.tasks.unscrew.geometry import (
     BOLT_AABB_MAX,
     BOLT_AABB_MIN,

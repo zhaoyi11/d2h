@@ -6,8 +6,8 @@
 """High-level (reference / subgoal generation) building blocks for the HRL stack.
 
 Groups the pure-``torch`` "brains" that decide *what to do* -- the per-env trajectory stepper and
-the bounded PI(D) anchor correction. The isaaclab ``CommandTerm`` in
-``src.tasks.common.mdps.commands`` is a thin adapter that imports and drives these; execution
+the bounded PI(D) anchor correction. ``src.tasks.common.mdps`` re-exports the isaaclab
+trajectory ``CommandTerm`` for task configs; execution
 (cuRobo MPC arm + frozen low-level hand policy) lives in ``src.policy.low_level``.
 
 The isaaclab-dependent modules (:mod:`.gate`, :mod:`.utils` and :mod:`.trajectory_command`) are

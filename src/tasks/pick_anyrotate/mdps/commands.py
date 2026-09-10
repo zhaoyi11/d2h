@@ -16,7 +16,7 @@ from src.policy.high_level.trajectory_command import (
     TrajectoryObjectAndHandBasePoseCommandCfg,
 )
 from src.policy.high_level.trajectory_stepper import StageObjTol
-from src.tasks.common.mdps.rewards import contacts as good_object_contact
+from src.tasks.common.mdps.contacts import contacts as good_object_contact
 from src.tasks.pick_anyrotate.mdps.trajectory import (
     DEFAULT_PICK_ANYROTATE_SEGMENT_STEPS,
     DEFAULT_PICK_ANYROTATE_STAGE_OBJECT_TOLERANCES,

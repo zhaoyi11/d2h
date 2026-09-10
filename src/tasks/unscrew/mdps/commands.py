@@ -17,8 +17,8 @@ from src.policy.high_level.trajectory_command import (
     TrajectoryObjectAndHandBasePoseCommandCfg,
 )
 from src.policy.high_level.trajectory_stepper import StageObjTol
-from src.tasks.common.mdps.rewards import contacts as good_object_contact
-from src.tasks.unscrew.mdps.task_mdps import bolt_aabb_corners, bolt_bottom_clearance
+from src.tasks.common.mdps.contacts import contacts as good_object_contact
+from src.tasks.unscrew.geometry import bolt_aabb_corners, bolt_bottom_clearance
 from src.tasks.unscrew.mdps.trajectory import (
     DEFAULT_UNSCREW_EXTRACTION_HEIGHT,
     DEFAULT_UNSCREW_SEGMENT_STEPS,

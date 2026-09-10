@@ -12,7 +12,7 @@ correction (:mod:`.anchor_correction`) and the grasp-anchor kinematics (:mod:`.u
 It lives in :mod:`src.policy.high_level` so the whole HRL reference-generation stack sits together,
 but it depends on isaaclab, so -- like :mod:`.gate` and :mod:`.utils` -- it is *not*
 re-exported from the package ``__init__`` (importing it eagerly would pull isaaclab into the
-otherwise pure-torch package). It is re-exported through ``src.tasks.common.mdps.commands`` so the
+otherwise pure-torch package). It is re-exported through ``src.tasks.common.mdps`` so the
 ``mdp.*`` namespace keeps exposing it to tasks and scripts.
 """
 
@@ -58,9 +58,7 @@ if TYPE_CHECKING:
 def _update_object_pose_metrics(cmd) -> None:
     """Compute the object-goal pose metrics and update the success marker.
 
-    Used by :class:`TrajectoryObjectAndHandBasePoseCommand` here (a duplicate of the same helper in
-    ``src.tasks.common.mdps.commands`` that serves ``ObjectUniformPoseCommand``). Transforms the
-    root-frame object goal to world, computes the position/orientation error against the measured
+    Transforms the root-frame object goal to world, computes the position/orientation error against the measured
     object pose, writes ``metrics["position_error"|"orientation_error"]``, and drives the success
     visualizer. ``cmd`` is duck-typed on ``robot``, ``object``, ``pose_command_b``,
     ``pose_command_w``, ``metrics``, ``cfg.position_only``, ``success_visualizer`` and
@@ -108,10 +106,8 @@ ALIGN_MARKER_CFG = VisualizationMarkersCfg(
 class TrajectoryObjectAndHandBasePoseCommand(CommandTerm):
     """Object and hand-base command that follows a scripted, task-defined object-pose trajectory.
 
-    Inherits directly from :class:`~isaaclab.managers.CommandTerm` -- it is *not* an
-    ``ObjectUniformPoseCommand`` (it never samples a uniform goal). It owns the object-goal
-    pose buffers/metrics (the metric computation is shared with ``ObjectUniformPoseCommand``
-    via the module-level :func:`_update_object_pose_metrics`), the hand-base/anchor kinematics and
+    Inherits directly from :class:`~isaaclab.managers.CommandTerm`. It owns the object-goal
+    pose buffers/metrics, the hand-base/anchor kinematics and
     the 14-D public command, plus all the task-agnostic machinery: the per-env stepper
     (:class:`~src.policy.high_level.trajectory_stepper.TrajectoryStepper`), the bounded PI(D) anchor
     correction (:class:`~src.policy.high_level.anchor_correction.ObjectAnchorPIDController`), the
@@ -128,7 +124,7 @@ class TrajectoryObjectAndHandBasePoseCommand(CommandTerm):
 
     def __init__(self, cfg: TrajectoryObjectAndHandBasePoseCommandCfg, env: ManagerBasedEnv):
         super().__init__(cfg, env)
-        # -- Object-goal pose plumbing (same buffers/handles as ObjectUniformPoseCommand) --
+        # -- Object-goal pose buffers and scene assets --
         self.robot: Articulation = env.scene[cfg.asset_name]
         self.object: RigidObject = env.scene[cfg.object_name]
         self.success_vis_asset: RigidObject = env.scene[cfg.success_vis_asset_name]
@@ -278,7 +274,7 @@ class TrajectoryObjectAndHandBasePoseCommand(CommandTerm):
         """Visualize the object goal/current and anchor/hand-base command frames."""
         if not self.robot.is_initialized:
             return
-        # -- object goal + current object pose (same convention as ObjectUniformPoseCommand)
+        # -- object goal + current object pose in world frame
         if not self.cfg.position_only:
             self.goal_visualizer.visualize(self.pose_command_w[:, :3], self.pose_command_w[:, 3:])
             self.curr_visualizer.visualize(self.object.data.root_pos_w, self.object.data.root_quat_w)

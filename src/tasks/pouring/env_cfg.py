@@ -2,7 +2,7 @@
 
 import isaaclab.sim as sim_utils
 from isaaclab.assets import RigidObjectCfg
-from isaaclab.managers import EventTermCfg, SceneEntityCfg
+from isaaclab.managers import EventTermCfg
 from isaaclab.sensors import ContactSensorCfg
 from isaaclab.sim.converters import MeshConverter, MeshConverterCfg
 from isaaclab.utils import configclass
@@ -10,7 +10,7 @@ from isaaclab.utils import configclass
 from src.policy.high_level.anchor_correction import AnchorCorrectionCfg
 from isaaclab.envs import ManagerBasedRLEnvCfg, ViewerCfg
 from isaaclab.sim.simulation_cfg import SimulationCfg
-from src.tasks.common.env_cfg import HrlActionsCfg, ObjectTerminationsCfg, PlacementRewardsCfg, TabletopEventsCfg, TabletopSceneCfg, configure_contact_physics, configure_fingertip_contacts, configure_success_visualization, fingertip_transforms_cfg
+from src.tasks.common.env_cfg import HrlActionsCfg, ObjectTerminationsCfg, TabletopEventsCfg, TabletopSceneCfg, configure_contact_physics, configure_fingertip_contacts, configure_success_visualization, fingertip_transforms_cfg
 from src.tasks.common.observations_cfg import LowLevelObsCfg
 from src.tasks.common.mdps.events import reset_arm_mpc, reset_joints_to_init_state
 from src.tasks.pouring.commands import PouringTrajectoryCommandCfg
@@ -50,7 +50,7 @@ class PouringEnvCfg(ManagerBasedRLEnvCfg):
     scene: TabletopSceneCfg = TabletopSceneCfg(num_envs=1, env_spacing=3, replicate_physics=False)
     sim: SimulationCfg = SimulationCfg(gravity=(0.0, 0.0, -1.81))
     observations: ObservationsCfg = ObservationsCfg()
-    rewards: PlacementRewardsCfg = PlacementRewardsCfg()
+    rewards = None
     terminations: ObjectTerminationsCfg = ObjectTerminationsCfg()
     events: TabletopEventsCfg = TabletopEventsCfg()
     curriculum = None
@@ -67,9 +67,6 @@ class PouringEnvCfg(ManagerBasedRLEnvCfg):
         configure_success_visualization(self.commands.object_pose, self.scene.table)
         self.scene.fingertip_transforms = fingertip_transforms_cfg()
         configure_fingertip_contacts(self.scene, ["{ENV_REGEX_NS}/Object", "{ENV_REGEX_NS}/Table"])
-        self.rewards.fingers_to_object.params["asset_cfg"] = SceneEntityCfg(
-            "robot", body_names=[".*fingertip.*"],
-        )
         # cuRobo emits one interpolated target per env step; match its clock to physics.
         self.actions.arm_action.optimization_dt = (
             self.decimation * self.sim.dt * self.actions.arm_action.interpolation_steps
@@ -166,8 +163,6 @@ class PouringEnvCfg(ManagerBasedRLEnvCfg):
         self.observations.policy = low_level.copy()
         self.observations.proprio = None
         self.observations.perception = None
-        for name in ("lift", "transport", "inside_box", "success"):
-            setattr(self.rewards, name, None)
         # Deterministic validation: fixed robot/object resets.
         for name in (
             "robot_physics_material", "object_physics_material", "joint_stiffness_and_damping",

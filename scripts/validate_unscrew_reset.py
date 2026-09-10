@@ -27,6 +27,8 @@ import isaaclab_tasks  # noqa: F401, E402
 import torch  # noqa: E402
 import src.tasks  # noqa: F401, E402
 from isaaclab_tasks.utils import parse_env_cfg  # noqa: E402
+from src.tasks.common.env_cfg import JointActionsCfg  # noqa: E402
+from src.assets.franka_leap_hand.franka_leap import FRANKA_LEAP_HAND_CFG  # noqa: E402
 from isaaclab.utils.math import quat_error_magnitude, subtract_frame_transforms  # noqa: E402
 
 
@@ -36,14 +38,12 @@ def main() -> None:
     if args_cli.duration <= 0.0:
         raise ValueError("duration must be positive.")
 
-    env_cfg = parse_env_cfg("Unscrew-v0", device=args_cli.device, num_envs=args_cli.num_envs)
-    # Exercise the same reduced-gravity load as the frozen-policy HRL variant without constructing
-    # cuRobo or moving the robot into contact with the object.
-    env_cfg.events.variable_gravity.params["gravity_distribution_params"] = (
-        [0.0, 0.0, -1.81],
-        [0.0, 0.0, -1.81],
-    )
-    env = gym.make("Unscrew-v0", cfg=env_cfg)
+    env_cfg = parse_env_cfg("Unscrew_HRL-v0", device=args_cli.device, num_envs=args_cli.num_envs)
+    # Hold the robot with its normal joint controller while the threaded object settles.
+    env_cfg.actions = JointActionsCfg()
+    env_cfg.observations.low_level = None
+    env_cfg.scene.robot.actuators["joints"] = FRANKA_LEAP_HAND_CFG.actuators["joints"].copy()
+    env = gym.make("Unscrew_HRL-v0", cfg=env_cfg)
     unwrapped = env.unwrapped
     try:
         env.reset()
@@ -119,5 +119,13 @@ def main() -> None:
 if __name__ == "__main__":
     try:
         main()
+    except BaseException:
+        import os
+        import sys
+        import traceback
+        traceback.print_exc()
+        sys.stdout.flush()
+        sys.stderr.flush()
+        os._exit(1)  # Kit shutdown can otherwise hide the diagnostic failure.
     finally:
         simulation_app.close()
