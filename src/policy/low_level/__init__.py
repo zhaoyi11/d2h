@@ -3,11 +3,9 @@ from .policy import (
     LowLevelRslRlPolicy,
     load_low_level_rsl_rl_policy,
 )
-from .vec_env import FrozenHandVecEnv
 
 __all__ = [
     "DEFAULT_LOW_LEVEL_RSL_RL_CHECKPOINT",
-    "FrozenHandVecEnv",
     "LowLevelRslRlPolicy",
     "load_low_level_rsl_rl_policy",
 ]

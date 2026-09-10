@@ -7,7 +7,7 @@
 
 Mirrors the ``pick_insert`` HRL stack: a scripted object-pose trajectory command drives a cuRobo-MPC
 arm (hand ``base``) and a frozen ``dex_reorient`` low-level LEAP-hand policy. The base ``-v0`` env is
-the RL/joint-control variant; ``...HrlEnvCfg`` is the HRL variant consumed by ``scripts/hrl/play.py``.
+the RL/joint-control variant; ``...HrlEnvCfg`` is the HRL variant consumed by ``scripts/instant_dexterity.py``.
 """
 
 from dataclasses import MISSING
