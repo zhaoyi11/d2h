@@ -9,13 +9,13 @@ import numpy as np
 import pytest
 import torch
 
-from src.policy.bc_base import (
+from dataets.bc import (
     MODEL_TYPE,
-    BehaviorCloningChunkConfig,
-    BehaviorCloningChunkPolicy,
-    BehaviorCloningWindowDataset,
-    _compute_behavior_cloning_normalization_stats,
-    discover_behavior_cloning_specs,
+    BehaviorCloningConfig,
+    BehaviorCloningPolicy,
+    _episode_windows,
+    _normalization,
+    load_behavior_cloning_data,
     train,
 )
 
@@ -24,113 +24,31 @@ def _write_episode(path: Path, states: np.ndarray, actions: np.ndarray) -> None:
     np.savez_compressed(
         path,
         **{
-            "observation.policy": states.astype(np.float32),
+            "observation.bc": states.astype(np.float32),
             "action": actions.astype(np.float32),
         },
     )
 
 
-def test_behavior_cloning_dataset_uses_current_obs_and_next_actions(tmp_path: Path) -> None:
-    dataset_dir = tmp_path / "dataset"
-    dataset_dir.mkdir()
+def test_behavior_cloning_windows_use_current_obs_and_next_actions(tmp_path: Path) -> None:
     states = np.arange(6 * 3, dtype=np.float32).reshape(6, 3)
     actions = np.arange(6 * 2, dtype=np.float32).reshape(6, 2)
-    _write_episode(dataset_dir / "0000000000.npz", states, actions)
 
-    specs, state_keys, state_dim, action_dim = discover_behavior_cloning_specs(
-        dataset_dir,
-        future_length=4,
-        state_keys=("observation.policy",),
-    )
-    dataset = BehaviorCloningWindowDataset(
-        specs,
-        state_keys,
-        future_length=4,
-        windows=[(0, 1)],
-    )
-    sample = dataset[0]
+    obs, targets = _episode_windows([(tmp_path / "episode.npz", states, actions)], future_length=4)
 
-    assert state_dim == 3
-    assert action_dim == 2
-    assert dataset.state_dim == 3
-    assert dataset.action_dim == 2
-    torch.testing.assert_close(sample["obs"], torch.from_numpy(states[1]))
-    torch.testing.assert_close(sample["target_actions"], torch.from_numpy(actions[1:5]))
+    np.testing.assert_array_equal(obs[1], states[1])
+    np.testing.assert_array_equal(targets[1], actions[1:5])
 
 
-def test_behavior_cloning_policy_predicts_action_chunk_and_validates_obs_dim() -> None:
-    config = BehaviorCloningChunkConfig(
+def test_behavior_cloning_policy_predicts_normalized_action_chunk() -> None:
+    config = BehaviorCloningConfig(
         state_dim=3,
         action_dim=2,
         future_length=4,
         hidden_dim=8,
-        num_layers=3,
+        num_layers=2,
     )
-    model = BehaviorCloningChunkPolicy(config)
-
-    linear_layers = [layer for layer in model.net if isinstance(layer, torch.nn.Linear)]
-    pred = model(torch.zeros(5, config.state_dim))
-
-    assert len(linear_layers) == config.num_layers + 1
-    assert pred.shape == (5, config.future_length, config.action_dim)
-    with pytest.raises(ValueError, match="Expected obs dim 3"):
-        model(torch.zeros(5, config.state_dim + 1))
-
-
-def test_behavior_cloning_normalization_stats_use_selected_specs(tmp_path: Path) -> None:
-    dataset_dir = tmp_path / "dataset"
-    dataset_dir.mkdir()
-    train_states = np.array(
-        [
-            [1.0, 2.0, 7.0],
-            [3.0, 4.0, 7.0],
-            [5.0, 6.0, 7.0],
-            [100.0, 100.0, 100.0],
-        ],
-        dtype=np.float32,
-    )
-    train_actions = np.array(
-        [
-            [1.0, 10.0],
-            [3.0, 14.0],
-            [5.0, 18.0],
-        ],
-        dtype=np.float32,
-    )
-    val_states = np.full((3, 3), 1000.0, dtype=np.float32)
-    val_actions = np.full((3, 2), 1000.0, dtype=np.float32)
-    _write_episode(dataset_dir / "0000000000.npz", train_states, train_actions)
-    _write_episode(dataset_dir / "0000000001.npz", val_states, val_actions)
-
-    specs, state_keys, _, _ = discover_behavior_cloning_specs(
-        dataset_dir,
-        future_length=2,
-        state_keys=("observation.policy",),
-    )
-    stats = _compute_behavior_cloning_normalization_stats(
-        [specs[0]],
-        state_keys,
-        normalization_eps=1e-6,
-    )
-
-    expected_states = train_states[: train_actions.shape[0]]
-    np.testing.assert_allclose(stats.obs_mean, expected_states.mean(axis=0))
-    np.testing.assert_allclose(stats.obs_std[:2], expected_states.std(axis=0)[:2], rtol=1e-6)
-    assert stats.obs_std[2] == 1.0
-    np.testing.assert_allclose(stats.action_mean, train_actions.mean(axis=0))
-    np.testing.assert_allclose(stats.action_std, train_actions.std(axis=0), rtol=1e-6)
-
-
-def test_behavior_cloning_policy_normalizes_and_returns_raw_actions() -> None:
-    config = BehaviorCloningChunkConfig(
-        state_dim=3,
-        action_dim=2,
-        future_length=4,
-        hidden_dim=8,
-        num_layers=1,
-        normalization_eps=1e-6,
-    )
-    model = BehaviorCloningChunkPolicy(config)
+    model = BehaviorCloningPolicy(config)
     model.set_normalization(
         obs_mean=np.array([1.0, 2.0, 3.0], dtype=np.float32),
         obs_std=np.array([2.0, 4.0, 5.0], dtype=np.float32),
@@ -144,22 +62,59 @@ def test_behavior_cloning_policy_normalizes_and_returns_raw_actions() -> None:
 
     obs = torch.tensor([[3.0, 6.0, 8.0]], dtype=torch.float32)
     actions = torch.tensor([[[13.0, -0.5], [7.0, -1.5]]], dtype=torch.float32)
-    expected_norm_obs = torch.tensor([[1.0, 1.0, 1.0]], dtype=torch.float32)
-    expected_raw = torch.tensor([10.0, -1.0]).view(1, 1, 2).expand(2, config.future_length, 2)
+    prediction = model(torch.zeros(5, config.state_dim))
 
-    torch.testing.assert_close(model.normalize_obs(obs), expected_norm_obs, rtol=1e-5, atol=1e-5)
+    assert prediction.shape == (5, config.future_length, config.action_dim)
+    torch.testing.assert_close(model.normalize_obs(obs), torch.ones_like(obs))
     torch.testing.assert_close(model.denormalize_actions(model.normalize_actions(actions)), actions)
-    torch.testing.assert_close(model(torch.zeros(2, config.state_dim)), expected_raw)
+    torch.testing.assert_close(
+        prediction,
+        torch.tensor([10.0, -1.0]).view(1, 1, 2).expand_as(prediction),
+    )
+    with pytest.raises(ValueError, match="Expected obs dim 3"):
+        model(torch.zeros(5, config.state_dim + 1))
+
+
+def test_behavior_cloning_data_splits_episodes_and_normalizes_train_windows(tmp_path: Path) -> None:
+    dataset_dir = tmp_path / "dataset"
+    dataset_dir.mkdir()
+    for index in range(4):
+        states = np.arange(6 * 3, dtype=np.float32).reshape(6, 3) + index
+        states[:, 2] = 7.0
+        actions = np.arange(6 * 2, dtype=np.float32).reshape(6, 2) + index
+        _write_episode(dataset_dir / f"{index:010d}.npz", states, actions)
+
+    data = load_behavior_cloning_data(dataset_dir, future_length=4, val_ratio=0.25, seed=0)
+    obs_mean, obs_std, action_mean, action_std = _normalization(data, 1e-6)
+
+    assert len(data.train_episodes) == 3
+    assert len(data.val_episodes) == 1
+    assert set(data.train_episodes).isdisjoint(data.val_episodes)
+    np.testing.assert_allclose(obs_mean, data.train_obs.mean(axis=0), rtol=1e-6)
+    assert obs_std[2] == 1.0
+    np.testing.assert_allclose(action_mean, data.train_actions.reshape(-1, 2).mean(axis=0), rtol=1e-6)
+    np.testing.assert_allclose(action_std, data.train_actions.reshape(-1, 2).std(axis=0), rtol=1e-6)
+
+
+def test_behavior_cloning_data_rejects_non_finite_values(tmp_path: Path) -> None:
+    states = np.zeros((4, 3), dtype=np.float32)
+    actions = np.zeros((4, 2), dtype=np.float32)
+    _write_episode(tmp_path / "0000000000.npz", states, actions)
+    states[0, 0] = np.nan
+    _write_episode(tmp_path / "0000000001.npz", states, actions)
+
+    with pytest.raises(ValueError, match="non-finite"):
+        load_behavior_cloning_data(tmp_path)
 
 
 def test_behavior_cloning_policy_rejects_invalid_num_layers() -> None:
-    config = BehaviorCloningChunkConfig(state_dim=3, action_dim=2, num_layers=0)
+    config = BehaviorCloningConfig(state_dim=3, action_dim=2, num_layers=0)
 
     with pytest.raises(ValueError, match="num_layers must be at least 1"):
-        BehaviorCloningChunkPolicy(config)
+        BehaviorCloningPolicy(config)
 
 
-def test_train_uses_wandb_and_saves_behavior_cloning_checkpoints(tmp_path: Path) -> None:
+def test_train_logs_metrics_and_saves_loadable_checkpoint(tmp_path: Path) -> None:
     class FakeWandb:
         def __init__(self) -> None:
             self.logs = []
@@ -182,11 +137,10 @@ def test_train_uses_wandb_and_saves_behavior_cloning_checkpoints(tmp_path: Path)
     dataset_dir = tmp_path / "dataset"
     output_dir = tmp_path / "checkpoint"
     dataset_dir.mkdir()
-    (dataset_dir / "metadata.json").write_text(json.dumps({"obs_groups": ["policy"]}))
-    for idx in range(4):
-        states = np.arange(6 * 3, dtype=np.float32).reshape(6, 3) + idx
-        actions = np.arange(6 * 2, dtype=np.float32).reshape(6, 2) + idx
-        _write_episode(dataset_dir / f"{idx:010d}.npz", states, actions)
+    for index in range(4):
+        states = np.arange(6 * 3, dtype=np.float32).reshape(6, 3) + index
+        actions = np.arange(6 * 2, dtype=np.float32).reshape(6, 2) + index
+        _write_episode(dataset_dir / f"{index:010d}.npz", states, actions)
 
     fake_wandb = FakeWandb()
     with patch.dict(sys.modules, {"wandb": fake_wandb}):
@@ -196,41 +150,39 @@ def test_train_uses_wandb_and_saves_behavior_cloning_checkpoints(tmp_path: Path)
             future_length=4,
             hidden_dim=8,
             num_layers=2,
-            normalization_eps=1e-6,
             batch_size=2,
             epochs=1,
             lr=1e-3,
             seed=0,
             device="cpu",
-            train_windows_per_epoch=2,
-            val_windows=2,
             val_ratio=0.5,
             wandb_mode="offline",
-            wandb_project="test-project",
-            wandb_run_name="bc-run",
+            save_every_steps=2,
         )
 
     config_payload = json.loads((output_dir / "config.json").read_text())
+    checkpoint = torch.load(best_path, map_location="cpu", weights_only=True)
+
     assert config_payload["model_type"] == MODEL_TYPE
     assert config_payload["config"]["future_length"] == 4
-    assert config_payload["config"]["num_layers"] == 2
-    assert config_payload["config"]["normalization_eps"] == 1e-6
-    assert config_payload["training"]["num_layers"] == 2
+    assert config_payload["training"]["save_every_steps"] == 2
     assert config_payload["training"]["normalization"] == {
         "enabled": True,
         "eps": 1e-6,
         "source": "train_split",
     }
     assert best_path == output_dir / "best.pt"
-    assert best_path.exists()
-    checkpoint = torch.load(best_path, map_location="cpu", weights_only=False)
+    periodic_path = output_dir / "step_000000002.pt"
+    assert periodic_path.exists()
+    periodic_checkpoint = torch.load(periodic_path, map_location="cpu", weights_only=True)
+    assert periodic_checkpoint["global_step"] == 2
     for key in ("obs_mean", "obs_std", "action_mean", "action_std"):
         assert key in checkpoint["model_state_dict"]
-    assert fake_wandb.init_kwargs["project"] == "test-project"
+    assert fake_wandb.init_kwargs["project"] == "d2h-bc"
     assert fake_wandb.init_kwargs["mode"] == "offline"
-    assert fake_wandb.init_kwargs["name"] == "bc-run"
-    assert fake_wandb.saved.count("best.pt") == 1
-    assert any(name.startswith("final_") and name.endswith(".pt") for name in fake_wandb.saved)
+    assert fake_wandb.saved == ["step_000000002.pt", "best.pt"]
     assert any("val/loss" in payload for payload, _ in fake_wandb.logs)
     assert any("val/raw_mse" in payload for payload, _ in fake_wandb.logs)
     assert fake_wandb.finished
+    with pytest.raises(FileExistsError, match="already contains"):
+        train(dataset_dir=dataset_dir, output_dir=output_dir, epochs=1, device="cpu")

@@ -1,0 +1,85 @@
+# Plan: Load visdex_objects USD assets in grasp env_cfg
+
+## Context
+The grasp task's `InHandObjectSceneCfg` currently uses a single `SphereCfg` as its object. The goal is to replace this with the full set of real objects from `src/assets/visdex_objects/USD/`, cycling them across parallel environments using `MultiAssetSpawnerCfg`. This mirrors what DEXTRAH does in `_setup_objects()` but using the Manager-based declarative config pattern.
+
+## File to modify
+`src/tasks/grasp/env_cfg.py`
+
+## Changes
+
+### 1. Add `import os` to the imports
+`os` is not currently imported in `env_cfg.py`.
+
+### 2. Add module-level path constant and helper function
+After the existing imports, add:
+
+```python
+import os
+
+_VISDEX_USD_DIR = os.path.join(os.path.dirname(__file__), "../../assets/visdex_objects/USD")
+
+
+def _build_visdex_assets_cfg() -> list:
+    """Build UsdFileCfg entries for every object in visdex_objects/USD."""
+    names = sorted(
+        d for d in os.listdir(_VISDEX_USD_DIR)
+        if os.path.isdir(os.path.join(_VISDEX_USD_DIR, d))
+    )
+    return [
+        sim_utils.UsdFileCfg(
+            usd_path=os.path.join(_VISDEX_USD_DIR, name, f"{name}.usd"),
+            rigid_props=sim_utils.RigidBodyPropertiesCfg(
+                kinematic_enabled=False,
+                disable_gravity=False,
+                enable_gyroscopic_forces=True,
+                solver_position_iteration_count=16,
+                solver_velocity_iteration_count=0,
+                sleep_threshold=0.005,
+                stabilization_threshold=0.0025,
+                max_linear_velocity=1000.0,
+                max_angular_velocity=1000.0,
+                max_depenetration_velocity=1000.0,
+            ),
+            mass_props=sim_utils.MassPropertiesCfg(density=500.0),
+            collision_props=sim_utils.CollisionPropertiesCfg(collision_enabled=True),
+            articulation_props=sim_utils.ArticulationRootPropertiesCfg(
+                articulation_enabled=False
+            ),
+        )
+        for name in names
+    ]
+```
+
+Key notes:
+- `density=500.0` (birchwood, matching DEXTRAH reference)
+- `articulation_enabled=False` — visdex USDs were URDF-converted and may contain articulation roots
+- Path is resolved relative to `env_cfg.py` so it works regardless of CWD
+
+### 3. Replace `InHandObjectSceneCfg.object` spawn config
+
+Replace the current `MultiAssetSpawnerCfg` (with `SphereCfg`) with:
+
+```python
+object: RigidObjectCfg = RigidObjectCfg(
+    prim_path="{ENV_REGEX_NS}/Object",
+    spawn=sim_utils.MultiAssetSpawnerCfg(
+        assets_cfg=_build_visdex_assets_cfg(),
+        random_asset_type=True,
+    ),
+    init_state=RigidObjectCfg.InitialStateCfg(
+        pos=(0.0, -0.03, 0.62), rot=(1.0, 0.0, 0.0, 0.0)
+    ),
+)
+```
+
+- `random_asset_type=True` assigns a random object per environment (instead of sequential cycling)
+- The top-level `rigid_props`/`mass_props`/`collision_props` are removed from `MultiAssetSpawnerCfg` because they are specified per `UsdFileCfg`
+- `init_state` position unchanged — 12 cm above the hand
+
+## Verification
+Run the grasp env to confirm objects spawn:
+```bash
+python -m src.tasks.grasp.train --headless --num_envs 4
+```
+Or inspect the stage after `env.reset()` to verify `{ENV_REGEX_NS}/Object` prims are USD meshes not spheres.

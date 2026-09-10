@@ -13,6 +13,7 @@ from src.policy.instant_dexterity_recording import (
     build_bc_action,
     build_bc_observation,
     flatten_scene_state,
+    hand_target_to_teacher_action,
 )
 
 
@@ -65,6 +66,25 @@ def test_build_bc_action_preserves_absolute_and_relative_arm_targets() -> None:
     torch.testing.assert_close(arm_delta, torch.full((1, 7), 0.05))
     torch.testing.assert_close(action[:, :7], arm_delta)
     torch.testing.assert_close(action[:, 7:], hand_target)
+
+
+def test_hand_target_to_teacher_action_inverts_ema_and_joint_scaling() -> None:
+    lower = torch.tensor([[-2.0, -1.0]])
+    upper = torch.tensor([[2.0, 3.0]])
+    previous_target = torch.tensor([[0.0, 1.0]])
+    teacher_action = torch.tensor([[0.5, -0.5]])
+    pre_ema_target = (teacher_action + 1.0) * 0.5 * (upper - lower) + lower
+    desired_target = 0.5 * pre_ema_target + 0.5 * previous_target
+
+    reconstructed = hand_target_to_teacher_action(
+        desired_target,
+        previous_target,
+        lower,
+        upper,
+        alpha=0.5,
+    )
+
+    torch.testing.assert_close(reconstructed, teacher_action)
 
 
 def test_flatten_scene_state_records_articulations_and_rigid_objects() -> None:

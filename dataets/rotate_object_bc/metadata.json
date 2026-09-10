@@ -1,0 +1,101 @@
+{
+  "action": {
+    "arm_delta": "target_minus_pre_step_position_radians",
+    "dim": 23,
+    "hand_joint_target": "ema_processed_absolute_position_radians",
+    "hand_policy_executed": "normalized_action_after_gate_sent_to_teacher_env",
+    "hand_policy_raw": "normalized_frozen_policy_output_before_gate",
+    "order": [
+      "arm_delta",
+      "hand_joint_target"
+    ]
+  },
+  "created_at": "2026-08-28T18:09:10.080691+01:00",
+  "joint_order": {
+    "arm": [
+      "panda_joint1",
+      "panda_joint2",
+      "panda_joint3",
+      "panda_joint4",
+      "panda_joint5",
+      "panda_joint6",
+      "panda_joint7"
+    ],
+    "articulations": {
+      "robot": [
+        "panda_joint1",
+        "panda_joint2",
+        "panda_joint3",
+        "panda_joint4",
+        "panda_joint5",
+        "panda_joint6",
+        "panda_joint7",
+        "a_1",
+        "a_12",
+        "a_5",
+        "a_9",
+        "a_0",
+        "a_13",
+        "a_4",
+        "a_8",
+        "a_2",
+        "a_14",
+        "a_6",
+        "a_10",
+        "a_3",
+        "a_15",
+        "a_7",
+        "a_11"
+      ]
+    },
+    "hand": [
+      "a_1",
+      "a_12",
+      "a_5",
+      "a_9",
+      "a_0",
+      "a_13",
+      "a_4",
+      "a_8",
+      "a_2",
+      "a_14",
+      "a_6",
+      "a_10",
+      "a_3",
+      "a_15",
+      "a_7",
+      "a_11"
+    ]
+  },
+  "low_level_checkpoint": "/home/yizhao/yi/dex_reorient/model_14999.pt",
+  "num_envs": 1,
+  "observation": {
+    "bc_dim": 176,
+    "bc_order": [
+      "low_level",
+      "arm_joint_pos",
+      "arm_joint_vel",
+      "hand_base_command"
+    ],
+    "low_level_dim": 155
+  },
+  "scene_state": {
+    "fields": [
+      "state.articulation.robot.joint_position",
+      "state.articulation.robot.joint_velocity",
+      "state.articulation.robot.root_pose",
+      "state.articulation.robot.root_velocity",
+      "state.rigid_object.object.root_pose",
+      "state.rigid_object.object.root_velocity",
+      "state.rigid_object.receptive_object.root_pose",
+      "state.rigid_object.receptive_object.root_velocity",
+      "state.rigid_object.table.root_pose",
+      "state.rigid_object.table.root_velocity"
+    ],
+    "relative_to_env_origin": true
+  },
+  "schema_version": 1,
+  "seed": null,
+  "step_dt": 0.016666666666666666,
+  "task": "Rotate_Object_Once_HRL-v0"
+}

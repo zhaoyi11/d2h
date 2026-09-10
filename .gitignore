@@ -76,6 +76,12 @@ tests/tasks/*
 !tests/tasks/test_clean_table_command.py
 !tests/tasks/test_clean_table_hrl_config.py
 !tests/tasks/test_clean_table_trajectory.py
+!tests/tasks/test_pouring.py
+!tests/tasks/check_pouring_runtime.py
+!tests/tasks/test_pick_and_place.py
+!tests/tasks/check_pick_and_place_runtime.py
+!tests/tasks/test_vis_traj.py
+!tests/tasks/test_vis_traj_isaaclab.py
 !tests/tasks/unscrew/
 tests/tasks/unscrew/*
 !tests/tasks/unscrew/test_physics_verifier.py

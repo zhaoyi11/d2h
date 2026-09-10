@@ -199,6 +199,24 @@ gym.register(
 )
 
 gym.register(
+    id="Pouring_HRL-v0",
+    entry_point="isaaclab.envs:ManagerBasedRLEnv",
+    disable_env_checker=True,
+    kwargs={
+        "env_cfg_entry_point": f"{__name__}.pouring.env_cfg:PouringEnvCfg",
+    },
+)
+
+gym.register(
+    id="PickAndPlace_HRL-v0",
+    entry_point="isaaclab.envs:ManagerBasedRLEnv",
+    disable_env_checker=True,
+    kwargs={
+        "env_cfg_entry_point": f"{__name__}.pick_and_place.env_cfg:PickAndPlaceEnvCfg",
+    },
+)
+
+gym.register(
     id="Clean_Table_OmniReset-v0",
     entry_point="isaaclab.envs:ManagerBasedRLEnv",
     disable_env_checker=True,

@@ -254,6 +254,25 @@ def _print_snapshot(env, step: int) -> None:
             f"[STEP {step:04d}]: hand<->object gate error   {float(gate_err[0]):.5f} m",
             flush=True,
         )
+    if "pouring_progress" in getattr(command_term, "metrics", {}):
+        metrics = command_term.metrics
+        print(
+            f"[STEP {step:04d}]: pouring                   "
+            f"frame={int(metrics['pouring_frame'][0])} "
+            f"progress={float(metrics['pouring_progress'][0]):.3f} "
+            f"gravity={bool(metrics['gravity_enabled'][0])} "
+            f"contact={float(metrics['bottle_hand_contact_force'][0]):.3f}N "
+            f"success={bool(metrics['pouring_success'][0])}",
+            flush=True,
+        )
+    if "pick_and_place_progress" in getattr(command_term, "metrics", {}):
+        metrics = command_term.metrics
+        print(
+            f"[STEP {step:04d}]: pick-and-place            "
+            f"frame={int(metrics['pick_and_place_frame'][0])} "
+            f"progress={float(metrics['pick_and_place_progress'][0]):.3f}",
+            flush=True,
+        )
     if "inside_box" in getattr(command_term, "metrics", {}):
         metrics = command_term.metrics
         stepper = command_term._stepper

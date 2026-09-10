@@ -108,6 +108,9 @@ def _load_commands_module():
             self.resampled.append(env_ids.clone())
             self._stepper.step[env_ids] = 0
 
+        def _object_target_achieved(self):
+            return self.base_object_target_achieved
+
         def _apply_objanchor_correction(self, env_ids):
             self.corrected.append(env_ids.clone())
 
@@ -399,6 +402,21 @@ def test_achieved_yaw_goal_is_immediately_resampled() -> None:
     assert torch.equal(command.metrics["yaw_target_active"], torch.ones(3))
     assert torch.equal(command.corrected[0], torch.tensor([0, 1, 2]))
     assert torch.equal(command.hand_base_updated[0], torch.tensor([0, 1, 2]))
+
+
+def test_yaw_goal_ignores_object_angular_velocity() -> None:
+    module = _load_commands_module()
+    command = object.__new__(module.RotateObjectTrajectoryObjectAndHandBasePoseCommand)
+    command.base_object_target_achieved = torch.tensor([True, True, False])
+    command.object = types.SimpleNamespace(
+        data=types.SimpleNamespace(
+            root_ang_vel_w=torch.tensor([[0.0, 0.0, 0.1], [0.0, 0.0, 0.3], [0.0, 0.0, 0.1]])
+        )
+    )
+
+    achieved = command._object_target_achieved()
+
+    assert torch.equal(achieved, torch.tensor([True, True, False]))
 
 
 def test_yaw_tracking_reward_is_command_conditioned_and_reach_gated() -> None:
