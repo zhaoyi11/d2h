@@ -14,18 +14,19 @@ def test_original_recording_and_stage_layout():
     carry, frames, segments = load_carry_trajectory()
     with np.load(DEFAULT_TRAJECTORY) as data:
         source = np.c_[data["object_pos"], data["object_quat_wxyz"]]
-        np.testing.assert_allclose(carry, source[frames[1:30]], atol=1e-7)
-    assert len(carry) == 29
+        np.testing.assert_allclose(carry, source[frames[1:9]], atol=1e-7)
+    assert len(carry) == 8
     assert frames[:2].tolist() == [320, 320]
-    assert frames[29] == 511
-    assert (frames[30:] == -1).all()
-    assert segments == (0, 1, 28, 10, 1, 1)
-    assert len(frames) == 1 + sum(segments) == 42
+    assert frames[8] == 511
+    assert (frames[9:] == -1).all()
+    assert segments == (0, 1, 7, 10, 1, 1)
+    assert len(frames) == 1 + sum(segments) == 21
     assert DEFAULT_TRAJECTORY.read_bytes() == before
 
 
-def test_carry_alignment_and_deposit_with_rotated_box():
-    carry, _, _ = load_carry_trajectory()
+@pytest.mark.parametrize("stride", [7, 14, 28])
+def test_carry_alignment_and_deposit_with_rotated_box(stride):
+    carry, _, _ = load_carry_trajectory(stride=stride)
     start = np.r_[[0.55, 0.10, 0.32], Rotation.from_euler("z", 0.4).as_quat(scalar_first=True)]
     box = np.r_[[0.55, -0.35, 0.271], Rotation.from_euler("z", 0.7).as_quat(scalar_first=True)]
     above_offset = (0.02, -0.03, 0.25)
@@ -35,11 +36,11 @@ def test_carry_alignment_and_deposit_with_rotated_box():
     above = box[:3] + box_rotation.apply(above_offset)
     deposit = box[:3] + box_rotation.apply(deposit_offset)
     np.testing.assert_allclose(path[:2], np.tile(start, (2, 1)), atol=1e-7)
-    np.testing.assert_allclose(path[29, :3], above, atol=1e-7)
-    np.testing.assert_allclose(path[39:, :3], np.tile(deposit, (3, 1)), atol=1e-7)
+    np.testing.assert_allclose(path[len(carry), :3], above, atol=1e-7)
+    np.testing.assert_allclose(path[-3:, :3], np.tile(deposit, (3, 1)), atol=1e-7)
     np.testing.assert_allclose(np.linalg.norm(path[:, 3:], axis=1), 1.0)
-    assert (path[2:30, 2] >= start[2]).all()
-    assert (np.diff(path[29:40, 2]) < 0).all()
+    assert (path[2:len(carry) + 1, 2] >= start[2]).all()
+    assert (np.diff(path[len(carry):-2, 2]) < 0).all()
     # Preserve the recorded rotation change, rather than replacing it with the box orientation.
     expected = (Rotation.from_quat(start[3:], scalar_first=True)
                 * Rotation.from_quat(carry[0, 3:], scalar_first=True).inv()

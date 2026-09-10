@@ -22,7 +22,8 @@ def test_real_recording_keeps_object_poses_and_grasp_pause():
     assert (frames == 0).sum() == 2
     assert np.all(np.diff(frames) >= 0)
     assert frames[segments[0]] == frames[segments[0] + 1] == 0
-    assert segments == (0, 1, 186)
+    assert segments == (0, 1, 47)
+    assert len(poses) == 49
     assert poses.dtype == np.float32
     assert segments[1] == 1 and sum(segments) + 1 == len(poses)
     np.testing.assert_allclose(np.linalg.norm(poses[:, 3:], axis=1), 1, atol=1e-6)

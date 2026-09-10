@@ -35,7 +35,7 @@ def main():
         assert cmd.command.shape == (2, 14)
         assert env.action_manager.total_action_dim == 16
         assert arm.action_dim == 0
-        assert cmd._stepper.length == 42
+        assert cmd._stepper.length == 21
         assert abs(arm._mpc.config.optimization_dt / arm._mpc.config.interpolation_steps - env.step_dt) < 1e-9
         assert cfg.sim.gravity == (0.0, 0.0, -1.81)
         for i in range(2):
@@ -73,15 +73,15 @@ def main():
         ids = torch.arange(2, device=env.device)
         poses = cmd._build_object_trajectories(ids, torch.cat((current_pos, current_quat), dim=-1))
         world_pos, _ = combine_frame_transforms(
-            robot.data.root_pos_w[:, None].expand(-1, 42, -1),
-            robot.data.root_quat_w[:, None].expand(-1, 42, -1), poses[..., :3], poses[..., 3:]
+            robot.data.root_pos_w[:, None].expand(-1, cmd._stepper.length, -1),
+            robot.data.root_quat_w[:, None].expand(-1, cmd._stepper.length, -1), poses[..., :3], poses[..., 3:]
         )
         expected_above, _ = combine_frame_transforms(
             box.data.root_pos_w, box.data.root_quat_w,
             poses.new_tensor(cmd.cfg.above_box_offset).expand(2, -1),
         )
         torch.testing.assert_close(world_pos[:, 0], obj.data.root_pos_w, atol=1e-6, rtol=1e-6)
-        torch.testing.assert_close(world_pos[:, 29], expected_above, atol=1e-6, rtol=1e-6)
+        torch.testing.assert_close(world_pos[:, len(cmd._carry)], expected_above, atol=1e-6, rtol=1e-6)
         robot.data.root_pos_w[:] = original_root_pos
         robot.data.root_quat_w[:] = original_root_quat
         env.reset()
@@ -99,10 +99,10 @@ def main():
 
         # Exercise release/retreat and success gates using controlled real asset state.
         gate = LowLevelHandGate()
-        cmd._stepper.step[:] = 40
+        cmd._stepper.step[:] = cmd._stepper.length - 2
         cmd._update_keep_hand_open_metric()
         assert not gate.use_low_level_mask(env).any()
-        cmd._stepper.step[:] = 41
+        cmd._stepper.step[:] = cmd._stepper.length - 1
         cmd._update_hand_base_pose_command()
         cmd._update_keep_hand_open_metric()
         torch.testing.assert_close(cmd.hand_base_pose_command_b, cmd._default_hand_base_pose_b)
@@ -140,7 +140,7 @@ def main():
         torch.testing.assert_close(robot.data.joint_pos[1], displaced[1])
         torch.testing.assert_close(obj.data.root_state_w[1], other_object)
         torch.testing.assert_close(arm._ref_js.position[0], robot.data.joint_pos[0, arm._ordered_joint_ids])
-        assert cmd._stepper.step.tolist() == [0, 41]
+        assert cmd._stepper.step.tolist() == [0, cmd._stepper.length - 1]
         assert cmd.metrics["keep_hand_open"].tolist() == [1, 1]
         assert not cmd._grasp_goal_captured[0]
         fallen = obj.data.root_state_w.clone()

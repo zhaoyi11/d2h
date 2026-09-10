@@ -44,6 +44,7 @@ def main():
         from src.policy.high_level.gate import LowLevelHandGate
         assert LowLevelHandGate().use_low_level_mask(env).all()
         assert cmd.command.shape == (2, 14)
+        assert cmd._stepper.length == 49
         assert env.action_manager.get_term("arm_action").action_dim == 0
         mpc_cfg = env.action_manager.get_term("arm_action")._mpc.config
         assert abs(mpc_cfg.optimization_dt / mpc_cfg.interpolation_steps - env.step_dt) < 1e-9
