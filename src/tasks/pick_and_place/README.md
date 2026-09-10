@@ -21,7 +21,7 @@ The six stages are approach, confirm grasp, recorded carry, deposit, release,
 and retreat. Grasping requires 15 consecutive contact steps (0.5 seconds),
 with a 90-step retry timeout, to seat the pig before lifting. Carry frames
 320–511 run from the recording's pre-lift minimum to
-its height peak; every seventh frame and both endpoints are included. The
+its height peak; every 28th frame and both endpoints are included (8 recorded poses). The
 path is rotated about world Z and scaled in XY to reach the box. Height is
 scaled separately to reach 25 cm above the box origin. Relative object
 rotations start from the pig's live settled orientation. All recorded poses
@@ -44,7 +44,7 @@ recording's original 200 Hz. Object pose tolerances are 5 cm and 1.0 rad
 contact confirmation and box-placement success checks retain their existing
 settings. `pick_and_place_frame` reports the source frame
 during approach/grasp/carry and `-1` during synthetic deposit/release/retreat;
-`pick_and_place_progress` covers all 42 targets. Existing clean-table log lines
+`pick_and_place_progress` covers all 21 targets. Existing clean-table log lines
 report grasp and placement state.
 
 Task-local calibration lives in `PickAndPlaceTrajectoryCommandCfg` and
@@ -63,7 +63,7 @@ relative rotations and registration. Runtime checks use two real IsaacLab
 environments for support, settling, world/root transforms, manager dimensions,
 contact gating, release/retreat, success rejection and independent resets.
 The reset check also warms the MPC under `torch.inference_mode()` and forces
-an automatic timeout reset. The shared pouring reset helper temporarily enables
+an automatic timeout reset. The common `reset_arm_mpc` helper temporarily enables
 gradients only for cuRobo and replaces its inference-created action buffer with
 a normal tensor before reinitializing the optimizer.
 

@@ -132,7 +132,7 @@ class PouringTrajectoryCommand(TrajectoryObjectAndHandBasePoseCommand):
 class PouringTrajectoryCommandCfg(TrajectoryObjectAndHandBasePoseCommandCfg):
     class_type: type = PouringTrajectoryCommand
     trajectory_path: str = str(DEFAULT_TRAJECTORY)
-    trajectory_stride: int = 7
+    trajectory_stride: int = 28
     grasp_frame: int = 0
     initial_object_position: tuple[float, float, float] = (0.55, 0.10, 0.40)
     # Derived from the selected NPZ in the command constructor, before creating its stepper.

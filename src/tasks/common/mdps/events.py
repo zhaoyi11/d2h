@@ -329,6 +329,20 @@ class record_object_init_quat(ManagerTermBase):
             env.extras["object_init_quat"][env_ids] = root_quat_w[env_ids]
 
 
+def reset_arm_mpc(env, env_ids):
+    # cuRobo reinitialization needs autograd, including resets inside the inference-only runner.
+    # reset_seed() in the shared arm action only resets RNGs, leaving the old MPC trajectory.
+    arm = env.action_manager.get_term("arm_action")
+    # Keep IsaacLab state writes in their caller's mode; only the optimizer needs gradients.
+    with torch.inference_mode(False), torch.enable_grad():
+        state = arm._arm_joint_state()
+        arm._mpc.update_current_state(state)
+        # optimize_next_action() can replace this buffer with an inference tensor.
+        execution = arm._mpc.trajectory_execution_manager
+        execution.update_action_buffer(execution.get_action_buffer().clone())
+        arm._mpc.reset_robot_id(state, env_ids)
+
+
 class reset_joints_to_init_state(ManagerTermBase):
     """Reset an articulation's joints to the init_state joint_pos from config.
 

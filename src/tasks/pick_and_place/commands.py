@@ -60,7 +60,7 @@ class PickAndPlaceTrajectoryCommandCfg(CleanTableTrajectoryObjectAndHandBasePose
     trajectory_path: str = str(DEFAULT_TRAJECTORY)
     carry_start_frame: int = 320
     carry_end_frame: int = 511
-    trajectory_stride: int = 7
+    trajectory_stride: int = 28
     # The pig needs time to seat in the fingers before the arm starts lifting.
     grasp_contact_stable_steps: int = 15
     grasp_timeout_steps: int = 90

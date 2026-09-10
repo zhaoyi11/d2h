@@ -14,7 +14,7 @@ PIG_MESH = ASSET_DIR / "pick_and_place_pig/pick_and_place/visual.obj"
 DEPOSIT_STEPS = 10
 
 
-def load_carry_trajectory(path=DEFAULT_TRAJECTORY, start_frame=320, end_frame=511, stride=7):
+def load_carry_trajectory(path=DEFAULT_TRAJECTORY, start_frame=320, end_frame=511, stride=28):
     """Read original XYZ/WXYZ poses, retaining both ends of the lift/carry interval."""
     _, poses = load_object_trajectory(path)
     if any(not isinstance(value, int) for value in (start_frame, end_frame, stride)):

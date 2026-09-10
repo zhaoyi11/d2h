@@ -11,7 +11,7 @@ ASSET_DIR = Path(__file__).resolve().parent
 DEFAULT_TRAJECTORY = ASSET_DIR.parent / "pick_and_place/pouring_mano_isaac_trajectory.npz"
 
 
-def load_pouring_trajectory(path=DEFAULT_TRAJECTORY, stride=7, grasp_frame=0):
+def load_pouring_trajectory(path=DEFAULT_TRAJECTORY, stride=28, grasp_frame=0):
     """Return XYZ/WXYZ poses, source indices and reach/grasp/manipulation lengths.
 
     The first pose is repeated for contact confirmation before replaying the clip.

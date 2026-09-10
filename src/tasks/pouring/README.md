@@ -39,13 +39,18 @@ use a unique sign to represent matching orientations as positive identity.
 Frame 0 is duplicated for three consecutive thumb-plus-finger contact checks
 before manipulation. There is no scripted open-hand phase: the existing distance
 gate and frozen RL policy take over from the initialized grasp immediately. MPC controls
-the arm. Waypoints sample every seven frames and include frame 1299; advancement
-requires object error below **5 cm / 0.60 rad** and arm error below **5 cm / 0.40 rad**.
+the arm. Waypoints sample every 28 frames and include frame 1299, giving 49 targets
+including the duplicated grasp pose. Advancement requires object error below **5 cm / 0.60 rad** and arm error below **5 cm / 0.40 rad**.
 The final goal requires five consecutive achieved steps; episodes last 120 seconds.
 
 One MPC target is applied each 30 Hz control step, with a 0.1333 s optimizer
 interval and four interpolation steps. Reset restores joints, hand smoothing,
 and MPC state, including resets inside the runner's inference-mode loop.
+
+The table center is at `(0.55, 0.0, 0.035)`, placing its top at 5.5 cm. This is
+20 cm below the inherited clean-table height and clears the elbow during the
+pouring sweep. The previous height caused link 4 to contact the table and stall
+near recording frame 896.
 
 The object initially floats. Hand contact above **0.05 N** enables gravity
 `(0, 0, -1.81)` until reset. Contact history covers four physics substeps, and
@@ -65,10 +70,11 @@ gates, and contact-latched gravity. The startup regression requires object speed
 below 0.35 m/s during the first six control steps, progress beyond frame 0, and
 object-in-hand target error below 6 cm after 60 steps.
 
-A four-environment, 600-step launcher run with seed 1 keeps all four hand
-policies engaged. The logged first environment advances to recording frame 868
-with bottle contact maintained. This validates the new recording and initial
-grasp, but does not establish completion of all 1,300 frames.
+With the lowered table and the previous stride of 7, the four-environment launcher run with seed 1 passes
+the former frame-896 stall. The logged first environment reaches frame 1299 by
+control step 1200 and reports success from step 1500 through the end of the
+2400-step run, with bottle contact maintained. A separate seed-0 run reaches
+frame 1299 and the final success condition in both environments by step 1201.
 
 The policy consumes 155 observations and produces 16 hand actions. No liquid
 simulation or policy training is added. `clean_table`, shared controllers, and

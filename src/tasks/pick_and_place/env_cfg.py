@@ -15,9 +15,9 @@ from src.tasks.clean_table.env_cfg import (
     DexsuiteFrankaLeapCleanTableHrlEnvCfg,
     ObservationsCfg,
 )
+from src.tasks.common.mdps.events import reset_arm_mpc, reset_joints_to_init_state
 from src.tasks.pick_and_place.commands import PickAndPlaceTrajectoryCommandCfg
 from src.tasks.pick_and_place.trajectory import PIG_MESH, load_carry_trajectory
-from src.tasks.pouring.env_cfg import reset_robot_near_object
 
 
 @configclass
@@ -47,7 +47,11 @@ class PickAndPlaceEnvCfg(DexsuiteFrankaLeapCleanTableHrlEnvCfg):
         self.actions.arm_action.optimization_dt = (
             self.decimation * self.sim.dt * self.actions.arm_action.interpolation_steps
         )
-        self.events.reset_robot_joints = EventTermCfg(func=reset_robot_near_object, mode="reset")
+        self.events.reset_robot_joints = EventTermCfg(
+            func=reset_joints_to_init_state, mode="reset",
+            params={"joint_pos": self.scene.robot.init_state.joint_pos},
+        )
+        self.events.reset_arm_mpc = EventTermCfg(func=reset_arm_mpc, mode="reset")
 
         carry, _, _ = load_carry_trajectory(
             command.trajectory_path, command.carry_start_frame, command.carry_end_frame,
@@ -61,7 +65,7 @@ class PickAndPlaceEnvCfg(DexsuiteFrankaLeapCleanTableHrlEnvCfg):
         start_z = table_top - rotation.apply(vertices)[:, 2].min() + 0.002
         mesh = MeshConverter(MeshConverterCfg(
             asset_path=str(PIG_MESH), usd_dir="/tmp/d2h_pick_and_place_pig_usd",
-            make_instanceable=False, scale=(0.8, 0.8, 0.8),
+            make_instanceable=False, scale=(0.6, 0.6, 0.6),
             rigid_props=sim_utils.RigidBodyPropertiesCfg(
                 kinematic_enabled=False, disable_gravity=False, enable_gyroscopic_forces=True,
             ),

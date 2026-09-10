@@ -1,7 +1,5 @@
 """Recorded pouring with cuRobo arm control and a frozen LEAP hand policy."""
 
-import torch
-
 import isaaclab.sim as sim_utils
 from isaaclab.assets import RigidObjectCfg
 from isaaclab.managers import EventTermCfg
@@ -16,23 +14,9 @@ from src.tasks.clean_table.env_cfg import (
     HrlActionsCfg,
     ObservationsCfg,
 )
-from src.tasks.common.mdps.events import reset_joints_to_init_state
+from src.tasks.common.mdps.events import reset_arm_mpc, reset_joints_to_init_state
 from src.tasks.pouring.commands import PouringTrajectoryCommandCfg
 from src.tasks.pouring.trajectory import ASSET_DIR, load_pouring_trajectory
-
-
-def reset_pouring_mpc(env, env_ids):
-    # cuRobo reinitialization needs autograd, including resets inside the inference-only runner.
-    # reset_seed() in the shared arm action only resets RNGs, leaving the old MPC trajectory.
-    arm = env.action_manager.get_term("arm_action")
-    # Keep IsaacLab state writes in their caller's mode; only the optimizer needs gradients.
-    with torch.inference_mode(False), torch.enable_grad():
-        state = arm._arm_joint_state()
-        arm._mpc.update_current_state(state)
-        # optimize_next_action() can replace this buffer with an inference tensor.
-        execution = arm._mpc.trajectory_execution_manager
-        execution.update_action_buffer(execution.get_action_buffer().clone())
-        arm._mpc.reset_robot_id(state, env_ids)
 
 
 @configclass
@@ -70,6 +54,8 @@ class PouringEnvCfg(FrankaLeapMixinCfg, DexsuiteReorientEnvCfg):
         self.sim.gravity = (0.0, 0.0, -1.81)
         self.scene.num_envs = 1
         self.scene.lazy_sensor_update = False
+        # Keep the table below the elbow throughout the pouring sweep (top at 5.5 cm).
+        self.scene.table.init_state.pos = (0.55, 0.0, 0.035)
         self.scene.robot.actuators["joints"].stiffness = 0.0
         self.scene.robot.actuators["joints"].damping = 0.0
 
@@ -106,7 +92,7 @@ class PouringEnvCfg(FrankaLeapMixinCfg, DexsuiteReorientEnvCfg):
         self.events.reset_robot_joints = EventTermCfg(
             func=reset_joints_to_init_state, mode="reset", params={"joint_pos": initial_joint_pos},
         )
-        self.events.reset_arm_mpc = EventTermCfg(func=reset_pouring_mpc, mode="reset")
+        self.events.reset_arm_mpc = EventTermCfg(func=reset_arm_mpc, mode="reset")
 
         command = self.commands.object_pose
         poses, _, _ = load_pouring_trajectory(
