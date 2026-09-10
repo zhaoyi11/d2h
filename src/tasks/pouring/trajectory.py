@@ -4,7 +4,7 @@ from pathlib import Path
 
 import numpy as np
 
-from src.tasks.pick_and_place.vis_traj_isaaclab import load_object_trajectory
+from src.tasks.common.trajectory import load_object_trajectory
 
 
 ASSET_DIR = Path(__file__).resolve().parent

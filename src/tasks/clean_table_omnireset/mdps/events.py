@@ -7,23 +7,14 @@ from typing import TYPE_CHECKING
 import torch
 from isaaclab.managers import EventTermCfg, ManagerTermBase
 
+from src.tasks.common.mdps.events import _env_ids_tensor
+
 from .geometry import outside_box_state_indices
 from .reset_dataset import load_reset_state_pool
 from .task_mdps import BOX_MAX, BOX_MIN
 
 if TYPE_CHECKING:
     from isaaclab.envs import ManagerBasedEnv
-
-
-def _env_ids_tensor(env_ids, num_envs: int, device: torch.device) -> torch.Tensor:
-    if env_ids is None:
-        return torch.arange(num_envs, device=device, dtype=torch.long)
-    if isinstance(env_ids, slice):
-        start = 0 if env_ids.start is None else env_ids.start
-        stop = num_envs if env_ids.stop is None else env_ids.stop
-        step = 1 if env_ids.step is None else env_ids.step
-        return torch.arange(start, stop, step, device=device, dtype=torch.long)
-    return torch.as_tensor(env_ids, device=device, dtype=torch.long)
 
 
 class ResetSceneFromInstantDexterity(ManagerTermBase):

@@ -6,14 +6,13 @@
 from __future__ import annotations
 
 from dataclasses import MISSING, dataclass
-from pathlib import Path
 from re import I
 
 import numpy as np
 import torch
 
 import isaaclab.sim as sim_utils
-from isaaclab.assets import ArticulationCfg, AssetBaseCfg, RigidObjectCfg
+from isaaclab.assets import ArticulationCfg, RigidObjectCfg
 from isaaclab.envs import ManagerBasedRLEnvCfg
 from isaaclab.managers import EventTermCfg as EventTerm
 from isaaclab.managers import ObservationGroupCfg as ObsGroup
@@ -26,8 +25,14 @@ from isaaclab.scene import InteractiveSceneCfg
 from isaaclab.sim.simulation_cfg import PhysxCfg, SimulationCfg
 from isaaclab.sim import CapsuleCfg, ConeCfg, CuboidCfg, RigidBodyMaterialCfg, SphereCfg
 from isaaclab.sim.spawners.materials.physics_materials_cfg import RigidBodyMaterialCfg
-from isaaclab.sensors import ContactSensorCfg, FrameTransformerCfg, OffsetCfg
+from isaaclab.sensors import ContactSensorCfg
 from isaaclab.utils import configclass
+from src.tasks.common.env_cfg import (
+    fingertip_transforms_cfg,
+    get_visdex_usd_paths,
+    ground_plane_cfg,
+    light_cfg,
+)
 from isaaclab.utils.assets import ISAAC_NUCLEUS_DIR
 from isaaclab.utils.noise import AdditiveGaussianNoiseCfg as Gnoise
 from isaaclab.utils.noise import AdditiveUniformNoiseCfg as Unoise
@@ -43,22 +48,6 @@ from src.assets.franka_leap_hand.leap import LEAP_HAND_CFG
 UWLAB_CLOUD_ASSETS_DIR = "https://huggingface.co/datasets/UW-Lab/uwlab-assets/resolve/main"
 
 OBJ_CONTACT_SENSOR_FILTER_PRIM_PATHS_EXPR = "{ENV_REGEX_NS}/Object/baseLink"
-
-def _get_visdex_usd_paths() -> list[str]:
-    """Return sorted visdex USD asset paths bundled with this repo."""
-    usd_root = Path(__file__).resolve().parents[2] / "assets" / "visdex_objects" / "USD"
-    if not usd_root.is_dir():
-        raise FileNotFoundError(f"visdex USD asset directory does not exist: {usd_root}")
-
-    usd_paths: list[str] = []
-    for object_dir in sorted(path for path in usd_root.iterdir() if path.is_dir()):
-        usd_path = object_dir / f"{object_dir.name}.usd"
-        if usd_path.is_file():
-            usd_paths.append(str(usd_path))
-
-    if not usd_paths:
-        raise ValueError(f"No visdex USD assets found in: {usd_root}")
-    return usd_paths
 
 
 @configclass
@@ -91,7 +80,7 @@ class InHandObjectSceneCfg(InteractiveSceneCfg):
     object: RigidObjectCfg = RigidObjectCfg(
         prim_path="{ENV_REGEX_NS}/Object",
         spawn=sim_utils.MultiUsdFileCfg(
-            usd_path=_get_visdex_usd_paths(),
+            usd_path=get_visdex_usd_paths(),
             # random_choice=True,
             random_choice=False,
             articulation_props=sim_utils.ArticulationRootPropertiesCfg(
@@ -113,17 +102,9 @@ class InHandObjectSceneCfg(InteractiveSceneCfg):
     )
 
     # plane
-    plane = AssetBaseCfg(
-        prim_path="/World/GroundPlane",
-        init_state=AssetBaseCfg.InitialStateCfg(pos=(0.0, 0.0, -0.5)),
-        spawn=sim_utils.GroundPlaneCfg(),
-        collision_group=-1,
-    )
+    plane = ground_plane_cfg(pos=(0.0, 0.0, -0.5))
 
-    light = AssetBaseCfg(
-        prim_path="/World/light",
-        spawn=sim_utils.DomeLightCfg(color=(0.75, 0.75, 0.75), intensity=3000.0),
-    )
+    light = light_cfg()
 
 
 ##
@@ -207,7 +188,7 @@ class ObservationsCfg:
 
         # binary contact mask per fingertip (4 dims)
         contact_mask = ObsTerm(
-            func=task_mdps.tip_contact_mask_obs,
+            func=mdp.tip_contact_mask_obs,
             params={
                 "contact_sensor_names": [
                     "thumb_tip_object_s",
@@ -221,7 +202,7 @@ class ObservationsCfg:
 
         # per-fingertip contact force magnitude (4 dims)
         contact_force_mag = ObsTerm(
-            func=task_mdps.tip_contact_force_mag_obs,
+            func=mdp.tip_contact_force_mag_obs,
             params={
                 "contact_sensor_names": [
                     "thumb_tip_object_s",
@@ -236,7 +217,7 @@ class ObservationsCfg:
         # per-fingertip contact pose (theta, phi) in fingertip frame, flattened (8 dims)
         # TOOD: check this
         contact_pose = ObsTerm(
-            func=task_mdps.tip_contact_pose_flat,
+            func=mdp.tip_contact_pose_flat,
             params={
                 "contact_sensor_names": [
                     "thumb_tip_object_s",
@@ -694,28 +675,9 @@ class LeapObjectEnvCfg(InHandObjectEnvCfg):
         self.scene.robot = LEAP_HAND_CFG.replace(prim_path="{ENV_REGEX_NS}/Robot")
 
         # attach transform sensors to fingertip links for contact-based rewards/observations
-        self.scene.fingertip_transforms = FrameTransformerCfg(
-            prim_path="{ENV_REGEX_NS}/Robot/base",
-            target_frames=[
-                FrameTransformerCfg.FrameCfg(
-                    prim_path="{ENV_REGEX_NS}/Robot/thumb_fingertip",
-                    offset=OffsetCfg(pos=(0.0, -0.045, -0.015)),
-                ),
-                FrameTransformerCfg.FrameCfg(
-                    prim_path="{ENV_REGEX_NS}/Robot/fingertip",
-                    offset=OffsetCfg(pos=(0.0, -0.03, 0.015)),
-                ),
-                FrameTransformerCfg.FrameCfg(
-                    prim_path="{ENV_REGEX_NS}/Robot/fingertip_2",
-                    offset=OffsetCfg(pos=(0.0, -0.03, 0.015)),
-                ),
-                FrameTransformerCfg.FrameCfg(
-                    prim_path="{ENV_REGEX_NS}/Robot/fingertip_3",
-                    offset=OffsetCfg(pos=(0.0, -0.03, 0.015)),
-                ),
-            ],
-            debug_vis=False,
-            visualizer_cfg=FRAME_MARKER_CFG.replace(
+        self.scene.fingertip_transforms = fingertip_transforms_cfg(
+            hand_prim_path="{ENV_REGEX_NS}/Robot",
+        ).replace(visualizer_cfg=FRAME_MARKER_CFG.replace(
                 prim_path="/Visuals/FrameTransformer",
                 markers={
                     "frame": FRAME_MARKER_CFG.markers["frame"].replace(
@@ -725,8 +687,7 @@ class LeapObjectEnvCfg(InHandObjectEnvCfg):
                         "connecting_line"
                     ].replace(radius=0.0005),
                 },
-            ),
-        )
+            ))
 
         # attach contact sensors to fingertip links for contact-based rewards/observations
         # Note: use net force here, all forces are considered.

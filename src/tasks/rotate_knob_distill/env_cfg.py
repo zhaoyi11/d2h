@@ -15,10 +15,13 @@ from isaaclab.scene import InteractiveSceneCfg
 from isaaclab.sensors import ContactSensorCfg, FrameTransformerCfg, OffsetCfg
 from isaaclab.sim.simulation_cfg import PhysxCfg, SimulationCfg
 from isaaclab.utils import configclass
+from src.tasks.common.env_cfg import (
+    light_cfg,
+)
 
 from src.assets.franka_leap_hand.leap import LEAP_HAND_CFG
 import src.tasks.rotate_knob_distill.mdps as mdp
-from src.tasks.rotate_knob.env_cfg import ObservationsCfg as RotateObjectObservationsCfg
+from src.tasks.common.observations_cfg import LowLevelObsCfg
 
 
 ASSETS_DIR = Path(__file__).resolve().parents[2] / "assets"
@@ -63,10 +66,7 @@ class SceneCfg(InteractiveSceneCfg):
         init_state=AssetBaseCfg.InitialStateCfg(pos=(0.0, 0.0, -0.5)),
         collision_group=-1,
     )
-    light = AssetBaseCfg(
-        prim_path="/World/light",
-        spawn=sim_utils.DomeLightCfg(color=(0.75, 0.75, 0.75), intensity=3000.0),
-    )
+    light = light_cfg()
 
     fingertip_transforms = FrameTransformerCfg(
         prim_path="{ENV_REGEX_NS}/Robot/base",
@@ -124,7 +124,7 @@ class ObservationsCfg:
             self.concatenate_terms = True
 
     policy: StudentCfg = StudentCfg()
-    low_level: RotateObjectObservationsCfg.LowLevelObsCfg = RotateObjectObservationsCfg.LowLevelObsCfg()
+    low_level: LowLevelObsCfg = LowLevelObsCfg()
 
 
 @configclass

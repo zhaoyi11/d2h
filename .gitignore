@@ -92,3 +92,10 @@ tests/tasks/unscrew/*
 
 # Local feature worktrees
 .worktrees/
+
+# Shared task refactor regression checks
+!tests/tasks/test_common_contacts.py
+!tests/tasks/check_task_configs.py
+!tests/tasks/check_task_runtime.py
+!tests/tasks/test_common_observation_body_state.py
+!tests/tasks/test_pick_anyrotate_hrl.py

@@ -23,6 +23,8 @@ from src.tasks.pick_insert_omnireset.mdps.geometry import (
     peg_inside_rectangular_hole,
 )
 
+from src.tasks.common.mdps.terminations import object_outside_table
+
 if TYPE_CHECKING:
     from isaaclab.envs import ManagerBasedRLEnv
 
@@ -91,27 +93,6 @@ def object_lifted_above_table(
     table: RigidObject = env.scene[table_cfg.name]
     table_top_z = table.data.root_pos_w[:, 2] + table_half_height
     return torch.clamp((object_asset.data.root_pos_w[:, 2] - table_top_z) / height, 0.0, 1.0)
-
-
-def object_outside_table(
-    env: ManagerBasedRLEnv,
-    table_half_extents: tuple[float, float] = (0.4, 0.75),
-    table_half_height: float = 0.02,
-    object_cfg: SceneEntityCfg = SceneEntityCfg("object"),
-    table_cfg: SceneEntityCfg = SceneEntityCfg("table"),
-) -> torch.Tensor:
-    object_asset: RigidObject = env.scene[object_cfg.name]
-    table: RigidObject = env.scene[table_cfg.name]
-    position, _ = subtract_frame_transforms(
-        table.data.root_pos_w,
-        table.data.root_quat_w,
-        object_asset.data.root_pos_w,
-        None,
-    )
-    half_extents = position.new_tensor(table_half_extents)
-    outside_footprint = (position[:, :2].abs() > half_extents).any(dim=1)
-    below_surface = position[:, 2] < table_half_height
-    return outside_footprint | below_surface
 
 
 class DenseAssemblyPose(ManagerTermBase):

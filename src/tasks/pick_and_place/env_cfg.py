@@ -5,16 +5,20 @@ from scipy.spatial.transform import Rotation
 
 import isaaclab.sim as sim_utils
 from isaaclab.assets import RigidObjectCfg
-from isaaclab.managers import EventTermCfg
+from isaaclab.managers import EventTermCfg, SceneEntityCfg
 from isaaclab.sim.converters import MeshConverter, MeshConverterCfg
 from isaaclab.utils import configclass
 
 from src.policy.high_level.trajectory_stepper import StageObjTol
-from src.tasks.clean_table.env_cfg import (
-    CommandsCfg as CleanTableCommandsCfg,
-    DexsuiteFrankaLeapCleanTableHrlEnvCfg,
-    ObservationsCfg,
+from src.policy.high_level.anchor_correction import AnchorCorrectionCfg
+from isaaclab.envs import ManagerBasedRLEnvCfg, ViewerCfg
+from isaaclab.sim.simulation_cfg import SimulationCfg
+from src.tasks.common.env_cfg import (
+    HrlActionsCfg, ObjectTerminationsCfg, PlacementRewardsCfg, TabletopEventsCfg,
+    TabletopSceneCfg, configure_contact_physics, configure_fingertip_contacts,
+    configure_success_visualization, fingertip_transforms_cfg, tote_cfg,
 )
+from src.tasks.common.observations_cfg import LowLevelObsCfg
 from src.tasks.common.mdps.events import reset_arm_mpc, reset_joints_to_init_state
 from src.tasks.pick_and_place.commands import PickAndPlaceTrajectoryCommandCfg
 from src.tasks.pick_and_place.trajectory import PIG_MESH, load_carry_trajectory
@@ -28,16 +32,57 @@ class CommandsCfg:
         enable_drop_recovery=True, capture_goal_after_settle=True,
         recovery_settle_speed=0.05, recovery_settle_steps=5,
         recovery_arm_after_stage=1, grasp_stall_steps=60, hand_open_until_stage=0,
-        correction=CleanTableCommandsCfg().object_pose.correction,
+        hand_base_hold_until_stage=1, drop_object_hand_distance=0.12, lift_height=0.10,
+        correction=AnchorCorrectionCfg(
+            enable=True, slew_pos=1.0, slew_rot=10.0, max_pos=0.05, max_rot=0.2,
+            anchor_achieved_pos=0.01, anchor_achieved_rot=0.05,
+            stall_window=5, stall_delta_pos=0.003, stall_delta_rot=0.01,
+        ),
     )
 
 
 @configclass
-class PickAndPlaceEnvCfg(DexsuiteFrankaLeapCleanTableHrlEnvCfg):
+class SceneCfg(TabletopSceneCfg):
+    receptive_object = tote_cfg()
+
+
+@configclass
+class ObservationsCfg:
+    policy: LowLevelObsCfg = LowLevelObsCfg()
+    proprio: None = None
+    perception: None = None
+    low_level: LowLevelObsCfg = LowLevelObsCfg()
+
+
+@configclass
+class PickAndPlaceEnvCfg(ManagerBasedRLEnvCfg):
+    viewer: ViewerCfg = ViewerCfg(
+        eye=(2.25, 0.0, 0.75), lookat=(0.0, 0.0, 0.45), origin_type="env",
+    )
+    scene: SceneCfg = SceneCfg(num_envs=1, env_spacing=3, replicate_physics=False)
+    sim: SimulationCfg = SimulationCfg(gravity=(0.0, 0.0, -1.81))
+    observations: ObservationsCfg = ObservationsCfg()
+    rewards: PlacementRewardsCfg = PlacementRewardsCfg()
+    terminations: ObjectTerminationsCfg = ObjectTerminationsCfg()
+    events: TabletopEventsCfg = TabletopEventsCfg()
+    curriculum = None
     commands: CommandsCfg = CommandsCfg()
+    actions: HrlActionsCfg = HrlActionsCfg()
 
     def __post_init__(self):
-        super().__post_init__()
+        self.decimation = 4
+        self.is_finite_horizon = True
+        self.sim.dt = 1 / 120
+        self.sim.render_interval = self.decimation
+        configure_contact_physics(self.sim)
+        configure_success_visualization(self.commands.object_pose, self.scene.table)
+        self.scene.fingertip_transforms = fingertip_transforms_cfg()
+        configure_fingertip_contacts(self.scene, ["{ENV_REGEX_NS}/Object", "{ENV_REGEX_NS}/ReceptiveObject", "{ENV_REGEX_NS}/Table"])
+        self.rewards.fingers_to_object.params["asset_cfg"] = SceneEntityCfg(
+            "robot", body_names=[".*fingertip.*"],
+        )
+        self.scene.robot.actuators["joints"].stiffness = 0.0
+        self.scene.robot.actuators["joints"].damping = 0.0
         command = self.commands.object_pose
         command.stage_object_tolerances = (StageObjTol(0.05, 1.0),) * 6
         self.episode_length_s = 120.0
@@ -80,11 +125,7 @@ class PickAndPlaceEnvCfg(DexsuiteFrankaLeapCleanTableHrlEnvCfg):
                 pos=(0.55, 0.10, float(start_z)), rot=tuple(float(v) for v in carry[0, 3:]),
             ),
         )
-        for name in ("thumb_fingertip", "fingertip", "fingertip_2", "fingertip_3"):
-            getattr(self.scene, f"{name}_object_s").filter_prim_paths_expr = [
-                "{ENV_REGEX_NS}/Object", "{ENV_REGEX_NS}/ReceptiveObject", "{ENV_REGEX_NS}/Table",
-            ]
-        low_level = ObservationsCfg.LowLevelObsCfg()
+        low_level = LowLevelObsCfg()
         low_level.goal_quat_diff.params["make_quat_unique"] = True
         self.observations.low_level = low_level
         self.observations.policy = low_level.copy()

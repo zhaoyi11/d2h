@@ -3,7 +3,10 @@
 #
 # SPDX-License-Identifier: BSD-3-Clause
 
-from dataclasses import MISSING
+from src.tasks.common.observations_cfg import (
+    ProprioObsCfg,
+    PerceptionObsCfg,
+)
 from pathlib import Path
 
 import isaaclab.sim as sim_utils
@@ -16,9 +19,16 @@ from isaaclab.managers import RewardTermCfg as RewTerm
 from isaaclab.managers import SceneEntityCfg
 from isaaclab.managers import TerminationTermCfg as DoneTerm
 from isaaclab.scene import InteractiveSceneCfg
-from isaaclab.sensors import ContactSensorCfg, FrameTransformerCfg, OffsetCfg
 from isaaclab.sim.simulation_cfg import SimulationCfg
 from isaaclab.utils import configclass
+from src.tasks.common.env_cfg import (
+    ArmHandActionsCfg,
+    configure_contact_physics,
+    configure_fingertip_contacts,
+    fingertip_contact_observation,
+    fingertip_transforms_cfg,
+    light_cfg,
+)
 from isaaclab.utils.noise import AdditiveUniformNoiseCfg as Unoise
 
 import src.tasks.common.mdps as task_mdps
@@ -98,10 +108,7 @@ class SceneCfg(InteractiveSceneCfg):
         spawn=sim_utils.GroundPlaneCfg(),
         collision_group=-1,
     )
-    light = AssetBaseCfg(
-        prim_path="/World/light",
-        spawn=sim_utils.DomeLightCfg(color=(0.75, 0.75, 0.75), intensity=3000.0),
-    )
+    light = light_cfg()
 
 
 @configclass
@@ -128,58 +135,10 @@ class ObservationsCfg:
             self.concatenate_terms = True
             self.history_length = 5
 
-    @configclass
-    class ProprioObsCfg(ObsGroup):
-        joint_pos = ObsTerm(func=task_mdps.joint_pos, noise=Unoise(n_min=0.0, n_max=0.0))
-        joint_vel = ObsTerm(func=task_mdps.joint_vel, noise=Unoise(n_min=0.0, n_max=0.0))
-        hand_tips_state_b = ObsTerm(
-            func=task_mdps.body_state_b,
-            noise=Unoise(n_min=0.0, n_max=0.0),
-            clip=(-2.0, 2.0),
-            params={
-                "body_asset_cfg": SceneEntityCfg("robot"),
-                "base_asset_cfg": SceneEntityCfg("robot"),
-            },
-        )
-        contact: ObsTerm = MISSING
-
-        def __post_init__(self):
-            self.enable_corruption = True
-            self.concatenate_terms = True
-            self.history_length = 5
-
-    @configclass
-    class PerceptionObsCfg(ObsGroup):
-        object_point_cloud = ObsTerm(
-            func=task_mdps.object_point_cloud_b,
-            noise=Unoise(n_min=0.0, n_max=0.0),
-            clip=(-2.0, 2.0),
-            params={"num_points": 64, "flatten": True},
-        )
-
-        def __post_init__(self):
-            self.enable_corruption = True
-            self.concatenate_dim = 0
-            self.concatenate_terms = True
-            self.flatten_history_dim = True
-            self.history_length = 5
 
     policy: PolicyCfg = PolicyCfg()
     proprio: ProprioObsCfg = ProprioObsCfg()
     perception: PerceptionObsCfg = PerceptionObsCfg()
-
-
-@configclass
-class ActionsCfg:
-    arm_action = task_mdps.RelativeJointPositionActionCfg(
-        asset_name="robot", joint_names=["panda_joint.*"], scale=0.1
-    )
-    hand_action = task_mdps.EMAJointPositionToLimitsActionCfg(
-        asset_name="robot",
-        joint_names=["a_.*"],
-        alpha=0.5,
-        rescale_to_limits=True,
-    )
 
 
 @configclass
@@ -301,7 +260,7 @@ class DexsuiteFrankaLeapCleanTableOmniResetEnvCfg(ManagerBasedRLEnvCfg):
     scene: SceneCfg = SceneCfg(num_envs=4096, env_spacing=3, replicate_physics=False)
     sim: SimulationCfg = SimulationCfg(gravity=(0.0, 0.0, -9.81))
     observations: ObservationsCfg = ObservationsCfg()
-    actions: ActionsCfg = ActionsCfg()
+    actions: ArmHandActionsCfg = ArmHandActionsCfg()
     commands = None
     rewards: RewardsCfg = RewardsCfg()
     terminations: TerminationsCfg = TerminationsCfg()
@@ -309,52 +268,10 @@ class DexsuiteFrankaLeapCleanTableOmniResetEnvCfg(ManagerBasedRLEnvCfg):
     curriculum = None
 
     def __post_init__(self):
-        finger_tip_body_list = [
-            "thumb_fingertip",
-            "fingertip",
-            "fingertip_2",
-            "fingertip_3",
-        ]
-        self.scene.fingertip_transforms = FrameTransformerCfg(
-            prim_path="{ENV_REGEX_NS}/Robot/Franka_LeapHand/leap_hand_right/base",
-            target_frames=[
-                FrameTransformerCfg.FrameCfg(
-                    prim_path="{ENV_REGEX_NS}/Robot/Franka_LeapHand/leap_hand_right/thumb_fingertip",
-                    offset=OffsetCfg(pos=(0.0, -0.045, -0.015)),
-                ),
-                FrameTransformerCfg.FrameCfg(
-                    prim_path="{ENV_REGEX_NS}/Robot/Franka_LeapHand/leap_hand_right/fingertip",
-                    offset=OffsetCfg(pos=(0.0, -0.03, 0.015)),
-                ),
-                FrameTransformerCfg.FrameCfg(
-                    prim_path="{ENV_REGEX_NS}/Robot/Franka_LeapHand/leap_hand_right/fingertip_2",
-                    offset=OffsetCfg(pos=(0.0, -0.03, 0.015)),
-                ),
-                FrameTransformerCfg.FrameCfg(
-                    prim_path="{ENV_REGEX_NS}/Robot/Franka_LeapHand/leap_hand_right/fingertip_3",
-                    offset=OffsetCfg(pos=(0.0, -0.03, 0.015)),
-                ),
-            ],
-            debug_vis=False,
-        )
-        for link_name in finger_tip_body_list:
-            setattr(
-                self.scene,
-                f"{link_name}_object_s",
-                ContactSensorCfg(
-                    prim_path="{ENV_REGEX_NS}/Robot/Franka_LeapHand/leap_hand_right/" + link_name,
-                    filter_prim_paths_expr=contact_filter_prim_paths(),
-                    debug_vis=False,
-                ),
-            )
-        self.observations.proprio.contact = ObsTerm(
-            func=task_mdps.fingers_contact_force_b,
-            params={
-                "contact_sensor_names": [f"{link}_object_s" for link in finger_tip_body_list],
-                "filter_indices": object_indices(),
-            },
-            clip=(-20.0, 20.0),
-        )
+
+        self.scene.fingertip_transforms = fingertip_transforms_cfg()
+        configure_fingertip_contacts(self.scene, contact_filter_prim_paths())
+        self.observations.proprio.contact = fingertip_contact_observation(filter_indices=object_indices())
         self.observations.proprio.hand_tips_state_b.params["body_asset_cfg"].body_names = [
             ".*fingertip.*"
         ]
@@ -367,17 +284,7 @@ class DexsuiteFrankaLeapCleanTableOmniResetEnvCfg(ManagerBasedRLEnvCfg):
         self.is_finite_horizon = True
         self.sim.dt = 1 / 120
         self.sim.render_interval = self.decimation
-        self.sim.physx.solver_type = 1
-        self.sim.physx.max_position_iteration_count = 192
-        self.sim.physx.max_velocity_iteration_count = 1
-        self.sim.physx.bounce_threshold_velocity = 0.02
-        self.sim.physx.friction_offset_threshold = 0.01
-        self.sim.physx.friction_correlation_distance = 0.0005
-        self.sim.physx.gpu_found_lost_aggregate_pairs_capacity = 2**22
-        self.sim.physx.gpu_total_aggregate_pairs_capacity = 2**23
-        self.sim.physx.gpu_max_rigid_contact_count = 2**23
-        self.sim.physx.gpu_max_rigid_patch_count = 2**23
-        self.sim.physx.gpu_collision_stack_size = 2**30
+        configure_contact_physics(self.sim, found_lost_pairs=2**22, collision_stack_size=2**30)
 
 
 __all__ = ["DexsuiteFrankaLeapCleanTableOmniResetEnvCfg"]

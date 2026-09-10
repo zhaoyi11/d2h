@@ -72,7 +72,10 @@ def test_pick_insert_uses_intended_absolute_mass_range() -> None:
 
 def test_clean_table_uses_pick_anyrotate_mass_baseline() -> None:
     tree = ast.parse((REPO_ROOT / "src/tasks/clean_table/env_cfg.py").read_text())
-    event_cfg = _class(tree, "EventCfg")
+    common_tree = ast.parse((REPO_ROOT / "src/tasks/common/env_cfg.py").read_text())
+    base_env = _class(tree, "DexsuiteReorientEnvCfg")
+    assert ast.unparse(_assigned_call(base_env, "events")) == "TabletopEventsCfg()"
+    event_cfg = _class(common_tree, "TabletopEventsCfg")
     mass_event = _assigned_call(event_cfg, "object_scale_mass")
     params = _keyword(mass_event, "params")
     assert tuple(ast.literal_eval(_dict_value(params, "mass_distribution_params"))) == (0.2, 2.0)

@@ -7,6 +7,8 @@ from typing import TYPE_CHECKING
 import torch
 from isaaclab.managers import EventTermCfg, ManagerTermBase
 
+from src.tasks.common.mdps.events import _env_ids_tensor
+
 from .asset_geometry import insertion_geometry_from_assets
 from .reset_dataset import (
     _sample_curriculum_state_indices,
@@ -15,17 +17,6 @@ from .reset_dataset import (
 
 if TYPE_CHECKING:
     from isaaclab.envs import ManagerBasedEnv
-
-
-def _env_ids_tensor(env_ids, num_envs: int, device: torch.device) -> torch.Tensor:
-    if env_ids is None:
-        return torch.arange(num_envs, device=device, dtype=torch.long)
-    if isinstance(env_ids, slice):
-        start = 0 if env_ids.start is None else env_ids.start
-        stop = num_envs if env_ids.stop is None else env_ids.stop
-        step = 1 if env_ids.step is None else env_ids.step
-        return torch.arange(start, stop, step, device=device, dtype=torch.long)
-    return torch.as_tensor(env_ids, device=device, dtype=torch.long)
 
 
 class ResetSceneFromInstantDexterity(ManagerTermBase):

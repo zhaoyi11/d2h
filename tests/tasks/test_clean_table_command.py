@@ -16,10 +16,12 @@ def _load_commands_module():
     module_names = (
         "isaaclab",
         "isaaclab.assets",
+        "isaaclab.managers",
         "isaaclab.utils",
         "isaaclab.utils.math",
         "src.policy.high_level.trajectory_command",
         "src.tasks.common.mdps.rewards",
+        "src.tasks.common.mdps.placement",
         "src.tasks.clean_table.mdps",
         "src.tasks.clean_table.mdps.trajectory",
     )
@@ -30,7 +32,13 @@ def _load_commands_module():
     utils = types.ModuleType("isaaclab.utils")
     math_module = types.ModuleType("isaaclab.utils.math")
     assets.RigidObject = object
+    assets.Articulation = object
+    managers = types.ModuleType("isaaclab.managers")
+    managers.SceneEntityCfg = lambda name: SimpleNamespace(name=name)
     utils.configclass = lambda cls: cls
+    math_module.quat_apply_inverse = lambda quat, value: value
+    math_module.quat_inv = lambda quat: quat
+    math_module.quat_mul = lambda first, second: second
     math_module.subtract_frame_transforms = (
         lambda root_pos, root_quat, body_pos, body_quat: (body_pos - root_pos, body_quat)
     )
@@ -87,12 +95,19 @@ def _load_commands_module():
 
     sys.modules["isaaclab"] = isaaclab
     sys.modules["isaaclab.assets"] = assets
+    sys.modules["isaaclab.managers"] = managers
     sys.modules["isaaclab.utils"] = utils
     sys.modules["isaaclab.utils.math"] = math_module
     sys.modules["src.policy.high_level.trajectory_command"] = trajectory_command
     sys.modules["src.tasks.common.mdps.rewards"] = common_rewards
     sys.modules["src.tasks.clean_table.mdps"] = mdps_package
     sys.modules["src.tasks.clean_table.mdps.trajectory"] = trajectory
+
+    placement_spec = importlib.util.spec_from_file_location(
+        "src.tasks.common.mdps.placement",
+        REPO_ROOT / "src/tasks/common/mdps/placement.py",
+    )
+    placement = importlib.util.module_from_spec(placement_spec)
 
     spec = importlib.util.spec_from_file_location(
         "clean_table_commands_under_test",
@@ -101,6 +116,8 @@ def _load_commands_module():
     assert spec is not None and spec.loader is not None
     module = importlib.util.module_from_spec(spec)
     try:
+        sys.modules[placement_spec.name] = placement
+        placement_spec.loader.exec_module(placement)
         spec.loader.exec_module(module)
     finally:
         for name, old_module in previous.items():
@@ -108,10 +125,10 @@ def _load_commands_module():
                 sys.modules.pop(name, None)
             else:
                 sys.modules[name] = old_module
-    return module
+    return module, placement
 
 
-commands = _load_commands_module()
+commands, placement = _load_commands_module()
 
 
 def _command_with_stages(stages: torch.Tensor):
@@ -182,12 +199,12 @@ def test_grasp_confirmation_matches_pick_anyrotate_contact_streak() -> None:
     command._grasp_phase_steps = torch.zeros(1, dtype=torch.long)
     command._grasp_contact_streak = torch.tensor([2], dtype=torch.long)
     command._steps_since_reset = torch.zeros(1, dtype=torch.long)
-    previous_contacts = commands.good_object_contact
-    commands.good_object_contact = lambda env, threshold: torch.ones(1, dtype=torch.bool)
+    previous_contacts = placement.good_object_contact
+    placement.good_object_contact = lambda env, threshold: torch.ones(1, dtype=torch.bool)
     try:
         command._update_grasp_establish()
     finally:
-        commands.good_object_contact = previous_contacts
+        placement.good_object_contact = previous_contacts
 
     torch.testing.assert_close(command._grasp_contact_streak, torch.tensor([3]))
     torch.testing.assert_close(command._trajectory_command_achieved, torch.tensor([True]))
@@ -263,3 +280,22 @@ def test_success_requires_stable_containment_after_retreat_and_hand_clearance() 
     torch.testing.assert_close(command.released, torch.tensor([True, True]))
     torch.testing.assert_close(command.hand_clear, torch.tensor([True, True]))
     torch.testing.assert_close(command.success, torch.tensor([True, False]))
+
+
+def test_shared_placement_rewards_read_the_selected_command() -> None:
+    context = SimpleNamespace(
+        object_height_above_table=torch.tensor([-0.01, 0.04, 0.16]),
+        object_to_box_distance=torch.tensor([0.0, 0.0, 0.35]),
+        lifted=torch.tensor([False, True, True]),
+        inside_box=torch.tensor([False, True, True]),
+        success=torch.tensor([False, False, True]),
+    )
+    env = SimpleNamespace(command_manager=SimpleNamespace(
+        get_term=lambda name: {"placement": context}[name],
+    ))
+    torch.testing.assert_close(placement.lift_reward(env, "placement"), torch.tensor([0.0, 0.5, 1.0]))
+    torch.testing.assert_close(
+        placement.transport_reward(env, "placement"), torch.tensor([0.0, 1.0, 0.23840584]),
+    )
+    torch.testing.assert_close(placement.inside_box_reward(env, "placement"), torch.tensor([0.0, 1.0, 1.0]))
+    torch.testing.assert_close(placement.place_success_reward(env, "placement"), torch.tensor([0.0, 0.0, 1.0]))

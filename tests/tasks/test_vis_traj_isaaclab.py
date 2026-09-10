@@ -17,6 +17,8 @@ spec = importlib.util.spec_from_file_location("vis_traj_isaaclab", SCRIPT)
 viewer = importlib.util.module_from_spec(spec)
 spec.loader.exec_module(viewer)
 
+from src.tasks.common.trajectory import load_object_trajectory
+
 
 class ObjectReplayTest(unittest.TestCase):
     def test_mano_recordings(self):
@@ -29,7 +31,7 @@ class ObjectReplayTest(unittest.TestCase):
         ):
             with self.subTest(path=path):
                 original = path.read_bytes()
-                times, poses = viewer.load_object_trajectory(path)
+                times, poses = load_object_trajectory(path)
                 hand_poses, points = load_trajectory(path)
                 np.testing.assert_allclose(poses, hand_poses)
                 np.testing.assert_allclose(times, np.arange(count) / 200)
@@ -66,13 +68,13 @@ class ObjectReplayTest(unittest.TestCase):
     def test_keypoint_recording(self):
         path = SCRIPT.with_name("pickandplace_trajectory_keypoints.npz")
         original = path.read_bytes()
-        times, poses = viewer.load_object_trajectory(path)
+        times, poses = load_object_trajectory(path)
         self.assertEqual(poses.shape, (91, 7))
         np.testing.assert_allclose(times, np.arange(91) / 30)
         with np.load(path, allow_pickle=False) as data:
             np.testing.assert_array_equal(poses[:, :3], data["qpos_obj_right"][:, :3])
             np.testing.assert_allclose(poses[:, 3:], data["qpos_obj_right"][:, 3:], atol=1e-7)
-        faster_times, faster_poses = viewer.load_object_trajectory(path, fps=60)
+        faster_times, faster_poses = load_object_trajectory(path, fps=60)
         np.testing.assert_array_equal(faster_poses, poses)
         np.testing.assert_allclose(faster_times, times / 2)
         self.assertEqual(path.read_bytes(), original)
@@ -80,7 +82,7 @@ class ObjectReplayTest(unittest.TestCase):
     def test_original_recording(self):
         path = SCRIPT.with_name("23963_mano_isaac_trajectory.npz")
         original = path.read_bytes()
-        times, poses = viewer.load_object_trajectory(path)
+        times, poses = load_object_trajectory(path)
         self.assertEqual(poses.shape, (1300, 7))
         np.testing.assert_allclose(times[[0, -1]], [0, 6.495])
         with np.load(path, allow_pickle=False) as data:
@@ -95,7 +97,7 @@ class ObjectReplayTest(unittest.TestCase):
         with tempfile.TemporaryDirectory() as directory:
             path = Path(directory) / "object.npz"
             np.savez(path, **arrays)
-            times, poses = viewer.load_object_trajectory(path)
+            times, poses = load_object_trajectory(path)
             np.testing.assert_array_equal(times, [0, .125, .375])
             np.testing.assert_array_equal(poses[:, 3:], np.tile([1, 0, 0, 0], (3, 1)))
             invalid = [
@@ -114,7 +116,7 @@ class ObjectReplayTest(unittest.TestCase):
                 with self.subTest(data=data):
                     np.savez(path, **data)
                     with self.assertRaises(ValueError):
-                        viewer.load_object_trajectory(path)
+                        load_object_trajectory(path)
 
     def test_timestamp_selection_hold_and_loop(self):
         times = np.array([0, .125, .375])

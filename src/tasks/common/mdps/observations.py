@@ -22,6 +22,7 @@ from isaaclab.utils.math import (
 )
 
 from src.tasks.common.obj_point_cloud import sample_object_point_cloud
+from src.tasks.common.mdps.contacts import _compute_contact_metrics
 
 if TYPE_CHECKING:
     from .commands import InHandReOrientationCommand
@@ -713,3 +714,58 @@ def goal_pos_diff(
         goal_pos = goal_pos_w
 
     return asset_pos - goal_pos
+
+
+def tip_contact_mask_obs(
+    env: "ManagerBasedRLEnv",
+    contact_sensor_names: list[str],
+    fingertip_transforms_name: str = "fingertip_transforms",
+    force_threshold: float = 0.25,
+    filter_indices: list[int] | None = None,
+) -> torch.Tensor:
+    """Per-fingertip binary contact mask, shape (num_envs, n_fingers).
+
+    ``filter_indices`` selects which contact targets to aggregate (``None`` -> object only);
+    pass ``external_indices()`` for the merged external-contact channel.
+    """
+    m = _compute_contact_metrics(
+        env, contact_sensor_names, fingertip_transforms_name, force_threshold, 50.0, filter_indices
+    )
+    return m["in_contact"].float()                               # (N, n)
+
+
+def tip_contact_force_mag_obs(
+    env: "ManagerBasedRLEnv",
+    contact_sensor_names: list[str],
+    fingertip_transforms_name: str = "fingertip_transforms",
+    force_threshold: float = 0.25,
+    filter_indices: list[int] | None = None,
+) -> torch.Tensor:
+    """Per-fingertip contact force magnitudes, shape (num_envs, n_fingers).
+
+    ``filter_indices`` selects which contact targets to aggregate (``None`` -> object only).
+    """
+    m = _compute_contact_metrics(
+        env, contact_sensor_names, fingertip_transforms_name, force_threshold, 50.0, filter_indices
+    )
+    return m["force_mag"]                                        # (N, n)
+
+
+def tip_contact_pose_flat(
+    env: "ManagerBasedRLEnv",
+    contact_sensor_names: list[str],
+    fingertip_transforms_name: str = "fingertip_transforms",
+    force_threshold: float = 0.25,
+    contact_pose_range_deg: float = 50.0,
+    filter_indices: list[int] | None = None,
+) -> torch.Tensor:
+    """Per-fingertip (theta, phi) flattened; zeroed for non-contacting fingers. Shape (N, n*2).
+
+    ``filter_indices`` selects which contact targets to aggregate (``None`` -> object only).
+    """
+    m = _compute_contact_metrics(
+        env, contact_sensor_names, fingertip_transforms_name, force_threshold,
+        contact_pose_range_deg, filter_indices
+    )
+    pose = m["contact_pose"] * m["in_contact"].unsqueeze(-1).float()
+    return pose.flatten(start_dim=1)                             # (N, n*2)

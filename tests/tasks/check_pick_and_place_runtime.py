@@ -89,10 +89,10 @@ def main():
         # Contact confirmation cannot be replaced by simply reaching a pose.
         cmd._stepper.step[:] = 1
         cmd._grasp_goal_captured[:] = True
-        with patch("src.tasks.clean_table.mdps.commands.good_object_contact", return_value=torch.zeros(2, dtype=torch.bool, device=env.device)):
+        with patch("src.tasks.common.mdps.placement.good_object_contact", return_value=torch.zeros(2, dtype=torch.bool, device=env.device)):
             cmd._update_metrics()
             assert not cmd._trajectory_command_achieved.any()
-        with patch("src.tasks.clean_table.mdps.commands.good_object_contact", return_value=torch.ones(2, dtype=torch.bool, device=env.device)):
+        with patch("src.tasks.common.mdps.placement.good_object_contact", return_value=torch.ones(2, dtype=torch.bool, device=env.device)):
             for i in range(cmd.cfg.grasp_contact_stable_steps):
                 cmd._update_metrics()
                 assert cmd._trajectory_command_achieved.all().item() == (i == cmd.cfg.grasp_contact_stable_steps - 1)

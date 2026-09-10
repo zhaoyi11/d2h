@@ -85,6 +85,18 @@ def load_reset_state_npy(state_file_path: str) -> dict[str, np.ndarray]:
     return state
 
 
+def _env_ids_tensor(env_ids, num_envs: int, device: torch.device) -> torch.Tensor:
+    if env_ids is None:
+        return torch.arange(num_envs, device=device, dtype=torch.long)
+    if isinstance(env_ids, slice):
+        start = 0 if env_ids.start is None else env_ids.start
+        stop = num_envs if env_ids.stop is None else env_ids.stop
+        step = 1 if env_ids.step is None else env_ids.step
+        return torch.arange(start, stop, step, device=device, dtype=torch.long)
+    return torch.as_tensor(env_ids, device=device, dtype=torch.long)
+
+
+
 def _env_ids_to_tensor(env_ids, num_envs: int, device: torch.device) -> torch.Tensor:
     """Normalize env_ids to a long tensor on the given device."""
     if env_ids is None or env_ids == slice(None):

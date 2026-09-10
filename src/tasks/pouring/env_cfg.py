@@ -2,18 +2,16 @@
 
 import isaaclab.sim as sim_utils
 from isaaclab.assets import RigidObjectCfg
-from isaaclab.managers import EventTermCfg
+from isaaclab.managers import EventTermCfg, SceneEntityCfg
 from isaaclab.sensors import ContactSensorCfg
 from isaaclab.sim.converters import MeshConverter, MeshConverterCfg
 from isaaclab.utils import configclass
 
 from src.policy.high_level.anchor_correction import AnchorCorrectionCfg
-from src.tasks.clean_table.env_cfg import (
-    DexsuiteReorientEnvCfg,
-    FrankaLeapMixinCfg,
-    HrlActionsCfg,
-    ObservationsCfg,
-)
+from isaaclab.envs import ManagerBasedRLEnvCfg, ViewerCfg
+from isaaclab.sim.simulation_cfg import SimulationCfg
+from src.tasks.common.env_cfg import HrlActionsCfg, ObjectTerminationsCfg, PlacementRewardsCfg, TabletopEventsCfg, TabletopSceneCfg, configure_contact_physics, configure_fingertip_contacts, configure_success_visualization, fingertip_transforms_cfg
+from src.tasks.common.observations_cfg import LowLevelObsCfg
 from src.tasks.common.mdps.events import reset_arm_mpc, reset_joints_to_init_state
 from src.tasks.pouring.commands import PouringTrajectoryCommandCfg
 from src.tasks.pouring.trajectory import ASSET_DIR, load_pouring_trajectory
@@ -37,20 +35,46 @@ class CommandsCfg:
 
 
 @configclass
-class PouringEnvCfg(FrankaLeapMixinCfg, DexsuiteReorientEnvCfg):
+class ObservationsCfg:
+    policy: LowLevelObsCfg = LowLevelObsCfg()
+    proprio: None = None
+    perception: None = None
+    low_level: LowLevelObsCfg = LowLevelObsCfg()
+
+
+@configclass
+class PouringEnvCfg(ManagerBasedRLEnvCfg):
+    viewer: ViewerCfg = ViewerCfg(
+        eye=(2.25, 0.0, 0.75), lookat=(0.0, 0.0, 0.45), origin_type="env",
+    )
+    scene: TabletopSceneCfg = TabletopSceneCfg(num_envs=1, env_spacing=3, replicate_physics=False)
+    sim: SimulationCfg = SimulationCfg(gravity=(0.0, 0.0, -1.81))
+    observations: ObservationsCfg = ObservationsCfg()
+    rewards: PlacementRewardsCfg = PlacementRewardsCfg()
+    terminations: ObjectTerminationsCfg = ObjectTerminationsCfg()
+    events: TabletopEventsCfg = TabletopEventsCfg()
+    curriculum = None
     commands: CommandsCfg = CommandsCfg()
     actions: HrlActionsCfg = HrlActionsCfg()
     bottle_scale: float = 0.2
 
     def __post_init__(self):
-        super().__post_init__()
         self.decimation = 4
+        self.is_finite_horizon = True
+        self.sim.dt = 1 / 120
+        self.sim.render_interval = self.decimation
+        configure_contact_physics(self.sim, found_lost_pairs=2**22, collision_stack_size=2**30)
+        configure_success_visualization(self.commands.object_pose, self.scene.table)
+        self.scene.fingertip_transforms = fingertip_transforms_cfg()
+        configure_fingertip_contacts(self.scene, ["{ENV_REGEX_NS}/Object", "{ENV_REGEX_NS}/Table"])
+        self.rewards.fingers_to_object.params["asset_cfg"] = SceneEntityCfg(
+            "robot", body_names=[".*fingertip.*"],
+        )
         # cuRobo emits one interpolated target per env step; match its clock to physics.
         self.actions.arm_action.optimization_dt = (
             self.decimation * self.sim.dt * self.actions.arm_action.interpolation_steps
         )
         self.episode_length_s = 120.0
-        self.sim.render_interval = self.decimation
         self.sim.gravity = (0.0, 0.0, -1.81)
         self.scene.num_envs = 1
         self.scene.lazy_sensor_update = False
@@ -131,11 +155,8 @@ class PouringEnvCfg(FrankaLeapMixinCfg, DexsuiteReorientEnvCfg):
             ],
             history_length=self.decimation,
         )
-        for name in ("thumb_fingertip", "fingertip", "fingertip_2", "fingertip_3"):
-            sensor = getattr(self.scene, f"{name}_object_s")
-            sensor.filter_prim_paths_expr = ["{ENV_REGEX_NS}/Object", "{ENV_REGEX_NS}/Table"]
 
-        low_level = ObservationsCfg.LowLevelObsCfg()
+        low_level = LowLevelObsCfg()
         # PhysX and the commanded hand pose can use opposite quaternion signs.
         # Give the policy +identity when object and goal orientations coincide.
         low_level.goal_quat_diff.params["make_quat_unique"] = True

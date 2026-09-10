@@ -16,6 +16,7 @@ from typing import TYPE_CHECKING
 
 from isaaclab.assets import Articulation, RigidObject
 from isaaclab.managers import SceneEntityCfg
+from isaaclab.utils.math import subtract_frame_transforms
 
 if TYPE_CHECKING:
     from isaaclab.envs import ManagerBasedRLEnv
@@ -47,3 +48,24 @@ def abnormal_robot_state(env: ManagerBasedRLEnv, asset_cfg: SceneEntityCfg = Sce
     by very bad, or aggressive action"""
     robot: Articulation = env.scene[asset_cfg.name]
     return (robot.data.joint_vel.abs() > (robot.data.joint_vel_limits * 2)).any(dim=1)
+
+
+def object_outside_table(
+    env: ManagerBasedRLEnv,
+    table_half_extents: tuple[float, float] = (0.4, 0.75),
+    table_half_height: float = 0.02,
+    object_cfg: SceneEntityCfg = SceneEntityCfg("object"),
+    table_cfg: SceneEntityCfg = SceneEntityCfg("table"),
+) -> torch.Tensor:
+    object_asset: RigidObject = env.scene[object_cfg.name]
+    table: RigidObject = env.scene[table_cfg.name]
+    position, _ = subtract_frame_transforms(
+        table.data.root_pos_w,
+        table.data.root_quat_w,
+        object_asset.data.root_pos_w,
+        None,
+    )
+    half_extents = position.new_tensor(table_half_extents)
+    outside_footprint = (position[:, :2].abs() > half_extents).any(dim=1)
+    below_surface = position[:, 2] < table_half_height
+    return outside_footprint | below_surface

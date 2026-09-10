@@ -231,6 +231,14 @@ def _load_task_mdps(monkeypatch):
     monkeypatch.setitem(sys.modules, "isaaclab.managers", SimpleNamespace(SceneEntityCfg=SceneEntityCfg))
     monkeypatch.setitem(sys.modules, "isaaclab.utils.math", math_module)
 
+    common_spec = importlib.util.spec_from_file_location(
+        "src.tasks.common.mdps.terminations",
+        REPO_ROOT / "src/tasks/common/mdps/terminations.py",
+    )
+    common_terminations = importlib.util.module_from_spec(common_spec)
+    common_spec.loader.exec_module(common_terminations)
+    monkeypatch.setitem(sys.modules, common_spec.name, common_terminations)
+
     path = REPO_ROOT / "src/tasks/clean_table_omnireset/mdps/task_mdps.py"
     spec = importlib.util.spec_from_file_location("clean_table_omnireset_task_mdps", path)
     assert spec is not None and spec.loader is not None
@@ -312,7 +320,11 @@ def test_env_config_is_independent_rl_only_and_uses_split_controllers() -> None:
     assert "CleanTableTrajectory" not in source
     assert "LowLevelObsCfg" not in source
 
-    actions = ast.unparse(_class(tree, "ActionsCfg"))
+    common_tree = ast.parse((REPO_ROOT / "src/tasks/common/env_cfg.py").read_text())
+    assert "actions: ArmHandActionsCfg = ArmHandActionsCfg()" in ast.unparse(tree)
+    actions = ast.unparse(_class(common_tree, "ArmHandActionsCfg"))
+    assert "hand_action = HrlActionsCfg().hand_action" in actions
+    actions += ast.unparse(_class(common_tree, "HrlActionsCfg"))
     assert "RelativeJointPositionActionCfg" in actions
     assert "joint_names=['panda_joint.*']" in actions
     assert "scale=0.1" in actions

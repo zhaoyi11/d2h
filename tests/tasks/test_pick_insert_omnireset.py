@@ -248,6 +248,14 @@ def _load_task_mdps(monkeypatch):
     )
     monkeypatch.setitem(sys.modules, "isaaclab.utils.math", math_module)
 
+    common_spec = importlib.util.spec_from_file_location(
+        "src.tasks.common.mdps.terminations",
+        REPO_ROOT / "src/tasks/common/mdps/terminations.py",
+    )
+    common_terminations = importlib.util.module_from_spec(common_spec)
+    common_spec.loader.exec_module(common_terminations)
+    monkeypatch.setitem(sys.modules, common_spec.name, common_terminations)
+
     path = REPO_ROOT / "src/tasks/pick_insert_omnireset/mdps/task_mdps.py"
     spec = importlib.util.spec_from_file_location("pick_insert_omnireset_task_mdps", path)
     assert spec is not None and spec.loader is not None

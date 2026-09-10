@@ -6,9 +6,12 @@ import os
 from pathlib import Path
 import subprocess
 import sys
+from types import SimpleNamespace
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
 ENV_CFG_PATH = REPO_ROOT / "src/tasks/clean_table/env_cfg.py"
+COMMON_ENV_CFG_PATH = REPO_ROOT / "src/tasks/common/env_cfg.py"
+COMMON_OBS_CFG_PATH = REPO_ROOT / "src/tasks/common/observations_cfg.py"
 
 
 def _class(tree: ast.Module, name: str) -> ast.ClassDef:
@@ -38,7 +41,8 @@ def _dict_value(node: ast.Dict, key: str) -> ast.expr:
 
 def test_clean_table_low_level_observation_contract_is_155_dimensional() -> None:
     tree = ast.parse(ENV_CFG_PATH.read_text())
-    terms = _assignments(_class(tree, "LowLevelObsCfg"))
+    assert "self.observations.low_level = LowLevelObsCfg()" in ast.unparse(tree)
+    terms = _assignments(_class(ast.parse(COMMON_OBS_CFG_PATH.read_text()), "LowLevelObsCfg"))
     widths = {
         "joint_pos": 16,
         "joint_vel": 16,
@@ -71,7 +75,8 @@ def test_clean_table_low_level_observation_contract_is_155_dimensional() -> None
 def test_clean_table_hrl_actions_and_command_match_runner_contract() -> None:
     tree = ast.parse(ENV_CFG_PATH.read_text())
     command = _assignments(_class(tree, "CommandsCfg"))["object_pose"]
-    actions = _assignments(_class(tree, "HrlActionsCfg"))
+    common_tree = ast.parse(COMMON_ENV_CFG_PATH.read_text())
+    actions = _assignments(_class(common_tree, "HrlActionsCfg"))
 
     assert ast.unparse(command.func).endswith("CleanTableTrajectoryObjectAndHandBasePoseCommandCfg")
     assert ast.literal_eval(_keyword(command, "asset_name")) == "robot"
@@ -83,7 +88,7 @@ def test_clean_table_hrl_actions_and_command_match_runner_contract() -> None:
     assert ast.literal_eval(_keyword(actions["arm_action"], "command_name")) == "object_pose"
     assert ast.unparse(actions["hand_action"].func).endswith("EMAJointPositionToLimitsActionCfg")
     hrl_source = ast.unparse(_class(tree, "DexsuiteFrankaLeapCleanTableHrlEnvCfg"))
-    assert "self.observations.low_level = ObservationsCfg.LowLevelObsCfg()" in hrl_source
+    assert "self.observations.low_level = LowLevelObsCfg()" in hrl_source
     assert "self.commands.object_pose.hand_base_hold_until_stage = 1" in hrl_source
     assert "self.commands.object_pose.drop_object_hand_distance = 0.12" in hrl_source
     assert "self.commands.object_pose.lift_height = 0.1" in hrl_source
@@ -92,11 +97,18 @@ def test_clean_table_hrl_actions_and_command_match_runner_contract() -> None:
     assert "self.decimation = 4" in hrl_source
     assert "self.episode_length_s = 30.0" in hrl_source
     assert "self.sim.render_interval = self.decimation" in hrl_source
-    assert "self.sim.physx.gpu_found_lost_aggregate_pairs_capacity = 2 ** 23" in hrl_source
-    assert "self.sim.physx.gpu_total_aggregate_pairs_capacity = 2 ** 23" in hrl_source
-    assert "self.sim.physx.gpu_max_rigid_contact_count = 2 ** 23" in hrl_source
-    assert "self.sim.physx.gpu_max_rigid_patch_count = 2 ** 23" in hrl_source
-    assert "self.sim.physx.gpu_collision_stack_size = 2 ** 31" in hrl_source
+    assert "configure_contact_physics(self.sim)" in hrl_source
+    physics_fn = next(node for node in common_tree.body if isinstance(node, ast.FunctionDef)
+                      and node.name == "configure_contact_physics")
+    namespace = {}
+    exec(compile(ast.Module(body=[physics_fn], type_ignores=[]), str(COMMON_ENV_CFG_PATH), "exec"), namespace)
+    sim = SimpleNamespace(physx=SimpleNamespace())
+    namespace["configure_contact_physics"](sim)
+    assert sim.physx.gpu_found_lost_aggregate_pairs_capacity == 2**23
+    assert sim.physx.gpu_total_aggregate_pairs_capacity == 2**23
+    assert sim.physx.gpu_max_rigid_contact_count == 2**23
+    assert sim.physx.gpu_max_rigid_patch_count == 2**23
+    assert sim.physx.gpu_collision_stack_size == 2**31
     assert "self.scene.robot.actuators['joints'].stiffness = 0.0" in hrl_source
     assert "self.scene.robot.actuators['joints'].damping = 0.0" in hrl_source
     base_source = ast.unparse(_class(tree, "DexsuiteReorientEnvCfg"))
@@ -106,7 +118,9 @@ def test_clean_table_hrl_actions_and_command_match_runner_contract() -> None:
 def test_clean_table_uses_pick_anyrotate_scene_and_reset_baseline() -> None:
     tree = ast.parse(ENV_CFG_PATH.read_text())
     scene = _assignments(_class(tree, "SceneCfg"))
-    events = _assignments(_class(tree, "EventCfg"))
+    common_tree = ast.parse(COMMON_ENV_CFG_PATH.read_text())
+    assert "events: TabletopEventsCfg = TabletopEventsCfg()" in ast.unparse(tree)
+    events = _assignments(_class(common_tree, "TabletopEventsCfg"))
     box_params = _keyword(events["reset_receptive_object"], "params")
     object_params = _keyword(events["reset_object"], "params")
     box_pose = _dict_value(box_params, "pose_range")
@@ -120,7 +134,13 @@ def test_clean_table_uses_pick_anyrotate_scene_and_reset_baseline() -> None:
         "yaw": [0.0, 0.0],
     }
 
-    robot_spawn = _keyword(scene["robot"], "spawn")
+    assert [ast.unparse(base) for base in _class(tree, "SceneCfg").bases] == ["TabletopSceneCfg"]
+    shared_scene = _assignments(_class(common_tree, "TabletopSceneCfg"))
+    assert ast.unparse(shared_scene["robot"]) == "franka_robot_cfg()"
+    robot_fn = next(node for node in common_tree.body if isinstance(node, ast.FunctionDef)
+                    and node.name == "franka_robot_cfg")
+    robot_cfg = next(node.value for node in robot_fn.body if isinstance(node, ast.Return))
+    robot_spawn = _keyword(robot_cfg, "spawn")
     articulation_props = _keyword(robot_spawn, "articulation_props")
     assert ast.literal_eval(_keyword(articulation_props, "enabled_self_collisions")) is False
 

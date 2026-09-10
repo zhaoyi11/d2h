@@ -511,11 +511,8 @@ def test_rotate_object_tasks_are_registered_with_renamed_entry_points() -> None:
 
 def test_rotate_object_hrl_matches_pick_insert_low_level_contract() -> None:
     tree = ast.parse(ENV_CFG_PATH.read_text())
-    low_level = next(
-        node
-        for node in _class(tree, "ObservationsCfg").body
-        if isinstance(node, ast.ClassDef) and node.name == "LowLevelObsCfg"
-    )
+    common_obs_tree = ast.parse((REPO_ROOT / "src/tasks/common/observations_cfg.py").read_text())
+    low_level = _class(common_obs_tree, "LowLevelObsCfg")
     term_names = [
         node.targets[0].id
         for node in low_level.body
@@ -551,7 +548,8 @@ def test_rotate_object_hrl_matches_pick_insert_low_level_contract() -> None:
     assert ast.literal_eval(_dict_value(object_contact_params, "contact_pose_range_deg")) == 90.0
     assert ast.literal_eval(_dict_value(external_contact_params, "contact_pose_range_deg")) == 45.0
 
-    actions = _assignments(_class(tree, "HrlActionsCfg"))
+    common_env_tree = ast.parse((REPO_ROOT / "src/tasks/common/env_cfg.py").read_text())
+    actions = _assignments(_class(common_env_tree, "HrlActionsCfg"))
     assert list(actions) == ["arm_action", "hand_action"]
     assert ast.unparse(actions["arm_action"].func) == "mdp.CommandHandBaseCuroboMpcActionCfg"
     assert ast.literal_eval(_keyword(actions["arm_action"], "command_name")) == "object_pose"
@@ -559,7 +557,7 @@ def test_rotate_object_hrl_matches_pick_insert_low_level_contract() -> None:
 
     hrl_class = _class(tree, "DexsuiteFrankaLeapRotateObjectHrlEnvCfg")
     hrl_source = ast.unparse(hrl_class)
-    assert "self.observations.low_level = ObservationsCfg.LowLevelObsCfg()" in hrl_source
+    assert "self.observations.low_level = LowLevelObsCfg()" in hrl_source
     assert ".stiffness = 0.0" in hrl_source
     assert ".damping = 0.0" in hrl_source
 

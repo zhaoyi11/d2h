@@ -8,5 +8,12 @@ from src.tasks.clean_table.mdps.contact_filters import (
     external_indices,
     object_indices,
 )
-from src.tasks.clean_table.mdps.task_mdps import *
+from src.tasks.common.mdps.placement import (
+    box_pose_b,
+    inside_box_reward,
+    lift_reward,
+    object_pos_box,
+    place_success_reward,
+    transport_reward,
+)
 from src.tasks.clean_table.mdps.trajectory import *

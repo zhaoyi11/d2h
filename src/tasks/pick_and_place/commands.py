@@ -1,20 +1,18 @@
-"""Recorded carry with clean-table grasp, deposit, release and retreat gates."""
+"""Recorded carry with shared grasp, deposit, release and retreat gates."""
 
 import numpy as np
 import torch
 from isaaclab.utils import configclass
 from isaaclab.utils.math import combine_frame_transforms, subtract_frame_transforms
 
-from src.tasks.clean_table.mdps.commands import (
-    CleanTableTrajectoryObjectAndHandBasePoseCommand,
-    CleanTableTrajectoryObjectAndHandBasePoseCommandCfg,
-)
+from src.policy.high_level.trajectory_stepper import StageObjTol
+from src.tasks.common.mdps.placement import PlacementCommand, PlacementCommandCfg
 from src.tasks.pick_and_place.trajectory import (
     DEFAULT_TRAJECTORY, build_pick_and_place_trajectory, load_carry_trajectory,
 )
 
 
-class PickAndPlaceTrajectoryCommand(CleanTableTrajectoryObjectAndHandBasePoseCommand):
+class PickAndPlaceTrajectoryCommand(PlacementCommand):
     def __init__(self, cfg, env):
         self._carry, frames, cfg.trajectory_segment_steps = load_carry_trajectory(
             cfg.trajectory_path, cfg.carry_start_frame, cfg.carry_end_frame, cfg.trajectory_stride
@@ -55,8 +53,18 @@ class PickAndPlaceTrajectoryCommand(CleanTableTrajectoryObjectAndHandBasePoseCom
 
 
 @configclass
-class PickAndPlaceTrajectoryCommandCfg(CleanTableTrajectoryObjectAndHandBasePoseCommandCfg):
+class PickAndPlaceTrajectoryCommandCfg(PlacementCommandCfg):
     class_type: type = PickAndPlaceTrajectoryCommand
+    trajectory_segment_steps: tuple[int, ...] = (0, 1, 1, 1, 1, 1)
+    stage_object_tolerances: tuple[StageObjTol, ...] = (
+        StageObjTol(0.02, 0.30),
+        StageObjTol(0.02, 0.30),
+        StageObjTol(0.04, 0.50),
+        StageObjTol(0.04, 0.60),
+        StageObjTol(0.04, 0.60),
+        StageObjTol(0.04, 0.60),
+    )
+    above_box_offset: tuple[float, float, float] = (0.0, 0.0, 0.25)
     trajectory_path: str = str(DEFAULT_TRAJECTORY)
     carry_start_frame: int = 320
     carry_end_frame: int = 511
