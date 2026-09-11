@@ -83,7 +83,7 @@ class PickAndPlaceEnvCfg(ManagerBasedRLEnvCfg):
         command = self.commands.object_pose
         command.stage_object_tolerances = (StageObjTol(0.05, 1.0),) * 6
         self.episode_length_s = 120.0
-        self.sim.gravity = (0.0, 0.0, -1.81)
+        self.sim.gravity = (0.0, 0.0, -9.81)
         self.scene.num_envs = 1
         self.scene.lazy_sensor_update = False
         self.actions.arm_action.optimization_dt = (
@@ -100,7 +100,8 @@ class PickAndPlaceEnvCfg(ManagerBasedRLEnvCfg):
             command.trajectory_stride,
         )
         vertices = trimesh.load(PIG_MESH, force="mesh").vertices
-        rotation = Rotation.from_quat(carry[0, 3:], scalar_first=True)
+        # Rotate the starting orientation about world Z; playback aligns to this live pose.
+        rotation = Rotation.from_euler("z", 90, degrees=True) * Rotation.from_quat(carry[0, 3:], scalar_first=True)
         table_top = self.scene.table.init_state.pos[2] + command.table_half_height
         # A floor-level grasp is outside this tabletop task; retry from the supported start.
         self.terminations.object_out_of_bound.params["in_bound_range"]["z"] = (table_top - 0.02, 2.0)
@@ -111,7 +112,7 @@ class PickAndPlaceEnvCfg(ManagerBasedRLEnvCfg):
             rigid_props=sim_utils.RigidBodyPropertiesCfg(
                 kinematic_enabled=False, disable_gravity=False, enable_gyroscopic_forces=True,
             ),
-            mass_props=sim_utils.MassPropertiesCfg(mass=0.2),
+            mass_props=sim_utils.MassPropertiesCfg(mass=0.02),
             collision_props=sim_utils.CollisionPropertiesCfg(collision_enabled=True),
             mesh_collision_props=sim_utils.ConvexHullPropertiesCfg(),
         ))
@@ -119,7 +120,7 @@ class PickAndPlaceEnvCfg(ManagerBasedRLEnvCfg):
             prim_path="{ENV_REGEX_NS}/Object",
             spawn=sim_utils.UsdFileCfg(usd_path=mesh.usd_path, activate_contact_sensors=True),
             init_state=RigidObjectCfg.InitialStateCfg(
-                pos=(0.55, 0.10, float(start_z)), rot=tuple(float(v) for v in carry[0, 3:]),
+                pos=(0.55, 0.10, float(start_z)), rot=tuple(float(v) for v in rotation.as_quat(scalar_first=True)),
             ),
         )
         low_level = LowLevelObsCfg()

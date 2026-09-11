@@ -3,10 +3,13 @@
 Run with env_isaaclab active: python src/tasks/pick_and_place/vis_traj.py
 Original MANO recordings require MuJoCo (python -m pip install mujoco==3.11.0).
 Their skeleton is computed in memory at startup using --scene; no NPZ is written.
+Object and MANO base axes are shown in world coordinates (X red, Y green, Z blue).
+Use --anchor-calibration anchors.json to also show the estimated MANO anchor pose.
 """
 
 import argparse
 import asyncio
+import sys
 import time
 from pathlib import Path
 
@@ -20,8 +23,8 @@ FINGER_COLORS = np.array(
 DEFAULT_SCENE = Path(__file__).resolve().with_name("mano_right.xml")
 
 
-def load_trajectory(path, scene=DEFAULT_SCENE):
-    """Return object XYZ/WXYZ poses and 16 or 21 world-frame hand points."""
+def load_trajectory(path, scene=DEFAULT_SCENE, *, include_wrist=False):
+    """Return object poses and world-frame points; optionally append wrist XYZ/WXYZ poses."""
     shapes = {
         "qpos_obj_right": (7,),
         "qpos_wrist_right": (7,),
@@ -62,7 +65,25 @@ def load_trajectory(path, scene=DEFAULT_SCENE):
         groups.append(arrays["qpos_mcp_right"])
     groups.extend((arrays["qpos_pip_right"], arrays["qpos_dip_right"], arrays["qpos_finger_right"][..., :3]))
     points = np.concatenate(groups, axis=1)
+    if include_wrist:
+        return poses, points, arrays["qpos_wrist_right"]
     return poses, points
+
+
+def load_anchor_poses(path, calibration_path, object_poses):
+    """Recover world-frame anchors from the task's calibrated object-relative anchors."""
+    from scipy.spatial.transform import Rotation
+
+    root = str(Path(__file__).resolve().parents[3])
+    if root not in sys.path:
+        sys.path.insert(0, root)
+    from src.tasks.common.mano_anchor import load_mano_anchor_reference
+
+    _, relative = load_mano_anchor_reference(path, calibration_path, np.arange(len(object_poses)))
+    rotation = Rotation.from_quat(object_poses[:, [4, 5, 6, 3]])
+    positions = object_poses[:, :3] + rotation.apply(relative[:, :3])
+    quaternions = (rotation * Rotation.from_quat(relative[:, [4, 5, 6, 3]])).as_quat()
+    return np.c_[positions, quaternions[:, [3, 0, 1, 2]]]
 
 
 def skeleton_edges(point_count):
@@ -87,7 +108,10 @@ def main(args):
     import trimesh
     import viser
 
-    poses, points = load_trajectory(args.trajectory, args.scene)
+    poses, points, wrist = load_trajectory(args.trajectory, args.scene, include_wrist=True)
+    pose_tracks = {"Object": poses, "MANO base": wrist}
+    if args.anchor_calibration is not None:
+        pose_tracks["MANO anchor (estimated)"] = load_anchor_poses(args.trajectory, args.anchor_calibration, poses)
     edges = skeleton_edges(points.shape[1])
     levels = (points.shape[1] - 1) // 5
     initial_fps = playback_fps(args.trajectory, args.fps)
@@ -115,6 +139,14 @@ def main(args):
         precision="float32",
     )
 
+    pose_frames = {}
+    for name, track in pose_tracks.items():
+        frame_path = f"/poses/{name}"
+        pose_frames[name] = server.scene.add_frame(
+            frame_path, position=track[0, :3], wxyz=track[0, 3:], axes_length=0.05, axes_radius=0.0015,
+        )
+        server.scene.add_label(f"{frame_path}/label", name, position=(0.0, 0.0, 0.055))
+
     playing = server.gui.add_checkbox("Play", initial_value=False)
     looping = server.gui.add_checkbox("Loop", initial_value=True)
     frame = server.gui.add_slider(
@@ -125,11 +157,15 @@ def main(args):
     server.gui.add_markdown(
         f"{len(poses)} frames · {points.shape[1]} hand points\n\n"
         + ("Wrist → MCP → PIP → DIP → tip" if levels == 4 else "Wrist → PIP → DIP → tip (MCPs unavailable)")
+        + "\n\nPose axes: X red · Y green · Z blue. MANO base is the recorded wrist/right_palm body."
+        + ("\n\nMANO anchor uses the supplied calibration estimate." if args.anchor_calibration else
+           "\n\nAnchor unavailable: supply --anchor-calibration anchors.json with a MANO joint recording.")
         + "\n\nObject scale is an adjustable estimate."
     )
 
     mesh_radius = np.linalg.norm(mesh.vertices, axis=1).max() * args.object_scale
     bounds = np.concatenate((points.reshape(-1, 3), poses[:, :3] - mesh_radius, poses[:, :3] + mesh_radius))
+    bounds = np.concatenate((bounds, *(track[:, :3] for track in pose_tracks.values())))
     center = (bounds.min(axis=0) + bounds.max(axis=0)) / 2
     extent = max(float(np.linalg.norm(np.ptp(bounds, axis=0))), 0.1)
 
@@ -170,6 +206,9 @@ def main(args):
             if frame.value != displayed_frame:
                 displayed_frame = frame.value
                 with server.atomic():
+                    for name, track in pose_tracks.items():
+                        pose_frames[name].position = track[displayed_frame, :3]
+                        pose_frames[name].wxyz = track[displayed_frame, 3:]
                     object_handle.position = poses[displayed_frame, :3]
                     object_handle.wxyz = poses[displayed_frame, 3:]
                     skeleton.points = points[displayed_frame, edges]
@@ -191,6 +230,7 @@ if __name__ == "__main__":
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--trajectory", type=Path, default=directory / "23963_mano_isaac_trajectory.npz")
     parser.add_argument("--scene", type=Path, default=DEFAULT_SCENE, help="MANO hand XML for joint-state recordings")
+    parser.add_argument("--anchor-calibration", type=Path, help="Task anchors.json for MANO joint-state recordings")
     parser.add_argument("--mesh", type=Path, default=directory / "tape_measure/tape_measure.obj")
     parser.add_argument("--fps", type=positive_float, help="Override recorded frequency (30 FPS if absent)")
     parser.add_argument("--object-scale", type=positive_float, default=0.1)
