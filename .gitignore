@@ -103,3 +103,6 @@ tests/tasks/unscrew/*
 
 # HRL-only registration regression checks
 !tests/tasks/test_hrl_only_registration.py
+
+# Local anchor optimization tooling
+/scripts/anchor_optimization/

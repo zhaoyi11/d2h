@@ -43,6 +43,8 @@ parser.add_argument(
     default=0.08,
     help="Max hand-base<->live-object distance (m) to enable the hand policy; above it => stretch.",
 )
+parser.add_argument("--hand_anchor_calibration", type=str, default=None,
+                    help="Experimental anchors.json for MANO-derived pouring/pick-and-place hand targets.")
 parser.add_argument("--record_data", action="store_true", help="Record BC observations, actions, and reset states.")
 parser.add_argument("--record_dir", type=str, default=None, help="Output directory for recorded episode NPZ files.")
 AppLauncher.add_app_launcher_args(parser)
@@ -346,6 +348,10 @@ def main() -> None:
             use_fabric=True,
         )
         env_cfg.commands.object_pose.debug_vis = True
+        if args_cli.hand_anchor_calibration is not None:
+            if args_cli.task not in ("Pouring_HRL-v0", "PickAndPlace_HRL-v0"):
+                raise ValueError("--hand_anchor_calibration supports Pouring_HRL-v0 and PickAndPlace_HRL-v0")
+            env_cfg.commands.object_pose.anchor_calibration_path = str(Path(args_cli.hand_anchor_calibration).expanduser().resolve())
         if args_cli.seed is not None:
             env_cfg.seed = args_cli.seed
 
