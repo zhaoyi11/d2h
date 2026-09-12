@@ -1,0 +1,21 @@
+episodes:
+  - knob_start: 0.5   # 0=−π, 1=+π
+    target: 0.75
+  - knob_start: 0.75
+    target: 0.40
+  - knob_start: 0.40
+    target: 0.60
+  - knob_start: 0.60
+    target: 0.10
+  - knob_start: 0.10
+    target: 0.25
+  - knob_start: 0.25
+    target: 0.50
+  - knob_start: 0.50
+    target: 0.90
+  - knob_start: 0.90   # 0=−π, 1=+π
+    target: 0.75
+  - knob_start: 0.75
+    target: 0.60
+  - knob_start: 0.60
+    target: 0.20
